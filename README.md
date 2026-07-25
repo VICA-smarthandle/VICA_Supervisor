@@ -2,6 +2,9 @@
 
 VICA 로봇 관리자용 Flutter 앱이다.
 
+앱 시작 시 로컬 관리자 로그인을 거치며 로그인 상태를 저장한다. 이는 앱 화면 진입
+제어이고 ROS service 호출자 인증은 아니므로 reset 접근 통제는 아직 `[GAP]`이다.
+
 ## 핵심 연결
 
 - ROS 연결: rosbridge WebSocket
