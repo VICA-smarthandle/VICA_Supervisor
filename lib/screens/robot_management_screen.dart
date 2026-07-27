@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../models/robot_status.dart';
 import '../providers/supervisor_provider.dart';
+import '../ros/ros_bridge_client.dart';
 import '../widgets/vica_ui.dart';
 
 class RobotManagementScreen extends StatefulWidget {
@@ -18,7 +19,8 @@ class _RobotManagementScreenState extends State<RobotManagementScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final robots = context.watch<SupervisorProvider>().robots;
+    final supervisor = context.watch<SupervisorProvider>();
+    final robots = supervisor.robots;
     final visibleRobots = robots.isEmpty ? [_waitingRobot()] : robots;
     final selected = _selectedRobotId == null
         ? visibleRobots.first
@@ -28,6 +30,8 @@ class _RobotManagementScreenState extends State<RobotManagementScreen> {
       title: '로봇 관리',
       subtitle: 'ROS2 /robot_status 메시지를 수신하면 실제 로봇 상태로 교체됩니다.',
       children: [
+        if (supervisor.connectionState != RosConnectionState.connected)
+          VicaDisconnectedNotice(detail: supervisor.connectionDetail),
         ...visibleRobots.map(
           (robot) => VicaRobotCard(
             robot: robot,

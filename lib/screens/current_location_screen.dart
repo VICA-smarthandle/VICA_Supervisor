@@ -6,6 +6,7 @@ import '../models/robot_status.dart';
 import '../models/vica_map.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
+import '../ros/ros_bridge_client.dart';
 import '../widgets/map_canvas.dart';
 import '../widgets/vica_ui.dart';
 
@@ -39,6 +40,8 @@ class _CurrentLocationScreenState extends State<CurrentLocationScreen> {
     return VicaPage(
       title: '현재 위치',
       children: [
+        if (supervisor.connectionState != RosConnectionState.connected)
+          VicaDisconnectedNotice(detail: supervisor.connectionDetail),
         VicaCard(
           child: DropdownButtonFormField<String>(
             initialValue: robot?.robotId,

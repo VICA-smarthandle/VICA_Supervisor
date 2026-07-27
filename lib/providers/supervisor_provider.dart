@@ -31,7 +31,25 @@ class SupervisorProvider extends ChangeNotifier {
   static const _nav2AvailableMessage = 'Nav2가 실행되었습니다.';
   static const _noEventsRecordedReason = 'no events recorded';
 
+  // Mission Manager가 돌려주는 GateReason 코드를 화면 문구로 옮깁니다.
+  // 판정은 Mission Manager가 하고 앱은 결과를 읽기 좋게 보여주기만 합니다.
+  static const _gateReasonMessages = <String, String>{
+    'estop_active': '비상정지 상태여서 주행할 수 없습니다. 해제 후 다시 요청하세요.',
+    'busy_navigating': '이미 다른 목적지로 주행 중입니다.',
+    'private_destination': '비공개 장소는 주행을 요청할 수 없습니다.',
+    'not_approachable': '로봇이 접근할 수 없는 장소입니다.',
+    'unknown_destination': '저장되지 않은 장소입니다. 장소 목록을 새로고침하세요.',
+    'pose_invalid': '장소 좌표가 지도 범위를 벗어났습니다.',
+    'nav_not_ready': 'Nav2가 준비되지 않아 주행할 수 없습니다.',
+    'need_confirm': '목적지 확인이 필요합니다.',
+    'safety_flag': '안전 조건 때문에 주행할 수 없습니다.',
+    'no_matched_id': '목적지를 찾지 못했습니다.',
+    'not_navigate': '주행 요청으로 처리되지 않았습니다.',
+  };
+
   final _uuid = const Uuid();
+  // 지도 목록 응답을 처리할 때도 자동 요청 설정이 필요해 연결에 쓴 설정을 보관합니다.
+  AppSettings? _lastSettings;
   RosBridgeClient? _client;
   RosConnectionState _connectionState = RosConnectionState.disconnected;
   String _connectionDetail = '';
@@ -49,7 +67,9 @@ class SupervisorProvider extends ChangeNotifier {
   bool _nav2UnavailableNotified = false;
   bool _nav2AvailableNotified = false;
   bool _nav2WasUnavailable = false;
-  bool _noEventsRecordedNotified = false;
+  // 마지막으로 기록한 오류 사유. 상태 topic이 같은 사유를 계속 실어 보내므로
+  // 사유가 실제로 바뀔 때만 알림을 남기기 위해 들고 있습니다.
+  String _lastLoggedErrorReason = '';
 
   RosConnectionState get connectionState => _connectionState;
   String get connectionDetail => _connectionDetail;
@@ -84,6 +104,7 @@ class SupervisorProvider extends ChangeNotifier {
 
   // rosbridge 연결을 하나만 유지하고 필요한 topic만 구독합니다.
   Future<void> connect(AppSettings settings) async {
+    _lastSettings = settings;
     _reconnectTimer?.cancel();
     _reconnectAttempts = 0;
     _resetNav2NotificationState();
@@ -100,9 +121,19 @@ class SupervisorProvider extends ChangeNotifier {
     await _client!.connect(settings.rosBridgeUrl);
     if (_connectionState == RosConnectionState.connected) {
       _subscribeRequiredTopics(settings);
-      if (settings.autoRequestMapList) {
-        requestMapList(settings);
-      }
+      _requestSyncAfterConnect(settings);
+    }
+  }
+
+  // 연결이 끊긴 사이 VICA에서 지도나 장소가 바뀌었을 수 있으므로 둘 다 다시 받습니다.
+  // 지도 목록만 받으면 장소는 예전 것이 남아 실제 저장 내용과 어긋납니다.
+  void _requestSyncAfterConnect(AppSettings settings) {
+    if (settings.autoRequestMapList) {
+      requestMapList(settings);
+    }
+    final mapId = _selectedMapId;
+    if (settings.autoRequestLocationList && mapId != null) {
+      requestLocationList(settings, mapId);
     }
   }
 
@@ -113,6 +144,20 @@ class SupervisorProvider extends ChangeNotifier {
     final client = _client;
     _client = null;
     await client?.close();
+    _clearRobotRuntimeState();
+    notifyListeners();
+  }
+
+  // 연결이 끊기면 로봇 실시간 상태는 더 이상 현재 사실이 아니므로 비웁니다.
+  // 지도와 장소는 정적 데이터라 유지해 재연결 때 다시 받지 않아도 되게 합니다.
+  // E-stop 상태는 안전 표시이므로 앱이 임의로 지우지 않습니다.
+  void _clearRobotRuntimeState() {
+    _lastLoggedErrorReason = '';
+    _resetNav2NotificationState();
+    if (_robotsById.isEmpty) {
+      return;
+    }
+    _robotsById.clear();
   }
 
   // 무한 재시도를 피하기 위해 설정된 횟수까지만 재연결합니다.
@@ -127,9 +172,7 @@ class SupervisorProvider extends ChangeNotifier {
       await _client?.connect(settings.rosBridgeUrl);
       if (_connectionState == RosConnectionState.connected) {
         _subscribeRequiredTopics(settings);
-        if (settings.autoRequestMapList) {
-          requestMapList(settings);
-        }
+        _requestSyncAfterConnect(settings);
       }
     });
   }
@@ -369,18 +412,13 @@ class SupervisorProvider extends ChangeNotifier {
     _addLog(LogFilter.coordinateTransfer, '${location.name} 장소 삭제 요청 전송');
   }
 
+  // 앱은 vica_goto_goal, LLM과 같은 경로로 요청만 보냅니다. 지도·접근 권한·Safety·
+  // Nav2 검증과 Goal 생성은 모두 Mission Manager가 맡습니다. 앱이 가진 장소 정보는
+  // 마지막으로 받아온 사본이라 최신이 아닐 수 있어, 여기서 미리 판정하지 않습니다.
   Future<String> requestDestination(
     AppSettings settings,
     LocationPoint location,
   ) async {
-    if (location.authorization != 'public') {
-      return '비공개 목적지는 주행 요청을 보낼 수 없습니다.';
-    }
-    if (!location.isApproachable) {
-      return location.unavailableReason.isEmpty
-          ? '로봇이 접근할 수 없는 목적지입니다.'
-          : location.unavailableReason;
-    }
     final client = _client;
     if (client == null || _connectionState != RosConnectionState.connected) {
       return 'ROS Bridge에 연결되지 않았습니다.';
@@ -396,8 +434,8 @@ class SupervisorProvider extends ChangeNotifier {
         },
       );
       final message = response.message.isEmpty
-          ? (response.accepted ? '목적지 요청을 수락했습니다.' : '목적지 요청이 거부되었습니다.')
-          : response.message;
+          ? (response.accepted ? '주행 요청을 수락했습니다.' : '주행 요청이 거부되었습니다.')
+          : _localizeGateReason(response.message);
       _addLog(LogFilter.coordinateTransfer, message);
       return message;
     } catch (error) {
@@ -405,6 +443,17 @@ class SupervisorProvider extends ChangeNotifier {
       _addLog(LogFilter.coordinateTransfer, message);
       return message;
     }
+  }
+
+  // 거부 응답은 "목적지 요청 거부: private_destination"처럼 코드가 섞여 옵니다.
+  // 아는 코드면 한국어 문구로 바꾸고, 모르는 응답은 원문 그대로 보여줍니다.
+  String _localizeGateReason(String message) {
+    for (final entry in _gateReasonMessages.entries) {
+      if (message.contains(entry.key)) {
+        return entry.value;
+      }
+    }
+    return message;
   }
 
   void clearLogs(LogFilter filter) {
@@ -431,7 +480,18 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     _maps = nextMaps;
+    final hadNoSelection = _selectedMapId == null;
     _selectedMapId ??= _maps.isEmpty ? null : _maps.first.mapId;
+    // 첫 연결에서는 선택된 지도가 없어 장소를 함께 요청하지 못합니다.
+    // 지도가 처음 정해지는 이 시점에 그 지도의 장소도 받아옵니다.
+    final mapId = _selectedMapId;
+    final settings = _lastSettings;
+    if (hadNoSelection &&
+        mapId != null &&
+        settings != null &&
+        settings.autoRequestLocationList) {
+      requestLocationList(settings, mapId);
+    }
     _addLog(LogFilter.connection, '지도 목록 ${_maps.length}개 수신');
     notifyListeners();
   }
@@ -468,23 +528,34 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     _robotsById[next.robotId] = next;
-    if (next.hasError) {
-      final errorReason = next.errorReason.trim();
-      if (_isNoEventsRecorded(errorReason)) {
-        if (!_noEventsRecordedNotified) {
-          _noEventsRecordedNotified = true;
-          _addLog(LogFilter.connection, errorReason);
-        }
-      } else {
-        _addLog(LogFilter.emergencyStop, '${next.robotName}: $errorReason');
-      }
-    }
+    _logErrorReasonChange(next);
     _handleNav2StatusLog(next);
     notifyListeners();
   }
 
+  // 상태 topic은 같은 오류 사유를 주기적으로 반복해서 싣고 옵니다. 매번 기록하면
+  // 알림 목록이 같은 문구로 가득 차므로, 사유가 바뀔 때만 한 번 남깁니다.
+  void _logErrorReasonChange(RobotStatus robot) {
+    if (!robot.hasError) {
+      _lastLoggedErrorReason = '';
+      return;
+    }
+    final errorReason = robot.errorReason.trim();
+    if (errorReason == _lastLoggedErrorReason) {
+      return;
+    }
+    _lastLoggedErrorReason = errorReason;
+    if (_isNoEventsRecorded(errorReason)) {
+      // 진단 정보일 뿐 비상정지가 아니므로 연결 알림으로 분류합니다.
+      _addLog(LogFilter.connection, errorReason);
+      return;
+    }
+    _addLog(LogFilter.emergencyStop, '${robot.robotName}: $errorReason');
+  }
+
   bool _isNoEventsRecorded(String message) {
-    return message.trim().toLowerCase() == _noEventsRecordedReason;
+    // 발행 노드가 앞뒤에 다른 문구를 붙여 보내는 경우가 있어 포함 여부로 판정합니다.
+    return message.trim().toLowerCase().contains(_noEventsRecordedReason);
   }
 
   void _handleNav2StatusLog(RobotStatus robot) {
@@ -510,7 +581,6 @@ class SupervisorProvider extends ChangeNotifier {
     _nav2UnavailableNotified = false;
     _nav2AvailableNotified = false;
     _nav2WasUnavailable = false;
-    _noEventsRecordedNotified = false;
   }
 
   // /app_estop_state 주기 브로드캐스트로 오버레이 상태를 노드 실제 상태에 맞춥니다.
@@ -564,6 +634,10 @@ class SupervisorProvider extends ChangeNotifier {
     }
     _connectionState = next;
     _connectionDetail = detail;
+    // 끊긴 뒤에도 마지막 로봇 상태가 남아 현재 상태처럼 보이던 문제를 막습니다.
+    if (next != RosConnectionState.connected) {
+      _clearRobotRuntimeState();
+    }
     _addLog(LogFilter.connection, detail);
     notifyListeners();
   }
