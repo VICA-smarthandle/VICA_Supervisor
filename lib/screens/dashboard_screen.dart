@@ -22,8 +22,17 @@ class DashboardScreen extends StatelessWidget {
         supervisor.connectionState == RosConnectionState.connected;
     final robots = supervisor.robots;
     final moving = robots.where((robot) => robot.status == 'moving').length;
-    final errors = robots.where((robot) => robot.hasError).length;
-    final waiting = robots.where((robot) => robot.status != 'moving').length;
+    final errorRobots = robots.where((robot) => robot.hasError).length;
+    // 카드 라벨이 '오류/긴급 정지'인데 /robot_status에는 E-stop이 담기지 않습니다.
+    // 중앙 래치가 활성이면 로봇 진단에 오류가 없어도 최소 1건으로 셉니다.
+    final emergencyActive =
+        supervisor.emergencyStopState == EmergencyStopState.active;
+    final errors =
+        emergencyActive && errorRobots == 0 ? 1 : errorRobots;
+    // 오류로 잡힌 로봇이 대기 수에 중복으로 들어가지 않게 제외합니다.
+    final waiting = robots
+        .where((robot) => robot.status != 'moving' && !robot.hasError)
+        .length;
     final robot = supervisor.primaryRobot ?? _waitingRobot();
     final metricCards = [
       VicaMetricCard(
