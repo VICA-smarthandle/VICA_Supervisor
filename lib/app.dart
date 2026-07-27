@@ -130,10 +130,13 @@ class _SupervisorShellState extends State<SupervisorShell> {
     SettingsScreen(),
   ];
 
+  // 장소 저장 화면의 인덱스. AppBar 바로가기 버튼이 참조합니다.
+  static const _saveLocationIndex = 1;
+
   static const _titles = [
     '대시보드',
     '장소 저장',
-    '지도별 장소 보기',
+    '원격 주행',
     '현재 위치',
     '로봇 관리',
     '알림 및 로그',
@@ -168,28 +171,40 @@ class _SupervisorShellState extends State<SupervisorShell> {
                           ),
                         ),
                   actions: [
+                    // 어느 화면에서든 장소 저장으로 한 번에 이동합니다.
+                    IconButton(
+                      onPressed: () =>
+                          setState(() => _index = _saveLocationIndex),
+                      icon: const Icon(Icons.add_location_alt_outlined),
+                      tooltip: '장소 저장',
+                    ),
+                    // 비상정지는 라벨 없이 빨간 원형으로 두어 한눈에 구분되게 합니다.
+                    // 라벨이 없으므로 Tooltip과 semanticLabel로 의미를 전달합니다.
                     Padding(
-                      padding: const EdgeInsets.only(right: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: Tooltip(
                         message: '비상정지',
-                        child: FilledButton.icon(
-                          onPressed: supervisor.emergencyOverlayVisible
-                              ? null
-                              : () =>
-                                  supervisor.activateEmergencyStop(settings),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.red.shade700,
-                            foregroundColor: Colors.white,
-                            minimumSize: const Size(0, 36),
-                            padding: const EdgeInsets.symmetric(horizontal: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(18),
+                        child: SizedBox(
+                          width: 40,
+                          height: 40,
+                          child: FilledButton(
+                            onPressed: supervisor.emergencyOverlayVisible
+                                ? null
+                                : () =>
+                                    supervisor.activateEmergencyStop(settings),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.red.shade700,
+                              foregroundColor: Colors.white,
+                              disabledBackgroundColor: Colors.red.shade200,
+                              shape: const CircleBorder(),
+                              padding: EdgeInsets.zero,
+                              minimumSize: const Size(40, 40),
                             ),
-                          ),
-                          icon: const Icon(Icons.warning_rounded, size: 18),
-                          label: const Text(
-                            '비상정지',
-                            style: TextStyle(fontWeight: FontWeight.w900),
+                            child: const Icon(
+                              Icons.warning_rounded,
+                              size: 20,
+                              semanticLabel: '비상정지',
+                            ),
                           ),
                         ),
                       ),
@@ -546,8 +561,8 @@ class _SupervisorShellState extends State<SupervisorShell> {
       label: Text('장소 저장'),
     ),
     NavigationDrawerDestination(
-      icon: Icon(Icons.map),
-      label: Text('지도별 장소 보기'),
+      icon: Icon(Icons.navigation),
+      label: Text('원격 주행'),
     ),
     NavigationDrawerDestination(
       icon: Icon(Icons.my_location),
@@ -579,9 +594,9 @@ class _SupervisorShellState extends State<SupervisorShell> {
       label: '장소 저장',
     ),
     _SidebarNavigationItem(
-      icon: Icons.map_outlined,
-      selectedIcon: Icons.map,
-      label: '지도별 장소 보기',
+      icon: Icons.navigation_outlined,
+      selectedIcon: Icons.navigation,
+      label: '원격 주행',
     ),
     _SidebarNavigationItem(
       icon: Icons.my_location_outlined,

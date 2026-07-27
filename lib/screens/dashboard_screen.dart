@@ -58,7 +58,9 @@ class DashboardScreen extends StatelessWidget {
       ),
       VicaMetricCard(
         icon: Icons.warning,
-        label: '오류/긴급 정지',
+        // Flutter는 공백에서만 줄을 나눠 '오류/긴급' + '정지'로 갈라지므로
+        // 의미 단위가 유지되도록 개행 위치를 직접 지정합니다.
+        label: '오류/\n긴급 정지',
         value: errors.toString(),
         color: VicaColors.red,
         labelMaxLines: 2,
@@ -69,6 +71,8 @@ class DashboardScreen extends StatelessWidget {
     return VicaPage(
       title: '로봇 현황',
       children: [
+        if (!connected)
+          VicaDisconnectedNotice(detail: supervisor.connectionDetail),
         Row(
           children: [
             Expanded(
