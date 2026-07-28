@@ -45,6 +45,8 @@ class SupervisorProvider extends ChangeNotifier {
     'safety_flag': '안전 조건 때문에 주행할 수 없습니다.',
     'no_matched_id': '목적지를 찾지 못했습니다.',
     'not_navigate': '주행 요청으로 처리되지 않았습니다.',
+    'not_navigating': '지금은 주행 중이 아닙니다.',
+    'not_paused': '다시 출발할 주행이 없습니다.',
   };
 
   final _uuid = const Uuid();
@@ -440,6 +442,46 @@ class SupervisorProvider extends ChangeNotifier {
       return message;
     } catch (error) {
       final message = 'Mission Manager 목적지 요청 실패: $error';
+      _addLog(LogFilter.coordinateTransfer, message);
+      return message;
+    }
+  }
+
+  // 진행 중인 주행 제어. 요청만 보내고 허용 여부는 Mission Manager가 판정합니다.
+  // 세 요청 모두 vica_interfaces/srv/MissionCommand 형태를 씁니다.
+  Future<String> cancelDestination(AppSettings settings) {
+    return _sendMissionCommand(settings.missionCancelService, '주행을 취소했습니다.');
+  }
+
+  Future<String> pauseNavigation(AppSettings settings) {
+    return _sendMissionCommand(settings.missionPauseService, '주행을 일시정지했습니다.');
+  }
+
+  Future<String> resumeNavigation(AppSettings settings) {
+    return _sendMissionCommand(settings.missionResumeService, '다시 출발합니다.');
+  }
+
+  Future<String> _sendMissionCommand(
+    String service,
+    String defaultSuccessMessage,
+  ) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return 'ROS Bridge에 연결되지 않았습니다.';
+    }
+    try {
+      final response = await client.callService(
+        service: service,
+        type: 'vica_interfaces/srv/MissionCommand',
+        args: {'request_id': _uuid.v4()},
+      );
+      final message = response.message.isEmpty
+          ? (response.accepted ? defaultSuccessMessage : '요청이 거부되었습니다.')
+          : _localizeGateReason(response.message);
+      _addLog(LogFilter.coordinateTransfer, message);
+      return message;
+    } catch (error) {
+      final message = 'Mission Manager 요청 실패: $error';
       _addLog(LogFilter.coordinateTransfer, message);
       return message;
     }

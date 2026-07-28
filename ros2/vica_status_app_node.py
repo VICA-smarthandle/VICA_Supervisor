@@ -118,6 +118,8 @@ class VicaStatusAppNode(Node):
         # Mission Manager가 목표를 보내면 /vica_goal_event로 목적지 이름이 들어옵니다.
         self.current_goal = ""
         self.navigation_active = False
+        # 일시정지 여부. 목적지를 기억한 채 멈춘 상태라 그냥 대기와 구분해서 보여준다.
+        self.navigation_paused = False
         self._navigation_active_since: float | None = None
         self.missing_map_yaml_warned = False
 
@@ -216,7 +218,14 @@ class VicaStatusAppNode(Node):
                 payload.get("name") or payload.get("destination") or ""
             )
             self.navigation_active = True
+            self.navigation_paused = False
             self._navigation_active_since = time.monotonic()
+        elif event == "goal_paused":
+            # 일시정지는 목적지를 기억한 채 멈춘 상태다. current_goal 을 지우면
+            # 앱이 재개할 목적지를 보여줄 수 없으므로 그대로 둔다.
+            self.navigation_active = False
+            self.navigation_paused = True
+            self._navigation_active_since = None
         elif event in {
             "goal_succeeded",
             "goal_failed",
@@ -226,6 +235,7 @@ class VicaStatusAppNode(Node):
         }:
             self.current_goal = ""
             self.navigation_active = False
+            self.navigation_paused = False
             self._navigation_active_since = None
 
     # ------------------------------------------------------------------
@@ -530,6 +540,9 @@ class VicaStatusAppNode(Node):
             return "Nav2/AMCL 미실행"
         if not self._odom_fresh():
             return "위치 데이터 수신 대기"
+        # 목적지를 기억한 채 멈춘 상태는 그냥 대기와 구분해서 알려준다.
+        if self.navigation_paused:
+            return "일시정지"
         if self._is_navigation_active():
             return ""
         if self._is_moving(linear_x, angular_z):

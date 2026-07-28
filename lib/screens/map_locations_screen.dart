@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/app_settings.dart';
 import '../models/location_point.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
@@ -28,10 +29,13 @@ class MapLocationsScreen extends StatelessWidget {
       locations,
       supervisor.selectedLocationId,
     );
-    // 주행 여부는 Mission Manager가 발행한 goal 이벤트가 /robot_status.current_goal로
+    // 주행·일시정지 여부는 Mission Manager가 발행한 goal 이벤트가 /robot_status로
     // 요약되어 들어온 값으로 판단합니다. 앱이 따로 추적하지 않습니다.
-    final drivingGoal = supervisor.primaryRobot?.currentGoal.trim() ?? '';
-    final driving = drivingGoal.isNotEmpty;
+    final robot = supervisor.primaryRobot;
+    final drivingGoal = robot?.currentGoal.trim() ?? '';
+    // 일시정지는 목적지를 기억한 채 멈춘 상태라 current_goal이 남아 있습니다.
+    final paused = robot?.waitingReason.trim() == '일시정지';
+    final driving = drivingGoal.isNotEmpty && !paused;
 
     return VicaPage(
       title: '원격 주행',
@@ -140,9 +144,11 @@ class MapLocationsScreen extends StatelessWidget {
                   }).toList(),
                 ),
                 const SizedBox(height: 14),
-                if (driving) ...[
+                if (driving || paused) ...[
                   Text(
-                    '$drivingGoal(으)로 주행 중입니다. 도착하거나 취소되면 다시 요청할 수 있습니다.',
+                    paused
+                        ? '$drivingGoal(으)로 가던 중 일시정지했습니다. 다시 출발하거나 취소할 수 있습니다.'
+                        : '$drivingGoal(으)로 주행 중입니다.',
                     style: const TextStyle(
                       color: VicaColors.muted,
                       fontSize: 13,
@@ -153,18 +159,89 @@ class MapLocationsScreen extends StatelessWidget {
                 FilledButton.icon(
                   // 요청 가능 여부(권한·접근성·E-stop·Nav2)는 Mission Manager가 판정합니다.
                   // 앱은 장소 선택 여부와 진행 중인 주행만 보고 버튼 상태를 정합니다.
-                  onPressed: selected == null || driving
+                  onPressed: selected == null || driving || paused
                       ? null
                       : () => _requestDrive(context, supervisor, selected),
                   icon: Icon(driving ? Icons.directions_run : Icons.navigation),
                   label: Text(driving ? '주행 중' : '선택 장소로 주행 요청'),
                 ),
+                if (driving || paused) ...[
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _sendMissionCommand(
+                            context,
+                            paused
+                                ? supervisor.resumeNavigation
+                                : supervisor.pauseNavigation,
+                          ),
+                          icon: Icon(
+                            paused ? Icons.play_arrow : Icons.pause,
+                          ),
+                          label: Text(paused ? '다시 출발' : '일시정지'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _confirmCancel(context, supervisor),
+                          icon: const Icon(Icons.cancel_outlined),
+                          label: const Text('주행 취소'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
         ],
       ],
     );
+  }
+
+  // 일시정지와 다시 출발은 되돌릴 수 있어 확인 없이 바로 보냅니다.
+  static Future<void> _sendMissionCommand(
+    BuildContext context,
+    Future<String> Function(AppSettings) send,
+  ) async {
+    final settings = context.read<SettingsProvider>().settings;
+    final message = await send(settings);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    }
+  }
+
+  // 취소는 진행하던 안내가 사라지므로 한 번 확인합니다.
+  static Future<void> _confirmCancel(
+    BuildContext context,
+    SupervisorProvider supervisor,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('주행 취소'),
+        content: const Text('진행 중인 주행을 취소합니다. 목적지는 지워지며 다시 요청해야 합니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('계속 주행'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('취소하기'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) {
+      return;
+    }
+    await _sendMissionCommand(context, supervisor.cancelDestination);
   }
 
   // 실제 로봇이 움직이므로 요청 전에 한 번 확인합니다.

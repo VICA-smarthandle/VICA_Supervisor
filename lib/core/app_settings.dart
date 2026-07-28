@@ -18,6 +18,9 @@ class AppSettings {
     this.saveLocationTopic = '/save_location',
     this.deleteLocationRequestTopic = '/delete_location_request',
     this.missionRequestService = '/vica/mission/request_destination',
+    this.missionCancelService = '/vica/mission/cancel_destination',
+    this.missionPauseService = '/vica/mission/pause_navigation',
+    this.missionResumeService = '/vica/mission/resume_navigation',
     this.robotStatusTopic = '/robot_status',
     this.emergencyActivateService = '/app_estop_activate',
     this.emergencyResetService = '/app_estop_reset',
@@ -44,6 +47,10 @@ class AppSettings {
   final String saveLocationTopic;
   final String deleteLocationRequestTopic;
   final String missionRequestService;
+  // 진행 중인 주행 제어. 모두 vica_interfaces/srv/MissionCommand를 씁니다.
+  final String missionCancelService;
+  final String missionPauseService;
+  final String missionResumeService;
   final String robotStatusTopic;
   final String emergencyActivateService;
   final String emergencyResetService;
@@ -70,6 +77,9 @@ class AppSettings {
     String? saveLocationTopic,
     String? deleteLocationRequestTopic,
     String? missionRequestService,
+    String? missionCancelService,
+    String? missionPauseService,
+    String? missionResumeService,
     String? robotStatusTopic,
     String? emergencyActivateService,
     String? emergencyResetService,
@@ -99,6 +109,9 @@ class AppSettings {
           deleteLocationRequestTopic ?? this.deleteLocationRequestTopic,
       missionRequestService:
           missionRequestService ?? this.missionRequestService,
+      missionCancelService: missionCancelService ?? this.missionCancelService,
+      missionPauseService: missionPauseService ?? this.missionPauseService,
+      missionResumeService: missionResumeService ?? this.missionResumeService,
       robotStatusTopic: robotStatusTopic ?? this.robotStatusTopic,
       emergencyActivateService:
           emergencyActivateService ?? this.emergencyActivateService,
@@ -133,6 +146,9 @@ class AppSettings {
       'saveLocationTopic': saveLocationTopic,
       'deleteLocationRequestTopic': deleteLocationRequestTopic,
       'missionRequestService': missionRequestService,
+      'missionCancelService': missionCancelService,
+      'missionPauseService': missionPauseService,
+      'missionResumeService': missionResumeService,
       'robotStatusTopic': robotStatusTopic,
       'emergencyActivateService': emergencyActivateService,
       'emergencyResetService': emergencyResetService,
@@ -171,6 +187,12 @@ class AppSettings {
               defaults.deleteLocationRequestTopic,
       missionRequestService: json['missionRequestService'] as String? ??
           defaults.missionRequestService,
+      missionCancelService: json['missionCancelService'] as String? ??
+          defaults.missionCancelService,
+      missionPauseService: json['missionPauseService'] as String? ??
+          defaults.missionPauseService,
+      missionResumeService: json['missionResumeService'] as String? ??
+          defaults.missionResumeService,
       robotStatusTopic:
           json['robotStatusTopic'] as String? ?? defaults.robotStatusTopic,
       emergencyActivateService: json['emergencyActivateService'] as String? ??
