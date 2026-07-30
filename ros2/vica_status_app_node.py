@@ -49,6 +49,17 @@ from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 
 
+# error_reason의 원천. error_source 파라미터가 고릅니다.
+ERROR_SOURCE_DIAGNOSTICS = "diagnostics"
+ERROR_SOURCE_HEALTH = "health"
+ERROR_SOURCES = (ERROR_SOURCE_DIAGNOSTICS, ERROR_SOURCE_HEALTH)
+
+# vica_interfaces/msg/RobotFault.msg의 SEVERITY_STOP과 같은 값입니다.
+# RobotHealth를 import하지 않는 diagnostics 모드에서도 이 파일이 동작해야 하므로
+# 여기에 다시 적습니다. 값이 바뀌면 함께 바꿔야 합니다.
+HEALTH_SEVERITY_STOP = 3
+
+
 class VicaStatusAppNode(Node):
     """VICA 내부 ROS2 상태를 앱 화면에서 쓰기 쉬운 단일 JSON 메시지로 변환합니다."""
 
@@ -78,6 +89,26 @@ class VicaStatusAppNode(Node):
         # 사라진 뒤에도 clear_delay 동안은 유지해 0↔1 깜빡임을 막습니다.
         self.declare_parameter("error_set_delay_sec", 1.0)
         self.declare_parameter("error_clear_delay_sec", 2.0)
+
+        # error_reason을 어디서 만들지 고릅니다.
+        #
+        #   "diagnostics" (기본) : /diagnostics를 직접 읽어 판정합니다. 현재 동작입니다
+        #   "health"             : vica_system_monitor의 /robot/health를 씁니다
+        #
+        # 기본값을 현재 동작으로 두는 이유:
+        #   1. 병합·빌드해도 거동이 바뀌지 않습니다. 전환은 Jetson에서 파라미터 한 줄로
+        #      A/B한 뒤 별도 커밋으로 기본값을 바꿉니다.
+        #   2. "health" 모드는 vica_interfaces의 RobotHealth를 필요로 합니다. 무조건
+        #      import하면 그 메시지를 빌드하지 않은 환경에서 노드가 기동 실패합니다.
+        #      아래에서 이 모드일 때만 import합니다.
+        #
+        # health 모드가 /diagnostics 판정과 다른 점:
+        #   - 판정 지점이 로봇 쪽 robot_health_monitor_node 하나로 모입니다
+        #   - 앱 화면과 error_reason이 같은 근거를 씁니다
+        #   - 컴포넌트·등급·조치 문구를 로봇이 결정합니다
+        self.declare_parameter("error_source", "diagnostics")
+        # /robot/health 만료. 모니터가 죽으면 마지막 상태를 현재로 쓰지 않습니다.
+        self.declare_parameter("health_timeout_sec", 5.0)
         self.declare_parameter("moving_linear_threshold", 0.03)
         self.declare_parameter("moving_angular_threshold", 0.05)
         # TF 프레임. vica_nav2 설정 기준: global=map, base=base_footprint.
@@ -92,6 +123,17 @@ class VicaStatusAppNode(Node):
         ).expanduser()
         self.map_frame = str(self.get_parameter("map_frame").value)
         self.base_frame = str(self.get_parameter("base_frame").value)
+
+        # 알 수 없는 값을 조용히 기본값으로 흡수하지 않습니다. 오타를 흡수하면 왜 원천이
+        # 바뀌지 않는지 찾기 어렵습니다.
+        self.error_source = str(self.get_parameter("error_source").value).strip()
+        if self.error_source not in ERROR_SOURCES:
+            self.get_logger().error(
+                f"error_source '{self.error_source}'는 허용되지 않습니다. "
+                f"허용: {', '.join(ERROR_SOURCES)}. "
+                f"{ERROR_SOURCE_DIAGNOSTICS}로 진행합니다."
+            )
+            self.error_source = ERROR_SOURCE_DIAGNOSTICS
 
         # 구독 입력의 나이는 모두 monotonic 기준으로 잽니다. 시스템 시계가 바뀌어도
         # 만료 판정이 흔들리지 않게 하기 위해서입니다(표시용 timestamp만 wall clock).
@@ -156,6 +198,9 @@ class VicaStatusAppNode(Node):
             String, "/vica_goal_event", self.handle_goal_event, 10
         )
 
+        # health 모드일 때만 /robot/health를 구독합니다.
+        self._setup_health_source()
+
         period = float(self.get_parameter("publish_period_sec").value)
         self.timer = self.create_timer(period, self.publish_status)
 
@@ -170,7 +215,8 @@ class VicaStatusAppNode(Node):
 
         self.get_logger().info(
             f"vica_status_app_node ready: TF {self.map_frame}->{self.base_frame}, "
-            f"publish {1.0 / period:.0f}Hz, map auto-detect via {map_server_node}"
+            f"publish {1.0 / period:.0f}Hz, map auto-detect via {map_server_node}, "
+            f"error_source={self.error_source}"
         )
 
     # ------------------------------------------------------------------
@@ -485,6 +531,86 @@ class VicaStatusAppNode(Node):
             return ""
         return self._diagnostics_by_key[matched[0]][2]
 
+    # ------------------------------------------------------------------
+    # 오류 사유 원천 (error_source 파라미터가 고릅니다)
+    # ------------------------------------------------------------------
+    def _setup_health_source(self) -> None:
+        """error_source가 health일 때만 /robot/health를 구독합니다.
+
+        RobotHealth import를 이 모드에서만 하는 이유: vica_interfaces를 빌드하지 않은
+        환경에서 노드가 기동 실패하면 안 됩니다. 기본값이 diagnostics이므로 기존 배포는
+        영향을 받지 않습니다.
+
+        import에 실패하면 오류를 로그로 남기고 diagnostics 모드로 되돌립니다. 감시 표시가
+        조금 나빠지는 것이 노드가 죽는 것보다 낫습니다.
+        """
+        self.latest_health = None
+        self.last_health_time: float | None = None
+
+        if self.error_source != ERROR_SOURCE_HEALTH:
+            return
+
+        try:
+            from vica_interfaces.msg import RobotHealth
+        except ImportError as exc:
+            self.get_logger().error(
+                f"error_source=health인데 vica_interfaces.msg.RobotHealth를 "
+                f"import할 수 없습니다: {exc}. diagnostics 모드로 되돌립니다. "
+                f"vica_ros2_ws에서 vica_interfaces를 빌드하고 source하세요."
+            )
+            self.error_source = ERROR_SOURCE_DIAGNOSTICS
+            return
+
+        self.create_subscription(RobotHealth, "/robot/health", self.handle_health, 10)
+        self.get_logger().info(
+            "error_source=health: /robot/health를 오류 사유의 원천으로 씁니다"
+        )
+
+    def handle_health(self, msg: Any) -> None:
+        """robot_health_monitor_node의 요약을 보관합니다."""
+        self.latest_health = msg
+        self.last_health_time = time.monotonic()
+
+    def _raw_error_reason(self) -> str:
+        """error_source에 따라 오류 사유 원문을 만듭니다.
+
+        지연 필터(_stable_error_reason)는 두 모드가 공유합니다. health 모드에서도 모니터가
+        간헐적으로 등급을 바꿀 수 있으므로 그 방어는 유지하는 편이 안전합니다.
+        """
+        if self.error_source == ERROR_SOURCE_HEALTH:
+            return self._health_error_reason()
+        return self._diagnostic_reason(min_level=2)
+
+    def _health_error_reason(self) -> str:
+        """/robot/health에서 오류 사유를 만듭니다.
+
+        임계를 SEVERITY_STOP 이상으로 두는 이유: _status()가 error_reason이 있으면
+        "error"를 반환합니다. WARN이나 DEGRADED로 임계를 낮추면 경고 하나로 앱 상태가
+        error로 뒤집힙니다. 그 등급은 앱의 시스템 진단 화면이 따로 보여줍니다.
+
+        만료를 적용해 모니터가 죽은 뒤 마지막 상태를 현재로 쓰지 않습니다.
+        """
+        health = self.latest_health
+        if health is None or self.last_health_time is None:
+            return ""
+
+        timeout = float(self.get_parameter("health_timeout_sec").value)
+        if timeout > 0.0 and (time.monotonic() - self.last_health_time) > timeout:
+            return ""
+
+        if int(health.highest_severity) < HEALTH_SEVERITY_STOP:
+            return ""
+
+        primary = str(health.primary_fault_code)
+        for fault in health.active_faults:
+            if str(fault.fault_code) != primary:
+                continue
+            detail = str(fault.detail).strip()
+            if detail:
+                return detail
+            return primary
+        return primary
+
     def _stable_error_reason(self) -> str:
         """오류 사유에 지연을 적용해 짧은 깜빡임을 걸러냅니다.
 
@@ -492,7 +618,7 @@ class VicaStatusAppNode(Node):
         동안은 직전 사유를 유지합니다. 진단 누적만으로 대부분의 떨림은 사라지지만,
         발행자 자신이 ERROR를 간헐적으로 낼 때를 대비한 2차 방어입니다.
         """
-        raw_reason = self._diagnostic_reason(min_level=2)
+        raw_reason = self._raw_error_reason()
         now = time.monotonic()
         set_delay = float(self.get_parameter("error_set_delay_sec").value)
         clear_delay = float(self.get_parameter("error_clear_delay_sec").value)
