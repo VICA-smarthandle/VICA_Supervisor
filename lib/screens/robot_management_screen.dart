@@ -82,7 +82,9 @@ class _RobotManagementScreenState extends State<RobotManagementScreen> {
                 _Info(label: '목적지', value: robot.currentGoal),
                 _Info(label: '오류 사유', value: robot.errorReason),
                 _Info(label: '대기 사유', value: robot.waitingReason),
-                _Info(label: '마지막 통신', value: robot.timestamp.toLocal().toString()),
+                _Info(
+                    label: '마지막 통신',
+                    value: robot.timestamp.toLocal().toString()),
                 const SizedBox(height: 10),
                 FilledButton.icon(
                   onPressed: () => Navigator.of(sheetContext).pop(),
@@ -139,7 +141,8 @@ class _Info extends StatelessWidget {
         children: [
           SizedBox(
             width: 92,
-            child: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
+            child: Text(label,
+                style: const TextStyle(fontWeight: FontWeight.w800)),
           ),
           Expanded(child: Text(value.isEmpty ? '-' : value)),
         ],

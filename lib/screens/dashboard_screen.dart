@@ -27,8 +27,7 @@ class DashboardScreen extends StatelessWidget {
     // 중앙 래치가 활성이면 로봇 진단에 오류가 없어도 최소 1건으로 셉니다.
     final emergencyActive =
         supervisor.emergencyStopState == EmergencyStopState.active;
-    final errors =
-        emergencyActive && errorRobots == 0 ? 1 : errorRobots;
+    final errors = emergencyActive && errorRobots == 0 ? 1 : errorRobots;
     // 오류로 잡힌 로봇이 대기 수에 중복으로 들어가지 않게 제외합니다.
     final waiting = robots
         .where((robot) => robot.status != 'moving' && !robot.hasError)
