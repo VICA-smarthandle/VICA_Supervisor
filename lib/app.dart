@@ -16,6 +16,7 @@ import 'screens/map_locations_screen.dart';
 import 'screens/robot_management_screen.dart';
 import 'screens/save_location_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/system_diagnostics_screen.dart';
 
 class VicaSupervisorApp extends StatelessWidget {
   const VicaSupervisorApp({super.key});
@@ -120,18 +121,27 @@ class SupervisorShell extends StatefulWidget {
 class _SupervisorShellState extends State<SupervisorShell> {
   int _index = 0;
 
-  static const _screens = [
-    DashboardScreen(),
-    SaveLocationScreen(),
-    MapLocationsScreen(),
-    CurrentLocationScreen(),
-    RobotManagementScreen(),
-    LogsScreen(),
-    SettingsScreen(),
-  ];
+  // 대시보드 배너가 진단 화면으로 보내려면 콜백이 필요해 const 리스트를 게터로 바꿨습니다.
+  List<Widget> get _screens => [
+        DashboardScreen(
+          onOpenDiagnostics: () =>
+              setState(() => _index = _systemDiagnosticsIndex),
+        ),
+        const SaveLocationScreen(),
+        const MapLocationsScreen(),
+        const CurrentLocationScreen(),
+        const RobotManagementScreen(),
+        const SystemDiagnosticsScreen(),
+        const LogsScreen(),
+        const SettingsScreen(),
+      ];
 
-  // 장소 저장 화면의 인덱스. AppBar 바로가기 버튼이 참조합니다.
+  // AppBar 바로가기와 배너가 참조하는 인덱스입니다. 화면 순서를 바꿀 때 함께 바꿔야
+  // 하므로 숫자를 코드에 직접 쓰지 않습니다.
+  static const _dashboardIndex = 0;
   static const _saveLocationIndex = 1;
+  static const _systemDiagnosticsIndex = 5;
+  static const _settingsIndex = 7;
 
   static const _titles = [
     '대시보드',
@@ -139,6 +149,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
     '원격 주행',
     '현재 위치',
     '로봇 관리',
+    '시스템 진단',
     '알림 및 로그',
     '설정',
   ];
@@ -211,12 +222,14 @@ class _SupervisorShellState extends State<SupervisorShell> {
                     ),
                     if (useNavigationRail) ...[
                       IconButton(
-                        onPressed: () => setState(() => _index = 0),
+                        onPressed: () =>
+                            setState(() => _index = _dashboardIndex),
                         icon: const Icon(Icons.home_outlined),
                         tooltip: '대시보드',
                       ),
                       IconButton(
-                        onPressed: () => setState(() => _index = 6),
+                        onPressed: () =>
+                            setState(() => _index = _settingsIndex),
                         icon: const Icon(Icons.settings_outlined),
                         tooltip: '설정',
                       ),
@@ -573,6 +586,10 @@ class _SupervisorShellState extends State<SupervisorShell> {
       label: Text('로봇 관리'),
     ),
     NavigationDrawerDestination(
+      icon: Icon(Icons.monitor_heart),
+      label: Text('시스템 진단'),
+    ),
+    NavigationDrawerDestination(
       icon: Icon(Icons.notifications),
       label: Text('알림 및 로그'),
     ),
@@ -607,6 +624,11 @@ class _SupervisorShellState extends State<SupervisorShell> {
       icon: Icons.precision_manufacturing_outlined,
       selectedIcon: Icons.precision_manufacturing,
       label: '로봇 관리',
+    ),
+    _SidebarNavigationItem(
+      icon: Icons.monitor_heart_outlined,
+      selectedIcon: Icons.monitor_heart,
+      label: '시스템 진단',
     ),
     _SidebarNavigationItem(
       icon: Icons.notifications_outlined,

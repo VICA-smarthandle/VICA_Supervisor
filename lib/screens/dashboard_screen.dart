@@ -6,10 +6,14 @@ import '../models/robot_status.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../ros/ros_bridge_client.dart';
+import '../widgets/health_banner.dart';
 import '../widgets/vica_ui.dart';
 
 class DashboardScreen extends StatelessWidget {
-  const DashboardScreen({super.key});
+  const DashboardScreen({super.key, this.onOpenDiagnostics});
+
+  /// 상단 배너를 탭하면 시스템 진단 화면으로 보냅니다.
+  final VoidCallback? onOpenDiagnostics;
 
   static const double metricLabelFontSize = 14;
   static const double errorMetricLabelFontSize = 12;
@@ -72,6 +76,8 @@ class DashboardScreen extends StatelessWidget {
       children: [
         if (!connected)
           VicaDisconnectedNotice(detail: supervisor.connectionDetail),
+        // 최고 등급 결함을 한 줄로 알립니다. 결함이 없으면 아무것도 그리지 않습니다.
+        HealthBanner(onTap: onOpenDiagnostics),
         Row(
           children: [
             Expanded(

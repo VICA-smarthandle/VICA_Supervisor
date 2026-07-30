@@ -8,6 +8,8 @@ import 'package:uuid/uuid.dart';
 import '../core/app_settings.dart';
 import '../core/log_filter.dart';
 import '../models/location_point.dart';
+import '../models/robot_event.dart';
+import '../models/robot_health.dart';
 import '../models/robot_status.dart';
 import '../models/supervisor_log.dart';
 import '../models/vica_map.dart';
@@ -73,6 +75,14 @@ class SupervisorProvider extends ChangeNotifier {
   // 사유가 실제로 바뀔 때만 알림을 남기기 위해 들고 있습니다.
   String _lastLoggedErrorReason = '';
 
+  // robot_health_monitor_node가 보내는 상세 진단. /robot_status.error_reason이
+  // 문자열 한 줄인 것과 달리 컴포넌트·등급·조치·발생횟수를 담습니다.
+  RobotHealth? _health;
+  final List<RobotEvent> _healthEvents = [];
+
+  // 이벤트 이력 상한. _logs와 같은 값으로 둡니다.
+  static const _maxHealthEvents = 200;
+
   RosConnectionState get connectionState => _connectionState;
   String get connectionDetail => _connectionDetail;
   EmergencyStopState get emergencyStopState => _emergencyStopState;
@@ -84,6 +94,12 @@ class SupervisorProvider extends ChangeNotifier {
   String? get selectedLocationId => _selectedLocationId;
   LocationPoint? get draftLocation => _draftLocation;
   List<SupervisorLog> get logs => List.unmodifiable(_logs);
+
+  /// 로봇 전체 상태 요약. 아직 받지 못했으면 null입니다.
+  RobotHealth? get health => _health;
+
+  /// 결함 전이 이력. 최신이 앞입니다.
+  List<RobotEvent> get healthEvents => List.unmodifiable(_healthEvents);
   List<RobotStatus> get robots => _robotsById.values.toList(growable: false);
   RobotStatus? get primaryRobot =>
       _robotsById.isEmpty ? null : _robotsById.values.first;
@@ -156,6 +172,9 @@ class SupervisorProvider extends ChangeNotifier {
   void _clearRobotRuntimeState() {
     _lastLoggedErrorReason = '';
     _resetNav2NotificationState();
+    // 연결이 끊기면 진단도 현재 상태가 아닙니다. 이벤트 이력은 지나간 기록이므로
+    // 남겨둡니다 — 관리자가 왜 끊겼는지 되짚을 수 있어야 합니다.
+    _health = null;
     if (_robotsById.isEmpty) {
       return;
     }
@@ -193,6 +212,18 @@ class SupervisorProvider extends ChangeNotifier {
       ..subscribe(
         topic: settings.emergencyStateTopic,
         handler: _handleEmergencyStopState,
+      )
+      // 커스텀 메시지는 type을 지정해 구독합니다. RosBridgeClient가 msg['data']가
+      // String이 아닌 경우 raw 필드 map을 그대로 handler에 넘깁니다.
+      ..subscribe(
+        topic: settings.robotHealthTopic,
+        handler: _handleRobotHealth,
+        type: 'vica_interfaces/msg/RobotHealth',
+      )
+      ..subscribe(
+        topic: settings.robotEventsTopic,
+        handler: _handleRobotEvent,
+        type: 'vica_interfaces/msg/RobotEvent',
       );
   }
 
@@ -624,6 +655,58 @@ class SupervisorProvider extends ChangeNotifier {
     _nav2AvailableNotified = false;
     _nav2WasUnavailable = false;
   }
+
+  // robot_health_monitor_node의 상태 요약입니다. 1 Hz로 상시 발행되므로 앱이
+  // 재접속하면 1초 안에 화면이 복원됩니다.
+  //
+  // 이 값으로 로그를 남기지 않습니다. 1 Hz로 들어오는 상태 스냅샷이라 로그에 쌓으면
+  // 초당 한 건씩 늘어납니다. 로그는 /robot/events가 담당합니다.
+  void _handleRobotHealth(Map<String, Object?> message) {
+    _health = RobotHealth.fromRosMsg(message);
+    notifyListeners();
+  }
+
+  // 결함 전이 이벤트입니다.
+  //
+  // [중요] 여기서 같은 사유를 다시 억제하지 않습니다. 로봇의 event_deduplicator가
+  // 이미 전이 시점에만 발행하므로 초당 쌓일 일이 없고, 앱에서 또 억제하면 reminder
+  // 이벤트가 사라져 오래 지속되는 결함을 관리자가 놓칩니다.
+  //
+  // /robot_status.error_reason 경로는 다릅니다. 그쪽은 10 Hz로 상시 발행되므로
+  // _logErrorReasonChange가 억제를 담당합니다. 두 경로의 억제 지점이 다릅니다.
+  void _handleRobotEvent(Map<String, Object?> message) {
+    final event = RobotEvent.fromRosMsg(message, id: _uuid.v4());
+
+    if (event.belongsInHistory) {
+      _healthEvents.insert(0, event);
+      if (_healthEvents.length > _maxHealthEvents) {
+        _healthEvents.removeRange(_maxHealthEvents, _healthEvents.length);
+      }
+    }
+
+    // 주행을 막는 등급만 기존 알림 목록에도 남깁니다. WARN·DEGRADED까지 넣으면
+    // 알림이 진단 화면과 중복되면서 정작 중요한 항목이 묻힙니다.
+    if (event.fault.severity.blocksDriving &&
+        event.transition != FaultTransition.reminder) {
+      final prefix = event.transition == FaultTransition.cleared ? '해소' : '발생';
+      _addLog(
+        LogFilter.emergencyStop,
+        '[$prefix] ${event.fault.componentLabelText}: ${event.fault.detail}',
+      );
+    }
+
+    notifyListeners();
+  }
+
+  // rosbridge 없이 화면 표시 규칙을 검증하기 위한 주입 지점입니다. 핸들러를 public으로
+  // 열지 않는 이유는 rosbridge 외의 호출자가 상태를 바꾸면 안 되기 때문입니다.
+  @visibleForTesting
+  void handleRobotHealthForTest(Map<String, Object?> message) =>
+      _handleRobotHealth(message);
+
+  @visibleForTesting
+  void handleRobotEventForTest(Map<String, Object?> message) =>
+      _handleRobotEvent(message);
 
   // /app_estop_state 주기 브로드캐스트로 오버레이 상태를 노드 실제 상태에 맞춥니다.
   // 앱이 비상정지 중에 재접속하면 이 토픽으로 활성 오버레이를 복구합니다.
