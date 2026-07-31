@@ -10,13 +10,18 @@ import 'package:flutter/material.dart';
 import '../widgets/vica_ui.dart';
 
 /// 결함 등급. RobotFault.msg의 SEVERITY_* 상수와 값이 같습니다.
+///
+/// **비상 정지는 이 축에 없습니다.** E-stop은 STOP보다 한 단계 심각한 것이 아니라
+/// 종류가 다릅니다 — 래치가 걸리고 관리자 reset이 있어야 풀리며 emergency_stop_node가
+/// 소유합니다. 그 사실은 [RobotHealthState.estopped]와 RobotFault.latched가 나타냅니다.
+/// 등급에 섞으면 모터 진단 하나가 "비상 정지"로 표시되어 관리자가 있지도 않은 버튼을
+/// 찾게 됩니다.
 enum FaultSeverity {
   ok(0, 'OK', '정상'),
   warn(1, 'WARN', '주의'),
   degraded(2, 'DEGRADED', '기능 저하'),
   stop(3, 'STOP', '주행 불가'),
-  estop(4, 'ESTOP', '비상 정지'),
-  fault(5, 'FAULT', '원인 불명');
+  fault(4, 'FAULT', '원인 불명');
 
   const FaultSeverity(this.value, this.code, this.label);
 
@@ -50,7 +55,6 @@ enum FaultSeverity {
       case FaultSeverity.degraded:
         return const Color(0xFFE07B39);
       case FaultSeverity.stop:
-      case FaultSeverity.estop:
       case FaultSeverity.fault:
         return VicaColors.red;
     }
@@ -66,8 +70,6 @@ enum FaultSeverity {
         return Icons.warning_amber_outlined;
       case FaultSeverity.stop:
         return Icons.do_not_disturb_on_outlined;
-      case FaultSeverity.estop:
-        return Icons.dangerous_outlined;
       case FaultSeverity.fault:
         return Icons.help_outline;
     }

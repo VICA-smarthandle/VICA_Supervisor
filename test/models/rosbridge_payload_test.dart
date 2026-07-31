@@ -14,10 +14,10 @@ import 'package:vica_supervisor/models/robot_event.dart';
 import 'package:vica_supervisor/models/robot_health.dart';
 
 const _healthPayload = r'''
-{"header":{"stamp":{"sec":1785466159,"nanosec":379367779},"frame_id":""},"state":3,"motor_readiness":1,"safety_readiness":1,"localization_readiness":0,"navigation_readiness":0,"lidar_readiness":0,"perception_readiness":0,"guidance_readiness":0,"voice_readiness":0,"app_readiness":0,"active_fault_count":3,"highest_severity":4,"primary_fault_code":"DIAG_COMPONENT_STALE","active_faults":[{"component":"motor","fault_code":"DIAG_COMPONENT_STALE","severity":4,"active":true,"latched":false,"occurrence_count":1,"first_seen":{"sec":1785466159,"nanosec":378108978},"last_seen":{"sec":1785466159,"nanosec":378108978},"detail":"진단 항목이 보고되지 않았습니다.","suggested_action":"해당 노드 실행 상태를 확인해 주세요."},{"component":"safety","fault_code":"DIAG_COMPONENT_STALE","severity":3,"active":true,"latched":false,"occurrence_count":1,"first_seen":{"sec":1785466159,"nanosec":378108978},"last_seen":{"sec":1785466159,"nanosec":378108978},"detail":"진단이 갱신되지 않았습니다.","suggested_action":"해당 노드 실행 상태를 확인해 주세요."},{"component":"safety","fault_code":"SAFETY_STATE_STALE","severity":3,"active":true,"latched":false,"occurrence_count":1,"first_seen":{"sec":1785466159,"nanosec":378108978},"last_seen":{"sec":1785466159,"nanosec":378108978},"detail":"Safety 상태를 한 번도 수신하지 못했습니다.","suggested_action":"safety_supervisor_node 실행 상태를 확인해 주세요."}]}''';
+{"header":{"stamp":{"sec":1785467841,"nanosec":401827224},"frame_id":""},"state":3,"motor_readiness":1,"safety_readiness":1,"localization_readiness":0,"navigation_readiness":0,"lidar_readiness":0,"perception_readiness":0,"guidance_readiness":0,"voice_readiness":0,"app_readiness":0,"active_fault_count":3,"highest_severity":3,"primary_fault_code":"DIAG_COMPONENT_STALE","active_faults":[{"component":"motor","fault_code":"DIAG_COMPONENT_STALE","severity":3,"active":true,"latched":false,"occurrence_count":1,"first_seen":{"sec":1785467841,"nanosec":400926351},"last_seen":{"sec":1785467841,"nanosec":400926351},"detail":"진단 항목이 보고되지 않았습니다.","suggested_action":"해당 노드 실행 상태를 확인해 주세요."},{"component":"safety","fault_code":"DIAG_COMPONENT_STALE","severity":3,"active":true,"latched":false,"occurrence_count":1,"first_seen":{"sec":1785467841,"nanosec":400926351},"last_seen":{"sec":1785467841,"nanosec":400926351},"detail":"진단이 갱신되지 않았습니다.","suggested_action":"해당 노드 실행 상태를 확인해 주세요."},{"component":"safety","fault_code":"SAFETY_STATE_STALE","severity":3,"active":true,"latched":false,"occurrence_count":1,"first_seen":{"sec":1785467841,"nanosec":400926351},"last_seen":{"sec":1785467841,"nanosec":400926351},"detail":"Safety 상태를 한 번도 수신하지 못했습니다.","suggested_action":"safety_supervisor_node 실행 상태를 확인해 주세요."}]}''';
 
 const _eventPayload = r'''
-{"header":{"stamp":{"sec":1785466159,"nanosec":378640200},"frame_id":""},"fault":{"component":"motor","fault_code":"DIAG_COMPONENT_STALE","severity":4,"active":true,"latched":false,"occurrence_count":1,"first_seen":{"sec":1785466159,"nanosec":378108978},"last_seen":{"sec":1785466159,"nanosec":378108978},"detail":"진단 항목이 보고되지 않았습니다.","suggested_action":"해당 노드 실행 상태를 확인해 주세요."},"transition":0}''';
+{"header":{"stamp":{"sec":1785467841,"nanosec":401351098},"frame_id":""},"fault":{"component":"motor","fault_code":"DIAG_COMPONENT_STALE","severity":3,"active":true,"latched":false,"occurrence_count":1,"first_seen":{"sec":1785467841,"nanosec":400926351},"last_seen":{"sec":1785467841,"nanosec":400926351},"detail":"진단 항목이 보고되지 않았습니다.","suggested_action":"해당 노드 실행 상태를 확인해 주세요."},"transition":0}''';
 
 Map<String, Object?> _decode(String raw) =>
     jsonDecode(raw.trim()) as Map<String, Object?>;
@@ -28,7 +28,9 @@ void main() {
       final health = RobotHealth.fromRosMsg(_decode(_healthPayload));
 
       expect(health.state, RobotHealthState.stopped);
-      expect(health.highestSeverity, FaultSeverity.estop);
+      // 래치가 없으므로 비상 정지가 아닙니다. 등급 축에도 ESTOP이 없습니다.
+      expect(health.activeFaults.every((f) => !f.latched), isTrue);
+      expect(health.highestSeverity, FaultSeverity.stop);
       expect(health.activeFaultCount, 3);
       expect(health.activeFaults, hasLength(3));
       expect(health.primaryFaultCode, 'DIAG_COMPONENT_STALE');
@@ -94,7 +96,7 @@ void main() {
 
       expect(event.transition, FaultTransition.raised);
       expect(event.fault.component, 'motor');
-      expect(event.fault.severity, FaultSeverity.estop);
+      expect(event.fault.severity, FaultSeverity.stop);
       expect(event.fault.detail, isNotEmpty);
       expect(event.belongsInHistory, isTrue);
     });

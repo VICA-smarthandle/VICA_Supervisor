@@ -136,8 +136,23 @@ void main() {
       expect(FaultSeverity.warn.value, 1);
       expect(FaultSeverity.degraded.value, 2);
       expect(FaultSeverity.stop.value, 3);
-      expect(FaultSeverity.estop.value, 4);
-      expect(FaultSeverity.fault.value, 5);
+      expect(FaultSeverity.fault.value, 4);
+    });
+
+    test('등급 축에 비상 정지가 없다', () {
+      // E-stop은 STOP보다 심각한 등급이 아니라 종류가 다른 것입니다. 래치가 걸리고
+      // 관리자 reset이 있어야 풀립니다. 그 사실은 RobotHealthState.estopped와
+      // RobotFault.latched가 나타냅니다.
+      expect(
+        FaultSeverity.values.map((s) => s.code),
+        isNot(contains('ESTOP')),
+      );
+      expect(
+        FaultSeverity.values.map((s) => s.label),
+        isNot(contains('비상 정지')),
+      );
+      // 상태 축에는 그대로 남아 있어야 합니다.
+      expect(RobotHealthState.estopped.label, '비상 정지');
     });
 
     test('알 수 없는 값은 fault로 본다', () {
@@ -149,7 +164,7 @@ void main() {
     test('STOP 이상이 주행을 막는 등급이다', () {
       expect(FaultSeverity.degraded.blocksDriving, isFalse);
       expect(FaultSeverity.stop.blocksDriving, isTrue);
-      expect(FaultSeverity.estop.blocksDriving, isTrue);
+      expect(FaultSeverity.fault.blocksDriving, isTrue);
     });
   });
 
