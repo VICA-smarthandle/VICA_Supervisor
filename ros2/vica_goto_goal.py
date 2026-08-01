@@ -27,6 +27,9 @@ _TERMINAL_GOAL_EVENTS = {
     "goal_failed",
     "goal_rejected",
     "goal_canceled",
+    # 일시정지도 이 CLI 에게는 끝이다. 재개는 앱이나 음성으로 따로 요청하는
+    # 별도 행위이므로, 여기서 기다리면 응답 없이 멈춰 있게 된다.
+    "goal_paused",
 }
 
 
@@ -257,6 +260,12 @@ def main(argv: list[str] | None = None) -> int:
                 detail = f" reason={reason}" if reason else ""
                 node.get_logger().warn(
                     f"목적지 주행 취소: {destination_name}{detail}"
+                )
+                return 1
+            if event == "goal_paused":
+                node.get_logger().warn(
+                    f"목적지 주행 일시정지: {destination_name} "
+                    f"(다시 출발은 앱 또는 음성으로 요청하세요)"
                 )
                 return 1
             if event == "goal_rejected":

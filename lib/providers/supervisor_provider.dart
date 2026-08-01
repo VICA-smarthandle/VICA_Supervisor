@@ -8,6 +8,8 @@ import 'package:uuid/uuid.dart';
 import '../core/app_settings.dart';
 import '../core/log_filter.dart';
 import '../models/location_point.dart';
+import '../models/robot_event.dart';
+import '../models/robot_health.dart';
 import '../models/robot_status.dart';
 import '../models/supervisor_log.dart';
 import '../models/vica_map.dart';
@@ -31,7 +33,27 @@ class SupervisorProvider extends ChangeNotifier {
   static const _nav2AvailableMessage = 'Nav2가 실행되었습니다.';
   static const _noEventsRecordedReason = 'no events recorded';
 
+  // Mission Manager가 돌려주는 GateReason 코드를 화면 문구로 옮깁니다.
+  // 판정은 Mission Manager가 하고 앱은 결과를 읽기 좋게 보여주기만 합니다.
+  static const _gateReasonMessages = <String, String>{
+    'estop_active': '비상정지 상태여서 주행할 수 없습니다. 해제 후 다시 요청하세요.',
+    'busy_navigating': '이미 다른 목적지로 주행 중입니다.',
+    'private_destination': '비공개 장소는 주행을 요청할 수 없습니다.',
+    'not_approachable': '로봇이 접근할 수 없는 장소입니다.',
+    'unknown_destination': '저장되지 않은 장소입니다. 장소 목록을 새로고침하세요.',
+    'pose_invalid': '장소 좌표가 지도 범위를 벗어났습니다.',
+    'nav_not_ready': 'Nav2가 준비되지 않아 주행할 수 없습니다.',
+    'need_confirm': '목적지 확인이 필요합니다.',
+    'safety_flag': '안전 조건 때문에 주행할 수 없습니다.',
+    'no_matched_id': '목적지를 찾지 못했습니다.',
+    'not_navigate': '주행 요청으로 처리되지 않았습니다.',
+    'not_navigating': '지금은 주행 중이 아닙니다.',
+    'not_paused': '다시 출발할 주행이 없습니다.',
+  };
+
   final _uuid = const Uuid();
+  // 지도 목록 응답을 처리할 때도 자동 요청 설정이 필요해 연결에 쓴 설정을 보관합니다.
+  AppSettings? _lastSettings;
   RosBridgeClient? _client;
   RosConnectionState _connectionState = RosConnectionState.disconnected;
   String _connectionDetail = '';
@@ -49,7 +71,17 @@ class SupervisorProvider extends ChangeNotifier {
   bool _nav2UnavailableNotified = false;
   bool _nav2AvailableNotified = false;
   bool _nav2WasUnavailable = false;
-  bool _noEventsRecordedNotified = false;
+  // 마지막으로 기록한 오류 사유. 상태 topic이 같은 사유를 계속 실어 보내므로
+  // 사유가 실제로 바뀔 때만 알림을 남기기 위해 들고 있습니다.
+  String _lastLoggedErrorReason = '';
+
+  // robot_health_monitor_node가 보내는 상세 진단. /robot_status.error_reason이
+  // 문자열 한 줄인 것과 달리 컴포넌트·등급·조치·발생횟수를 담습니다.
+  RobotHealth? _health;
+  final List<RobotEvent> _healthEvents = [];
+
+  // 이벤트 이력 상한. _logs와 같은 값으로 둡니다.
+  static const _maxHealthEvents = 200;
 
   RosConnectionState get connectionState => _connectionState;
   String get connectionDetail => _connectionDetail;
@@ -62,6 +94,12 @@ class SupervisorProvider extends ChangeNotifier {
   String? get selectedLocationId => _selectedLocationId;
   LocationPoint? get draftLocation => _draftLocation;
   List<SupervisorLog> get logs => List.unmodifiable(_logs);
+
+  /// 로봇 전체 상태 요약. 아직 받지 못했으면 null입니다.
+  RobotHealth? get health => _health;
+
+  /// 결함 전이 이력. 최신이 앞입니다.
+  List<RobotEvent> get healthEvents => List.unmodifiable(_healthEvents);
   List<RobotStatus> get robots => _robotsById.values.toList(growable: false);
   RobotStatus? get primaryRobot =>
       _robotsById.isEmpty ? null : _robotsById.values.first;
@@ -84,6 +122,7 @@ class SupervisorProvider extends ChangeNotifier {
 
   // rosbridge 연결을 하나만 유지하고 필요한 topic만 구독합니다.
   Future<void> connect(AppSettings settings) async {
+    _lastSettings = settings;
     _reconnectTimer?.cancel();
     _reconnectAttempts = 0;
     _resetNav2NotificationState();
@@ -100,9 +139,19 @@ class SupervisorProvider extends ChangeNotifier {
     await _client!.connect(settings.rosBridgeUrl);
     if (_connectionState == RosConnectionState.connected) {
       _subscribeRequiredTopics(settings);
-      if (settings.autoRequestMapList) {
-        requestMapList(settings);
-      }
+      _requestSyncAfterConnect(settings);
+    }
+  }
+
+  // 연결이 끊긴 사이 VICA에서 지도나 장소가 바뀌었을 수 있으므로 둘 다 다시 받습니다.
+  // 지도 목록만 받으면 장소는 예전 것이 남아 실제 저장 내용과 어긋납니다.
+  void _requestSyncAfterConnect(AppSettings settings) {
+    if (settings.autoRequestMapList) {
+      requestMapList(settings);
+    }
+    final mapId = _selectedMapId;
+    if (settings.autoRequestLocationList && mapId != null) {
+      requestLocationList(settings, mapId);
     }
   }
 
@@ -113,6 +162,23 @@ class SupervisorProvider extends ChangeNotifier {
     final client = _client;
     _client = null;
     await client?.close();
+    _clearRobotRuntimeState();
+    notifyListeners();
+  }
+
+  // 연결이 끊기면 로봇 실시간 상태는 더 이상 현재 사실이 아니므로 비웁니다.
+  // 지도와 장소는 정적 데이터라 유지해 재연결 때 다시 받지 않아도 되게 합니다.
+  // E-stop 상태는 안전 표시이므로 앱이 임의로 지우지 않습니다.
+  void _clearRobotRuntimeState() {
+    _lastLoggedErrorReason = '';
+    _resetNav2NotificationState();
+    // 연결이 끊기면 진단도 현재 상태가 아닙니다. 이벤트 이력은 지나간 기록이므로
+    // 남겨둡니다 — 관리자가 왜 끊겼는지 되짚을 수 있어야 합니다.
+    _health = null;
+    if (_robotsById.isEmpty) {
+      return;
+    }
+    _robotsById.clear();
   }
 
   // 무한 재시도를 피하기 위해 설정된 횟수까지만 재연결합니다.
@@ -127,9 +193,7 @@ class SupervisorProvider extends ChangeNotifier {
       await _client?.connect(settings.rosBridgeUrl);
       if (_connectionState == RosConnectionState.connected) {
         _subscribeRequiredTopics(settings);
-        if (settings.autoRequestMapList) {
-          requestMapList(settings);
-        }
+        _requestSyncAfterConnect(settings);
       }
     });
   }
@@ -148,6 +212,18 @@ class SupervisorProvider extends ChangeNotifier {
       ..subscribe(
         topic: settings.emergencyStateTopic,
         handler: _handleEmergencyStopState,
+      )
+      // 커스텀 메시지는 type을 지정해 구독합니다. RosBridgeClient가 msg['data']가
+      // String이 아닌 경우 raw 필드 map을 그대로 handler에 넘깁니다.
+      ..subscribe(
+        topic: settings.robotHealthTopic,
+        handler: _handleRobotHealth,
+        type: 'vica_interfaces/msg/RobotHealth',
+      )
+      ..subscribe(
+        topic: settings.robotEventsTopic,
+        handler: _handleRobotEvent,
+        type: 'vica_interfaces/msg/RobotEvent',
       );
   }
 
@@ -369,18 +445,13 @@ class SupervisorProvider extends ChangeNotifier {
     _addLog(LogFilter.coordinateTransfer, '${location.name} 장소 삭제 요청 전송');
   }
 
+  // 앱은 vica_goto_goal, LLM과 같은 경로로 요청만 보냅니다. 지도·접근 권한·Safety·
+  // Nav2 검증과 Goal 생성은 모두 Mission Manager가 맡습니다. 앱이 가진 장소 정보는
+  // 마지막으로 받아온 사본이라 최신이 아닐 수 있어, 여기서 미리 판정하지 않습니다.
   Future<String> requestDestination(
     AppSettings settings,
     LocationPoint location,
   ) async {
-    if (location.authorization != 'public') {
-      return '비공개 목적지는 주행 요청을 보낼 수 없습니다.';
-    }
-    if (!location.isApproachable) {
-      return location.unavailableReason.isEmpty
-          ? '로봇이 접근할 수 없는 목적지입니다.'
-          : location.unavailableReason;
-    }
     final client = _client;
     if (client == null || _connectionState != RosConnectionState.connected) {
       return 'ROS Bridge에 연결되지 않았습니다.';
@@ -396,8 +467,8 @@ class SupervisorProvider extends ChangeNotifier {
         },
       );
       final message = response.message.isEmpty
-          ? (response.accepted ? '목적지 요청을 수락했습니다.' : '목적지 요청이 거부되었습니다.')
-          : response.message;
+          ? (response.accepted ? '주행 요청을 수락했습니다.' : '주행 요청이 거부되었습니다.')
+          : _localizeGateReason(response.message);
       _addLog(LogFilter.coordinateTransfer, message);
       return message;
     } catch (error) {
@@ -405,6 +476,57 @@ class SupervisorProvider extends ChangeNotifier {
       _addLog(LogFilter.coordinateTransfer, message);
       return message;
     }
+  }
+
+  // 진행 중인 주행 제어. 요청만 보내고 허용 여부는 Mission Manager가 판정합니다.
+  // 세 요청 모두 vica_interfaces/srv/MissionCommand 형태를 씁니다.
+  Future<String> cancelDestination(AppSettings settings) {
+    return _sendMissionCommand(settings.missionCancelService, '주행을 취소했습니다.');
+  }
+
+  Future<String> pauseNavigation(AppSettings settings) {
+    return _sendMissionCommand(settings.missionPauseService, '주행을 일시정지했습니다.');
+  }
+
+  Future<String> resumeNavigation(AppSettings settings) {
+    return _sendMissionCommand(settings.missionResumeService, '다시 출발합니다.');
+  }
+
+  Future<String> _sendMissionCommand(
+    String service,
+    String defaultSuccessMessage,
+  ) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return 'ROS Bridge에 연결되지 않았습니다.';
+    }
+    try {
+      final response = await client.callService(
+        service: service,
+        type: 'vica_interfaces/srv/MissionCommand',
+        args: {'request_id': _uuid.v4()},
+      );
+      final message = response.message.isEmpty
+          ? (response.accepted ? defaultSuccessMessage : '요청이 거부되었습니다.')
+          : _localizeGateReason(response.message);
+      _addLog(LogFilter.coordinateTransfer, message);
+      return message;
+    } catch (error) {
+      final message = 'Mission Manager 요청 실패: $error';
+      _addLog(LogFilter.coordinateTransfer, message);
+      return message;
+    }
+  }
+
+  // 거부 응답은 "목적지 요청 거부: private_destination"처럼 코드가 섞여 옵니다.
+  // 아는 코드면 한국어 문구로 바꾸고, 모르는 응답은 원문 그대로 보여줍니다.
+  String _localizeGateReason(String message) {
+    for (final entry in _gateReasonMessages.entries) {
+      if (message.contains(entry.key)) {
+        return entry.value;
+      }
+    }
+    return message;
   }
 
   void clearLogs(LogFilter filter) {
@@ -431,7 +553,18 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     _maps = nextMaps;
+    final hadNoSelection = _selectedMapId == null;
     _selectedMapId ??= _maps.isEmpty ? null : _maps.first.mapId;
+    // 첫 연결에서는 선택된 지도가 없어 장소를 함께 요청하지 못합니다.
+    // 지도가 처음 정해지는 이 시점에 그 지도의 장소도 받아옵니다.
+    final mapId = _selectedMapId;
+    final settings = _lastSettings;
+    if (hadNoSelection &&
+        mapId != null &&
+        settings != null &&
+        settings.autoRequestLocationList) {
+      requestLocationList(settings, mapId);
+    }
     _addLog(LogFilter.connection, '지도 목록 ${_maps.length}개 수신');
     notifyListeners();
   }
@@ -468,23 +601,34 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     _robotsById[next.robotId] = next;
-    if (next.hasError) {
-      final errorReason = next.errorReason.trim();
-      if (_isNoEventsRecorded(errorReason)) {
-        if (!_noEventsRecordedNotified) {
-          _noEventsRecordedNotified = true;
-          _addLog(LogFilter.connection, errorReason);
-        }
-      } else {
-        _addLog(LogFilter.emergencyStop, '${next.robotName}: $errorReason');
-      }
-    }
+    _logErrorReasonChange(next);
     _handleNav2StatusLog(next);
     notifyListeners();
   }
 
+  // 상태 topic은 같은 오류 사유를 주기적으로 반복해서 싣고 옵니다. 매번 기록하면
+  // 알림 목록이 같은 문구로 가득 차므로, 사유가 바뀔 때만 한 번 남깁니다.
+  void _logErrorReasonChange(RobotStatus robot) {
+    if (!robot.hasError) {
+      _lastLoggedErrorReason = '';
+      return;
+    }
+    final errorReason = robot.errorReason.trim();
+    if (errorReason == _lastLoggedErrorReason) {
+      return;
+    }
+    _lastLoggedErrorReason = errorReason;
+    if (_isNoEventsRecorded(errorReason)) {
+      // 진단 정보일 뿐 비상정지가 아니므로 연결 알림으로 분류합니다.
+      _addLog(LogFilter.connection, errorReason);
+      return;
+    }
+    _addLog(LogFilter.emergencyStop, '${robot.robotName}: $errorReason');
+  }
+
   bool _isNoEventsRecorded(String message) {
-    return message.trim().toLowerCase() == _noEventsRecordedReason;
+    // 발행 노드가 앞뒤에 다른 문구를 붙여 보내는 경우가 있어 포함 여부로 판정합니다.
+    return message.trim().toLowerCase().contains(_noEventsRecordedReason);
   }
 
   void _handleNav2StatusLog(RobotStatus robot) {
@@ -510,8 +654,59 @@ class SupervisorProvider extends ChangeNotifier {
     _nav2UnavailableNotified = false;
     _nav2AvailableNotified = false;
     _nav2WasUnavailable = false;
-    _noEventsRecordedNotified = false;
   }
+
+  // robot_health_monitor_node의 상태 요약입니다. 1 Hz로 상시 발행되므로 앱이
+  // 재접속하면 1초 안에 화면이 복원됩니다.
+  //
+  // 이 값으로 로그를 남기지 않습니다. 1 Hz로 들어오는 상태 스냅샷이라 로그에 쌓으면
+  // 초당 한 건씩 늘어납니다. 로그는 /robot/events가 담당합니다.
+  void _handleRobotHealth(Map<String, Object?> message) {
+    _health = RobotHealth.fromRosMsg(message);
+    notifyListeners();
+  }
+
+  // 결함 전이 이벤트입니다.
+  //
+  // [중요] 여기서 같은 사유를 다시 억제하지 않습니다. 로봇의 event_deduplicator가
+  // 이미 전이 시점에만 발행하므로 초당 쌓일 일이 없고, 앱에서 또 억제하면 reminder
+  // 이벤트가 사라져 오래 지속되는 결함을 관리자가 놓칩니다.
+  //
+  // /robot_status.error_reason 경로는 다릅니다. 그쪽은 10 Hz로 상시 발행되므로
+  // _logErrorReasonChange가 억제를 담당합니다. 두 경로의 억제 지점이 다릅니다.
+  void _handleRobotEvent(Map<String, Object?> message) {
+    final event = RobotEvent.fromRosMsg(message, id: _uuid.v4());
+
+    if (event.belongsInHistory) {
+      _healthEvents.insert(0, event);
+      if (_healthEvents.length > _maxHealthEvents) {
+        _healthEvents.removeRange(_maxHealthEvents, _healthEvents.length);
+      }
+    }
+
+    // 주행을 막는 등급만 기존 알림 목록에도 남깁니다. WARN·DEGRADED까지 넣으면
+    // 알림이 진단 화면과 중복되면서 정작 중요한 항목이 묻힙니다.
+    if (event.fault.severity.blocksDriving &&
+        event.transition != FaultTransition.reminder) {
+      final prefix = event.transition == FaultTransition.cleared ? '해소' : '발생';
+      _addLog(
+        LogFilter.emergencyStop,
+        '[$prefix] ${event.fault.componentLabelText}: ${event.fault.detail}',
+      );
+    }
+
+    notifyListeners();
+  }
+
+  // rosbridge 없이 화면 표시 규칙을 검증하기 위한 주입 지점입니다. 핸들러를 public으로
+  // 열지 않는 이유는 rosbridge 외의 호출자가 상태를 바꾸면 안 되기 때문입니다.
+  @visibleForTesting
+  void handleRobotHealthForTest(Map<String, Object?> message) =>
+      _handleRobotHealth(message);
+
+  @visibleForTesting
+  void handleRobotEventForTest(Map<String, Object?> message) =>
+      _handleRobotEvent(message);
 
   // /app_estop_state 주기 브로드캐스트로 오버레이 상태를 노드 실제 상태에 맞춥니다.
   // 앱이 비상정지 중에 재접속하면 이 토픽으로 활성 오버레이를 복구합니다.
@@ -564,6 +759,10 @@ class SupervisorProvider extends ChangeNotifier {
     }
     _connectionState = next;
     _connectionDetail = detail;
+    // 끊긴 뒤에도 마지막 로봇 상태가 남아 현재 상태처럼 보이던 문제를 막습니다.
+    if (next != RosConnectionState.connected) {
+      _clearRobotRuntimeState();
+    }
     _addLog(LogFilter.connection, detail);
     notifyListeners();
   }

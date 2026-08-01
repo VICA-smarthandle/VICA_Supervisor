@@ -33,7 +33,8 @@ class SettingsProvider extends ChangeNotifier {
     }
     _settings = next;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('vica_supervisor_settings', jsonEncode(next.toJson()));
+    await prefs.setString(
+        'vica_supervisor_settings', jsonEncode(next.toJson()));
     notifyListeners();
   }
 }

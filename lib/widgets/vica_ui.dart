@@ -122,6 +122,53 @@ class VicaSectionTitle extends StatelessWidget {
   }
 }
 
+// ROS 연결이 끊긴 동안 로봇 상태를 신뢰할 수 없다는 것을 화면에 알립니다.
+// 연결이 끊기면 로봇 실시간 값은 비워지므로, 빈 화면의 이유를 설명하는 역할도 합니다.
+class VicaDisconnectedNotice extends StatelessWidget {
+  const VicaDisconnectedNotice({super.key, this.detail = ''});
+
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        color: VicaColors.red.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: VicaColors.red.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.link_off, color: VicaColors.red, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'ROS 연결 안 됨',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: VicaColors.red,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  detail.isEmpty ? '로봇 상태를 받을 수 없습니다.' : detail,
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class VicaMetricCard extends StatelessWidget {
   const VicaMetricCard({
     super.key,

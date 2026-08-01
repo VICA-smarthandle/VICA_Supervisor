@@ -6,10 +6,14 @@ import '../models/robot_status.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../ros/ros_bridge_client.dart';
+import '../widgets/health_banner.dart';
 import '../widgets/vica_ui.dart';
 
 class DashboardScreen extends StatelessWidget {
-  const DashboardScreen({super.key});
+  const DashboardScreen({super.key, this.onOpenDiagnostics});
+
+  /// 상단 배너를 탭하면 시스템 진단 화면으로 보냅니다.
+  final VoidCallback? onOpenDiagnostics;
 
   static const double metricLabelFontSize = 14;
   static const double errorMetricLabelFontSize = 12;
@@ -22,8 +26,16 @@ class DashboardScreen extends StatelessWidget {
         supervisor.connectionState == RosConnectionState.connected;
     final robots = supervisor.robots;
     final moving = robots.where((robot) => robot.status == 'moving').length;
-    final errors = robots.where((robot) => robot.hasError).length;
-    final waiting = robots.where((robot) => robot.status != 'moving').length;
+    final errorRobots = robots.where((robot) => robot.hasError).length;
+    // 카드 라벨이 '오류/긴급 정지'인데 /robot_status에는 E-stop이 담기지 않습니다.
+    // 중앙 래치가 활성이면 로봇 진단에 오류가 없어도 최소 1건으로 셉니다.
+    final emergencyActive =
+        supervisor.emergencyStopState == EmergencyStopState.active;
+    final errors = emergencyActive && errorRobots == 0 ? 1 : errorRobots;
+    // 오류로 잡힌 로봇이 대기 수에 중복으로 들어가지 않게 제외합니다.
+    final waiting = robots
+        .where((robot) => robot.status != 'moving' && !robot.hasError)
+        .length;
     final robot = supervisor.primaryRobot ?? _waitingRobot();
     final metricCards = [
       VicaMetricCard(
@@ -49,7 +61,9 @@ class DashboardScreen extends StatelessWidget {
       ),
       VicaMetricCard(
         icon: Icons.warning,
-        label: '오류/긴급 정지',
+        // Flutter는 공백에서만 줄을 나눠 '오류/긴급' + '정지'로 갈라지므로
+        // 의미 단위가 유지되도록 개행 위치를 직접 지정합니다.
+        label: '오류/\n긴급 정지',
         value: errors.toString(),
         color: VicaColors.red,
         labelMaxLines: 2,
@@ -60,6 +74,10 @@ class DashboardScreen extends StatelessWidget {
     return VicaPage(
       title: '로봇 현황',
       children: [
+        if (!connected)
+          VicaDisconnectedNotice(detail: supervisor.connectionDetail),
+        // 최고 등급 결함을 한 줄로 알립니다. 결함이 없으면 아무것도 그리지 않습니다.
+        HealthBanner(onTap: onOpenDiagnostics),
         Row(
           children: [
             Expanded(

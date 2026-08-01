@@ -18,10 +18,19 @@ class AppSettings {
     this.saveLocationTopic = '/save_location',
     this.deleteLocationRequestTopic = '/delete_location_request',
     this.missionRequestService = '/vica/mission/request_destination',
+    this.missionCancelService = '/vica/mission/cancel_destination',
+    this.missionPauseService = '/vica/mission/pause_navigation',
+    this.missionResumeService = '/vica/mission/resume_navigation',
     this.robotStatusTopic = '/robot_status',
     this.emergencyActivateService = '/app_estop_activate',
     this.emergencyResetService = '/app_estop_reset',
     this.emergencyStateTopic = '/app_estop_state',
+    // robot_health_monitor_node가 내는 타입 메시지 토픽입니다. JSON String이 아니라
+    // vica_interfaces 커스텀 메시지를 rosbridge가 필드 map으로 직렬화해 보냅니다.
+    this.robotHealthTopic = '/robot/health',
+    this.robotEventsTopic = '/robot/events',
+    // /robot/health 만료. 모니터가 죽으면 마지막 상태를 현재로 쓰지 않습니다.
+    this.robotHealthTimeoutSeconds = 5,
     this.emergencyServiceTimeoutSeconds = 8,
     this.maxLogs = 200,
     this.maxReconnectAttempts = 5,
@@ -44,10 +53,17 @@ class AppSettings {
   final String saveLocationTopic;
   final String deleteLocationRequestTopic;
   final String missionRequestService;
+  // 진행 중인 주행 제어. 모두 vica_interfaces/srv/MissionCommand를 씁니다.
+  final String missionCancelService;
+  final String missionPauseService;
+  final String missionResumeService;
   final String robotStatusTopic;
   final String emergencyActivateService;
   final String emergencyResetService;
   final String emergencyStateTopic;
+  final String robotHealthTopic;
+  final String robotEventsTopic;
+  final int robotHealthTimeoutSeconds;
   final int emergencyServiceTimeoutSeconds;
   final int maxLogs;
   final int maxReconnectAttempts;
@@ -70,10 +86,16 @@ class AppSettings {
     String? saveLocationTopic,
     String? deleteLocationRequestTopic,
     String? missionRequestService,
+    String? missionCancelService,
+    String? missionPauseService,
+    String? missionResumeService,
     String? robotStatusTopic,
     String? emergencyActivateService,
     String? emergencyResetService,
     String? emergencyStateTopic,
+    String? robotHealthTopic,
+    String? robotEventsTopic,
+    int? robotHealthTimeoutSeconds,
     int? emergencyServiceTimeoutSeconds,
     int? maxLogs,
     int? maxReconnectAttempts,
@@ -99,12 +121,19 @@ class AppSettings {
           deleteLocationRequestTopic ?? this.deleteLocationRequestTopic,
       missionRequestService:
           missionRequestService ?? this.missionRequestService,
+      missionCancelService: missionCancelService ?? this.missionCancelService,
+      missionPauseService: missionPauseService ?? this.missionPauseService,
+      missionResumeService: missionResumeService ?? this.missionResumeService,
       robotStatusTopic: robotStatusTopic ?? this.robotStatusTopic,
       emergencyActivateService:
           emergencyActivateService ?? this.emergencyActivateService,
       emergencyResetService:
           emergencyResetService ?? this.emergencyResetService,
       emergencyStateTopic: emergencyStateTopic ?? this.emergencyStateTopic,
+      robotHealthTopic: robotHealthTopic ?? this.robotHealthTopic,
+      robotEventsTopic: robotEventsTopic ?? this.robotEventsTopic,
+      robotHealthTimeoutSeconds:
+          robotHealthTimeoutSeconds ?? this.robotHealthTimeoutSeconds,
       emergencyServiceTimeoutSeconds:
           emergencyServiceTimeoutSeconds ?? this.emergencyServiceTimeoutSeconds,
       maxLogs: maxLogs ?? this.maxLogs,
@@ -133,10 +162,16 @@ class AppSettings {
       'saveLocationTopic': saveLocationTopic,
       'deleteLocationRequestTopic': deleteLocationRequestTopic,
       'missionRequestService': missionRequestService,
+      'missionCancelService': missionCancelService,
+      'missionPauseService': missionPauseService,
+      'missionResumeService': missionResumeService,
       'robotStatusTopic': robotStatusTopic,
       'emergencyActivateService': emergencyActivateService,
       'emergencyResetService': emergencyResetService,
       'emergencyStateTopic': emergencyStateTopic,
+      'robotHealthTopic': robotHealthTopic,
+      'robotEventsTopic': robotEventsTopic,
+      'robotHealthTimeoutSeconds': robotHealthTimeoutSeconds,
       'emergencyServiceTimeoutSeconds': emergencyServiceTimeoutSeconds,
       'maxLogs': maxLogs,
       'maxReconnectAttempts': maxReconnectAttempts,
@@ -171,6 +206,12 @@ class AppSettings {
               defaults.deleteLocationRequestTopic,
       missionRequestService: json['missionRequestService'] as String? ??
           defaults.missionRequestService,
+      missionCancelService: json['missionCancelService'] as String? ??
+          defaults.missionCancelService,
+      missionPauseService: json['missionPauseService'] as String? ??
+          defaults.missionPauseService,
+      missionResumeService: json['missionResumeService'] as String? ??
+          defaults.missionResumeService,
       robotStatusTopic:
           json['robotStatusTopic'] as String? ?? defaults.robotStatusTopic,
       emergencyActivateService: json['emergencyActivateService'] as String? ??
@@ -179,6 +220,13 @@ class AppSettings {
           defaults.emergencyResetService,
       emergencyStateTopic: json['emergencyStateTopic'] as String? ??
           defaults.emergencyStateTopic,
+      robotHealthTopic:
+          json['robotHealthTopic'] as String? ?? defaults.robotHealthTopic,
+      robotEventsTopic:
+          json['robotEventsTopic'] as String? ?? defaults.robotEventsTopic,
+      robotHealthTimeoutSeconds:
+          (json['robotHealthTimeoutSeconds'] as num?)?.toInt() ??
+              defaults.robotHealthTimeoutSeconds,
       emergencyServiceTimeoutSeconds:
           (json['emergencyServiceTimeoutSeconds'] as num?)?.toInt() ??
               defaults.emergencyServiceTimeoutSeconds,

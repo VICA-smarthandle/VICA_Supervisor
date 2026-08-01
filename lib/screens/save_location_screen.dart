@@ -36,6 +36,9 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
 
   Offset? _pickedRos;
   String? _deleteTargetId;
+  // 임시 저장 장소를 수정하는 중이면 그 id를 들고 있습니다. 새로 저장할 때 id가
+  // 바뀌면 같은 장소가 둘로 늘어나므로, 수정 중에는 기존 id를 그대로 씁니다.
+  String? _editingLocationId;
   String? _category1;
   String? _category2;
   String _authorization = 'public';
@@ -65,7 +68,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
         draft ?? (map == null ? null : _previewLocation(map.mapId));
 
     return VicaPage(
-      title: '목적지 저장',
+      title: '장소 저장',
       children: [
         Row(
           children: [
@@ -150,7 +153,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                   children: [
                     Expanded(
                       child: Text(
-                        '저장 목적지',
+                        '저장 장소',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ),
@@ -163,7 +166,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                 const SizedBox(height: 14),
                 DropdownButtonFormField<String>(
                   initialValue: deleteTarget?.locationId,
-                  decoration: const InputDecoration(labelText: '목적지 선택'),
+                  decoration: const InputDecoration(labelText: '장소 선택'),
                   items: locations
                       .map(
                         (location) => DropdownMenuItem(
@@ -180,16 +183,28 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                       ? null
                       : () => supervisor.deleteLocation(settings, deleteTarget),
                   icon: const Icon(Icons.delete_outline),
-                  label: const Text('선택 목적지 삭제'),
+                  label: const Text('선택 장소 삭제'),
                 ),
                 if (draft != null) ...[
                   const SizedBox(height: 14),
                   _DraftSummary(location: draft),
                   const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () => _editDraft(
+                      context,
+                      supervisor,
+                      draft,
+                      map.mapId,
+                      locations,
+                    ),
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('임시 저장 장소 수정'),
+                  ),
+                  const SizedBox(height: 10),
                   FilledButton.icon(
                     onPressed: () => supervisor.saveDraftLocation(settings),
                     icon: const Icon(Icons.cloud_upload),
-                    label: const Text('ROS2에 목적지 저장'),
+                    label: const Text('ROS2에 장소 저장'),
                   ),
                 ],
               ],
@@ -250,7 +265,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                           ),
                           const SizedBox(height: 18),
                           Text(
-                            '목적지 정보 입력',
+                            '장소 정보 입력',
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
                           const SizedBox(height: 10),
@@ -262,7 +277,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                           const SizedBox(height: 12),
                           _requiredTextField(
                             controller: _nameController,
-                            label: '목적지 이름',
+                            label: '장소 이름',
                             hint: '예: 별빛관 1층 화장실',
                           ),
                           const SizedBox(height: 10),
@@ -270,7 +285,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                             controller: _aliasesController,
                             maxLines: 2,
                             decoration: const InputDecoration(
-                              labelText: '다른 이름',
+                              labelText: '별칭',
                               hintText: '예: 별빛관 화장실, 1층 화장실, 화장실',
                               helperText: '쉼표 또는 줄바꿈으로 구분합니다.',
                             ),
@@ -452,8 +467,16 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                                     _saveDraft(supervisor, mapId);
                                     Navigator.of(sheetContext).pop();
                                   },
-                            icon: const Icon(Icons.add_location_alt),
-                            label: const Text('목적지 임시 저장'),
+                            icon: Icon(
+                              _editingLocationId == null
+                                  ? Icons.add_location_alt
+                                  : Icons.save_outlined,
+                            ),
+                            label: Text(
+                              _editingLocationId == null
+                                  ? '장소 임시 저장'
+                                  : '수정 내용 저장',
+                            ),
                           ),
                           const SizedBox(height: 10),
                           OutlinedButton.icon(
@@ -525,7 +548,8 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     final name = _nameController.text.trim();
     supervisor.setDraftLocation(
       LocationPoint(
-        locationId: _uuid.v4(),
+        // 수정 중이면 기존 id를 유지해야 같은 장소로 갱신됩니다.
+        locationId: _editingLocationId ?? _uuid.v4(),
         mapId: mapId,
         name: name,
         aliases: _parseAliases(name),
@@ -545,6 +569,43 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
         arrivalMessage: '$name 앞에 도착했습니다.',
       ),
     );
+  }
+
+  // 임시 저장된 장소를 다시 편집합니다. 입력 폼은 임시 저장 직후 비워지므로
+  // 시트를 열기 전에 이전 값을 그대로 되돌려 놓습니다.
+  Future<void> _editDraft(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    LocationPoint draft,
+    String mapId,
+    List<LocationPoint> locations,
+  ) async {
+    _loadDraftIntoForm(draft);
+    await _showLocationInfoSheet(context, supervisor, mapId, locations);
+    if (mounted) {
+      _clearPickedLocation();
+    }
+  }
+
+  void _loadDraftIntoForm(LocationPoint draft) {
+    _nameController.text = draft.name;
+    // aliases에는 이름 자신도 들어 있으므로 입력란에는 나머지만 보여줍니다.
+    _aliasesController.text =
+        draft.aliases.where((alias) => alias != draft.name).join(', ');
+    _buildingController.text = draft.building;
+    _floorController.text = draft.floor.toString();
+    _ownerController.text = draft.owner;
+    _unavailableReasonController.text = draft.unavailableReason;
+    setState(() {
+      _editingLocationId = draft.locationId;
+      _category1 = draft.category1.isEmpty ? null : draft.category1;
+      _category2 = draft.category2.isEmpty ? null : draft.category2;
+      _authorization = draft.authorization;
+      _isApproachable = draft.isApproachable;
+      _yawDirection = _directionFromYaw(draft.yaw);
+      // 좌표가 있어야 시트의 저장 버튼이 활성화됩니다.
+      _pickedRos = Offset(draft.x, draft.y);
+    });
   }
 
   List<String> _parseAliases(String name) {
@@ -570,11 +631,28 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     _authorization = 'public';
     _isApproachable = true;
     _yawDirection = '우측';
+    _editingLocationId = null;
   }
 
   void _clearPickedLocation() {
     _resetLocationInput();
     setState(() => _pickedRos = null);
+  }
+
+  // _yawFromDirection의 역변환. 저장된 각도를 가장 가까운 방향으로 되돌립니다.
+  String _directionFromYaw(double yaw) {
+    final normalized = yaw % 360.0;
+    final degrees = normalized < 0 ? normalized + 360.0 : normalized;
+    if (degrees >= 45 && degrees < 135) {
+      return '앞';
+    }
+    if (degrees >= 135 && degrees < 225) {
+      return '좌측';
+    }
+    if (degrees >= 225 && degrees < 315) {
+      return '뒤';
+    }
+    return '우측';
   }
 
   double _yawFromDirection(String direction) {
@@ -609,7 +687,7 @@ class _DraftSummary extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('임시 저장된 목적지', style: Theme.of(context).textTheme.titleMedium),
+          Text('임시 저장된 장소', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 6),
           Text('이름: ${location.name}'),
           Text(
@@ -617,7 +695,7 @@ class _DraftSummary extends StatelessWidget {
             '${destinationSubcategoryLabel(location.category1, location.category2)}',
           ),
           if (location.aliases.isNotEmpty)
-            Text('다른 이름: ${location.aliases.join(', ')}'),
+            Text('별칭: ${location.aliases.join(', ')}'),
           Text('건물/층: ${location.building} / ${location.floor}층'),
           Text('접근 권한: ${location.authorization}'),
           Text('로봇 접근: ${location.isApproachable}'),

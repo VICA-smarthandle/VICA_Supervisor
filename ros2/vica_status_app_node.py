@@ -49,6 +49,17 @@ from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 
 
+# error_reason의 원천. error_source 파라미터가 고릅니다.
+ERROR_SOURCE_DIAGNOSTICS = "diagnostics"
+ERROR_SOURCE_HEALTH = "health"
+ERROR_SOURCES = (ERROR_SOURCE_DIAGNOSTICS, ERROR_SOURCE_HEALTH)
+
+# vica_interfaces/msg/RobotFault.msg의 SEVERITY_STOP과 같은 값입니다.
+# RobotHealth를 import하지 않는 diagnostics 모드에서도 이 파일이 동작해야 하므로
+# 여기에 다시 적습니다. 값이 바뀌면 함께 바꿔야 합니다.
+HEALTH_SEVERITY_STOP = 3
+
+
 class VicaStatusAppNode(Node):
     """VICA 내부 ROS2 상태를 앱 화면에서 쓰기 쉬운 단일 JSON 메시지로 변환합니다."""
 
@@ -68,6 +79,36 @@ class VicaStatusAppNode(Node):
         # 위치를 매끄럽게 보여주기 위해 기본 10Hz로 발행합니다.
         self.declare_parameter("publish_period_sec", 0.1)
         self.declare_parameter("nav2_data_timeout_sec", 3.0)
+        # 구독 입력별 만료 시간. 발행이 끊긴 값을 현재 상태로 쓰지 않기 위한 기준입니다.
+        self.declare_parameter("odom_timeout_sec", 3.0)
+        self.declare_parameter("diagnostics_timeout_sec", 5.0)
+        # goal 종료 이벤트를 놓쳐도 moving에 영원히 갇히지 않도록 하는 안전망입니다.
+        # 0 이하면 만료를 쓰지 않습니다. 정상 주행이 이보다 길면 값을 늘리세요.
+        self.declare_parameter("goal_event_timeout_sec", 600.0)
+        # 오류 표시 떨림 억제. ERROR가 set_delay 동안 이어질 때만 오류로 확정하고,
+        # 사라진 뒤에도 clear_delay 동안은 유지해 0↔1 깜빡임을 막습니다.
+        self.declare_parameter("error_set_delay_sec", 1.0)
+        self.declare_parameter("error_clear_delay_sec", 2.0)
+
+        # error_reason을 어디서 만들지 고릅니다.
+        #
+        #   "diagnostics" (기본) : /diagnostics를 직접 읽어 판정합니다. 현재 동작입니다
+        #   "health"             : vica_system_monitor의 /robot/health를 씁니다
+        #
+        # 기본값을 현재 동작으로 두는 이유:
+        #   1. 병합·빌드해도 거동이 바뀌지 않습니다. 전환은 Jetson에서 파라미터 한 줄로
+        #      A/B한 뒤 별도 커밋으로 기본값을 바꿉니다.
+        #   2. "health" 모드는 vica_interfaces의 RobotHealth를 필요로 합니다. 무조건
+        #      import하면 그 메시지를 빌드하지 않은 환경에서 노드가 기동 실패합니다.
+        #      아래에서 이 모드일 때만 import합니다.
+        #
+        # health 모드가 /diagnostics 판정과 다른 점:
+        #   - 판정 지점이 로봇 쪽 robot_health_monitor_node 하나로 모입니다
+        #   - 앱 화면과 error_reason이 같은 근거를 씁니다
+        #   - 컴포넌트·등급·조치 문구를 로봇이 결정합니다
+        self.declare_parameter("error_source", "diagnostics")
+        # /robot/health 만료. 모니터가 죽으면 마지막 상태를 현재로 쓰지 않습니다.
+        self.declare_parameter("health_timeout_sec", 5.0)
         self.declare_parameter("moving_linear_threshold", 0.03)
         self.declare_parameter("moving_angular_threshold", 0.05)
         # TF 프레임. vica_nav2 설정 기준: global=map, base=base_footprint.
@@ -83,19 +124,45 @@ class VicaStatusAppNode(Node):
         self.map_frame = str(self.get_parameter("map_frame").value)
         self.base_frame = str(self.get_parameter("base_frame").value)
 
+        # 알 수 없는 값을 조용히 기본값으로 흡수하지 않습니다. 오타를 흡수하면 왜 원천이
+        # 바뀌지 않는지 찾기 어렵습니다.
+        self.error_source = str(self.get_parameter("error_source").value).strip()
+        if self.error_source not in ERROR_SOURCES:
+            self.get_logger().error(
+                f"error_source '{self.error_source}'는 허용되지 않습니다. "
+                f"허용: {', '.join(ERROR_SOURCES)}. "
+                f"{ERROR_SOURCE_DIAGNOSTICS}로 진행합니다."
+            )
+            self.error_source = ERROR_SOURCE_DIAGNOSTICS
+
+        # 구독 입력의 나이는 모두 monotonic 기준으로 잽니다. 시스템 시계가 바뀌어도
+        # 만료 판정이 흔들리지 않게 하기 위해서입니다(표시용 timestamp만 wall clock).
         # /odom은 주로 twist 속도(실제 움직임 여부)와 TF 미확보 시 fallback pose에 씁니다.
         self.latest_odom: Odometry | None = None
+        self.last_odom_time: float | None = None
 
         # TF에서 읽은 map frame 기준 현재 pose (x, y, yaw_deg).
         self.tf_pose: tuple[float, float, float] | None = None
-        self.last_tf_time: datetime | None = None
+        self.last_tf_time: float | None = None
 
         # diagnostics는 오류/대기 사유 문자열을 만들 때만 사용합니다.
-        self.latest_diagnostics: DiagnosticArray | None = None
+        # /diagnostics는 여러 노드가 함께 쓰는 공용 topic이고 각 메시지는 그 발행자의
+        # 상태만 담습니다. 마지막 메시지 하나만 들고 있으면 ERROR를 가진 발행자와
+        # 정상 발행자가 번갈아 도착할 때 오류 표시가 깜빡이므로, 항목별로 누적합니다.
+        # key -> (수신 monotonic 시각, level, message)
+        self._diagnostics_by_key: dict[str, tuple[float, int, str]] = {}
 
-        # vica_goto_goal이 목표를 보내면 /vica_goal_event로 목적지 이름이 들어옵니다.
+        # 떨림 억제를 거쳐 확정된 오류 사유와 그 전이 시각.
+        self._latched_error_reason = ""
+        self._error_seen_since: float | None = None
+        self._error_cleared_since: float | None = None
+
+        # Mission Manager가 목표를 보내면 /vica_goal_event로 목적지 이름이 들어옵니다.
         self.current_goal = ""
         self.navigation_active = False
+        # 일시정지 여부. 목적지를 기억한 채 멈춘 상태라 그냥 대기와 구분해서 보여준다.
+        self.navigation_paused = False
+        self._navigation_active_since: float | None = None
         self.missing_map_yaml_warned = False
 
         # map_server yaml_filename 자동 감지 상태.
@@ -131,6 +198,9 @@ class VicaStatusAppNode(Node):
             String, "/vica_goal_event", self.handle_goal_event, 10
         )
 
+        # health 모드일 때만 /robot/health를 구독합니다.
+        self._setup_health_source()
+
         period = float(self.get_parameter("publish_period_sec").value)
         self.timer = self.create_timer(period, self.publish_status)
 
@@ -145,7 +215,8 @@ class VicaStatusAppNode(Node):
 
         self.get_logger().info(
             f"vica_status_app_node ready: TF {self.map_frame}->{self.base_frame}, "
-            f"publish {1.0 / period:.0f}Hz, map auto-detect via {map_server_node}"
+            f"publish {1.0 / period:.0f}Hz, map auto-detect via {map_server_node}, "
+            f"error_source={self.error_source}"
         )
 
     # ------------------------------------------------------------------
@@ -153,9 +224,26 @@ class VicaStatusAppNode(Node):
     # ------------------------------------------------------------------
     def handle_odom(self, msg: Odometry) -> None:
         self.latest_odom = msg
+        self.last_odom_time = time.monotonic()
 
     def handle_diagnostics(self, msg: DiagnosticArray) -> None:
-        self.latest_diagnostics = msg
+        """발행자별 진단 항목을 누적합니다(마지막 메시지로 덮어쓰지 않습니다).
+
+        /diagnostics는 여러 노드가 공유하는 topic이라 한 메시지에는 그 발행자의
+        상태만 들어 있습니다. 항목 단위로 보관해야 서로 다른 발행자의 상태가
+        번갈아 도착해도 오류 판정이 흔들리지 않습니다.
+        """
+        now = time.monotonic()
+        for status in msg.status:
+            key = status.name or status.hardware_id
+            if not key:
+                # 이름이 없는 항목은 서로 구분할 수 없어 누적 대상에서 제외합니다.
+                continue
+            self._diagnostics_by_key[key] = (
+                now,
+                self._diagnostic_level(status.level),
+                status.message or status.name,
+            )
 
     def handle_goal_event(self, msg: String) -> None:
         """vica_goto_goal의 목적지 이벤트를 받아 앱의 현재 목적지로 표시합니다.
@@ -176,6 +264,14 @@ class VicaStatusAppNode(Node):
                 payload.get("name") or payload.get("destination") or ""
             )
             self.navigation_active = True
+            self.navigation_paused = False
+            self._navigation_active_since = time.monotonic()
+        elif event == "goal_paused":
+            # 일시정지는 목적지를 기억한 채 멈춘 상태다. current_goal 을 지우면
+            # 앱이 재개할 목적지를 보여줄 수 없으므로 그대로 둔다.
+            self.navigation_active = False
+            self.navigation_paused = True
+            self._navigation_active_since = None
         elif event in {
             "goal_succeeded",
             "goal_failed",
@@ -185,6 +281,8 @@ class VicaStatusAppNode(Node):
         }:
             self.current_goal = ""
             self.navigation_active = False
+            self.navigation_paused = False
+            self._navigation_active_since = None
 
     # ------------------------------------------------------------------
     # map yaml 자동 감지
@@ -215,14 +313,16 @@ class VicaStatusAppNode(Node):
         if not response or not response.values:
             return
         value = response.values[0]
-        # 비어 있지 않은 yaml_filename을 받으면 확정하고 조회를 멈춥니다.
+        # 비어 있지 않은 yaml_filename만 반영합니다.
         # (map_server 구성 직후 잠깐 빈 문자열이 올 수 있어 non-empty일 때만 확정)
+        #
+        # 첫 감지 뒤에도 조회를 계속합니다. 지도작성 후 새 지도를 올리거나 map_server가
+        # 다른 지도로 재시작하면 map_id가 바뀌어야 하는데, 여기서 멈추면 예전 map_id가
+        # 남아 장소 조회(destinations.yaml) 경로까지 어긋나기 때문입니다.
         if value.type == ParameterType.PARAMETER_STRING and value.string_value:
-            self.detected_map_yaml = value.string_value
-            self.get_logger().info(f"map yaml 자동 감지: {self.detected_map_yaml}")
-            if self.map_poll_timer is not None:
-                self.map_poll_timer.cancel()
-                self.map_poll_timer = None
+            if value.string_value != self.detected_map_yaml:
+                self.detected_map_yaml = value.string_value
+                self.get_logger().info(f"map yaml 감지: {self.detected_map_yaml}")
 
     # ------------------------------------------------------------------
     # TF 위치 조회
@@ -245,7 +345,7 @@ class VicaStatusAppNode(Node):
             rotation.x, rotation.y, rotation.z, rotation.w
         )
         self.tf_pose = (float(translation.x), float(translation.y), yaw)
-        self.last_tf_time = datetime.now()
+        self.last_tf_time = time.monotonic()
 
     # ------------------------------------------------------------------
     # 상태 발행
@@ -257,7 +357,7 @@ class VicaStatusAppNode(Node):
         map_id = self._current_map_id()
         x, y, yaw, linear_x, angular_z = self._read_pose_values()
         nav2_pose_available = self._nav2_pose_available()
-        error_reason = self._diagnostic_reason(min_level=2)
+        error_reason = self._stable_error_reason()
         waiting_reason = self._waiting_reason(
             linear_x, angular_z, error_reason, nav2_pose_available
         )
@@ -302,9 +402,12 @@ class VicaStatusAppNode(Node):
         위치는 TF(map frame)를 우선하고, 아직 없으면 /odom pose를 fallback으로 씁니다.
         속도는 항상 /odom.twist에서 읽습니다.
         """
+        # 발행이 끊긴 /odom의 마지막 속도를 계속 쓰면 로봇이 멈춘 뒤에도 moving으로
+        # 남을 수 있어, 만료된 odom은 아예 없는 것으로 취급합니다.
+        odom_fresh = self._odom_fresh()
         linear_x = 0.0
         angular_z = 0.0
-        if self.latest_odom is not None:
+        if odom_fresh and self.latest_odom is not None:
             twist = self.latest_odom.twist.twist
             linear_x = float(twist.linear.x)
             angular_z = float(twist.angular.z)
@@ -313,7 +416,7 @@ class VicaStatusAppNode(Node):
             x, y, yaw = self.tf_pose
             return x, y, yaw, linear_x, angular_z
 
-        if self.latest_odom is None:
+        if not odom_fresh or self.latest_odom is None:
             return 0.0, 0.0, 0.0, 0.0, 0.0
 
         pose = self.latest_odom.pose.pose
@@ -336,8 +439,39 @@ class VicaStatusAppNode(Node):
         if self.tf_pose is None or self.last_tf_time is None:
             return False
         timeout_sec = float(self.get_parameter("nav2_data_timeout_sec").value)
-        age = (datetime.now() - self.last_tf_time).total_seconds()
-        return age <= timeout_sec
+        return (time.monotonic() - self.last_tf_time) <= timeout_sec
+
+    def _odom_fresh(self) -> bool:
+        """/odom이 만료 시간 안에 갱신되고 있는지 확인합니다."""
+        if self.latest_odom is None or self.last_odom_time is None:
+            return False
+        timeout_sec = float(self.get_parameter("odom_timeout_sec").value)
+        return (time.monotonic() - self.last_odom_time) <= timeout_sec
+
+    def _is_navigation_active(self) -> bool:
+        """goal 종료 이벤트를 놓쳤을 때 moving에 갇히지 않도록 만료를 적용합니다.
+
+        Mission Manager는 종료 이벤트를 빠짐없이 발행하지만, 메시지 유실이나 이 노드의
+        재시작(기본 QoS는 VOLATILE이라 과거 이벤트를 다시 받지 못함)으로 시작 이벤트만
+        관측된 채 남을 수 있어 안전망을 둡니다. 만료 뒤에도 실제로 움직이고 있으면
+        속도 기준으로 moving 판정이 유지됩니다.
+        """
+        if not self.navigation_active:
+            return False
+        timeout_sec = float(self.get_parameter("goal_event_timeout_sec").value)
+        if timeout_sec <= 0.0:
+            return True
+        if self._navigation_active_since is None:
+            return True
+        if (time.monotonic() - self._navigation_active_since) <= timeout_sec:
+            return True
+        self.get_logger().warn(
+            f"goal 종료 이벤트를 {timeout_sec:.0f}초 동안 받지 못해 주행 상태를 해제합니다."
+        )
+        self.navigation_active = False
+        self._navigation_active_since = None
+        self.current_goal = ""
+        return False
 
     def _quaternion_to_yaw_degrees(
         self, x: float, y: float, z: float, w: float
@@ -360,7 +494,7 @@ class VicaStatusAppNode(Node):
             return "error"
         if not nav2_pose_available:
             return "waiting"
-        if self.navigation_active:
+        if self._is_navigation_active():
             return "moving"
         if self._is_moving(linear_x, angular_z):
             return "moving"
@@ -373,14 +507,140 @@ class VicaStatusAppNode(Node):
         return abs(linear_x) >= linear_threshold or abs(angular_z) >= angular_threshold
 
     def _diagnostic_reason(self, min_level: int) -> str:
-        """diagnostics에서 min_level(ERROR=2) 이상의 첫 메시지를 오류 문자열로 만듭니다."""
-        if self.latest_diagnostics is None:
+        """누적된 진단 항목 중 min_level(ERROR=2) 이상인 사유를 하나 고릅니다.
+
+        만료된 항목은 먼저 버립니다. 조건을 만족하는 항목이 여럿이면 key 사전순으로
+        하나를 고정해 고릅니다 — 도착 순서에 따라 표시 문구가 바뀌지 않게 하기 위해서입니다.
+        """
+        now = time.monotonic()
+        timeout_sec = float(self.get_parameter("diagnostics_timeout_sec").value)
+        expired = [
+            key
+            for key, (seen_at, _, _) in self._diagnostics_by_key.items()
+            if (now - seen_at) > timeout_sec
+        ]
+        for key in expired:
+            del self._diagnostics_by_key[key]
+
+        matched = sorted(
+            key
+            for key, (_, level, _) in self._diagnostics_by_key.items()
+            if level >= min_level
+        )
+        if not matched:
             return ""
-        for status in self.latest_diagnostics.status:
-            level = self._diagnostic_level(status.level)
-            if level >= min_level:
-                return status.message or status.name
-        return ""
+        return self._diagnostics_by_key[matched[0]][2]
+
+    # ------------------------------------------------------------------
+    # 오류 사유 원천 (error_source 파라미터가 고릅니다)
+    # ------------------------------------------------------------------
+    def _setup_health_source(self) -> None:
+        """error_source가 health일 때만 /robot/health를 구독합니다.
+
+        RobotHealth import를 이 모드에서만 하는 이유: vica_interfaces를 빌드하지 않은
+        환경에서 노드가 기동 실패하면 안 됩니다. 기본값이 diagnostics이므로 기존 배포는
+        영향을 받지 않습니다.
+
+        import에 실패하면 오류를 로그로 남기고 diagnostics 모드로 되돌립니다. 감시 표시가
+        조금 나빠지는 것이 노드가 죽는 것보다 낫습니다.
+        """
+        self.latest_health = None
+        self.last_health_time: float | None = None
+
+        if self.error_source != ERROR_SOURCE_HEALTH:
+            return
+
+        try:
+            from vica_interfaces.msg import RobotHealth
+        except ImportError as exc:
+            self.get_logger().error(
+                f"error_source=health인데 vica_interfaces.msg.RobotHealth를 "
+                f"import할 수 없습니다: {exc}. diagnostics 모드로 되돌립니다. "
+                f"vica_ros2_ws에서 vica_interfaces를 빌드하고 source하세요."
+            )
+            self.error_source = ERROR_SOURCE_DIAGNOSTICS
+            return
+
+        self.create_subscription(RobotHealth, "/robot/health", self.handle_health, 10)
+        self.get_logger().info(
+            "error_source=health: /robot/health를 오류 사유의 원천으로 씁니다"
+        )
+
+    def handle_health(self, msg: Any) -> None:
+        """robot_health_monitor_node의 요약을 보관합니다."""
+        self.latest_health = msg
+        self.last_health_time = time.monotonic()
+
+    def _raw_error_reason(self) -> str:
+        """error_source에 따라 오류 사유 원문을 만듭니다.
+
+        지연 필터(_stable_error_reason)는 두 모드가 공유합니다. health 모드에서도 모니터가
+        간헐적으로 등급을 바꿀 수 있으므로 그 방어는 유지하는 편이 안전합니다.
+        """
+        if self.error_source == ERROR_SOURCE_HEALTH:
+            return self._health_error_reason()
+        return self._diagnostic_reason(min_level=2)
+
+    def _health_error_reason(self) -> str:
+        """/robot/health에서 오류 사유를 만듭니다.
+
+        임계를 SEVERITY_STOP 이상으로 두는 이유: _status()가 error_reason이 있으면
+        "error"를 반환합니다. WARN이나 DEGRADED로 임계를 낮추면 경고 하나로 앱 상태가
+        error로 뒤집힙니다. 그 등급은 앱의 시스템 진단 화면이 따로 보여줍니다.
+
+        만료를 적용해 모니터가 죽은 뒤 마지막 상태를 현재로 쓰지 않습니다.
+        """
+        health = self.latest_health
+        if health is None or self.last_health_time is None:
+            return ""
+
+        timeout = float(self.get_parameter("health_timeout_sec").value)
+        if timeout > 0.0 and (time.monotonic() - self.last_health_time) > timeout:
+            return ""
+
+        if int(health.highest_severity) < HEALTH_SEVERITY_STOP:
+            return ""
+
+        primary = str(health.primary_fault_code)
+        for fault in health.active_faults:
+            if str(fault.fault_code) != primary:
+                continue
+            detail = str(fault.detail).strip()
+            if detail:
+                return detail
+            return primary
+        return primary
+
+    def _stable_error_reason(self) -> str:
+        """오류 사유에 지연을 적용해 짧은 깜빡임을 걸러냅니다.
+
+        ERROR가 set_delay 동안 이어질 때만 오류로 확정하고, 사라진 뒤에도 clear_delay
+        동안은 직전 사유를 유지합니다. 진단 누적만으로 대부분의 떨림은 사라지지만,
+        발행자 자신이 ERROR를 간헐적으로 낼 때를 대비한 2차 방어입니다.
+        """
+        raw_reason = self._raw_error_reason()
+        now = time.monotonic()
+        set_delay = float(self.get_parameter("error_set_delay_sec").value)
+        clear_delay = float(self.get_parameter("error_clear_delay_sec").value)
+
+        if raw_reason:
+            self._error_cleared_since = None
+            if self._error_seen_since is None:
+                self._error_seen_since = now
+            # 이미 오류로 확정된 뒤에는 최신 사유를 그대로 반영합니다.
+            if self._latched_error_reason or (now - self._error_seen_since) >= set_delay:
+                self._latched_error_reason = raw_reason
+            return self._latched_error_reason
+
+        self._error_seen_since = None
+        if not self._latched_error_reason:
+            return ""
+        if self._error_cleared_since is None:
+            self._error_cleared_since = now
+        if (now - self._error_cleared_since) >= clear_delay:
+            self._latched_error_reason = ""
+            self._error_cleared_since = None
+        return self._latched_error_reason
 
     def _diagnostic_level(self, level: Any) -> int:
         """diagnostic level이 int/bytes/str 중 어떤 형태로 와도 숫자로 변환합니다."""
@@ -404,9 +664,12 @@ class VicaStatusAppNode(Node):
             return ""
         if not nav2_pose_available:
             return "Nav2/AMCL 미실행"
-        if self.latest_odom is None:
+        if not self._odom_fresh():
             return "위치 데이터 수신 대기"
-        if self.navigation_active:
+        # 목적지를 기억한 채 멈춘 상태는 그냥 대기와 구분해서 알려준다.
+        if self.navigation_paused:
+            return "일시정지"
+        if self._is_navigation_active():
             return ""
         if self._is_moving(linear_x, angular_z):
             return ""
