@@ -46,11 +46,18 @@ class _CurrentLocationScreenState extends State<CurrentLocationScreen> {
           child: DropdownButtonFormField<String>(
             initialValue: robot?.robotId,
             decoration: _compactDropdownDecoration,
+            // isExpanded가 없으면 드롭다운이 로봇 이름의 원래 폭을 그대로 요구해
+            // 좁은 창에서 카드 밖으로 179px까지 삐져나갔습니다.
+            isExpanded: true,
             items: robots
                 .map(
                   (item) => DropdownMenuItem(
                     value: item.robotId,
-                    child: Text(item.robotName),
+                    child: Text(
+                      item.robotName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 )
                 .toList(),
@@ -84,16 +91,16 @@ class _CurrentLocationScreenState extends State<CurrentLocationScreen> {
                 Text(robot.robotName,
                     style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 14),
-                _Info(label: 'x', value: robot.x.toStringAsFixed(3)),
-                _Info(label: 'y', value: robot.y.toStringAsFixed(3)),
-                _Info(label: 'yaw', value: robot.yaw.toStringAsFixed(2)),
-                _Info(label: 'map_id', value: robot.mapId),
-                _Info(label: '현재 위치명', value: robot.currentLocation),
-                _Info(label: '목적지', value: robot.currentGoal),
-                _Info(label: '주행 상태', value: robot.status),
-                _Info(label: '오류 사유', value: robot.errorReason),
-                _Info(label: '대기 사유', value: robot.waitingReason),
-                _Info(
+                VicaInfoRow(label: 'x', value: robot.x.toStringAsFixed(3)),
+                VicaInfoRow(label: 'y', value: robot.y.toStringAsFixed(3)),
+                VicaInfoRow(label: 'yaw', value: robot.yaw.toStringAsFixed(2)),
+                VicaInfoRow(label: 'map_id', value: robot.mapId),
+                VicaInfoRow(label: '현재 위치명', value: robot.currentLocation),
+                VicaInfoRow(label: '목적지', value: robot.currentGoal),
+                VicaInfoRow(label: '주행 상태', value: robot.status),
+                VicaInfoRow(label: '오류 사유', value: robot.errorReason),
+                VicaInfoRow(label: '대기 사유', value: robot.waitingReason),
+                VicaInfoRow(
                   label: '마지막 수신',
                   value: robot.timestamp.toLocal().toString(),
                 ),
@@ -123,32 +130,5 @@ class _CurrentLocationScreenState extends State<CurrentLocationScreen> {
       }
     }
     return null;
-  }
-}
-
-class _Info extends StatelessWidget {
-  const _Info({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
-          ),
-          Expanded(child: Text(value.isEmpty ? '-' : value)),
-        ],
-      ),
-    );
   }
 }

@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../core/layout_breakpoints.dart';
 import '../models/robot_status.dart';
 import '../models/supervisor_log.dart';
 
@@ -36,7 +37,8 @@ class VicaPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final horizontalPadding = constraints.maxWidth >= 900 ? 32.0 : 24.0;
+        final horizontalPadding =
+            VicaBreakpoints.horizontalPadding(constraints.maxWidth);
         return ListView(
           padding: EdgeInsets.fromLTRB(
             horizontalPadding,
@@ -48,7 +50,9 @@ class VicaPage extends StatelessWidget {
             Align(
               alignment: Alignment.topCenter,
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1280),
+                constraints: const BoxConstraints(
+                  maxWidth: VicaBreakpoints.contentMaxWidth,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -180,6 +184,12 @@ class VicaMetricCard extends StatelessWidget {
     this.labelFontSize = 12,
   });
 
+  /// 글자 배율 1.0에서 카드 한 장이 차지하는 높이입니다.
+  ///
+  /// 카드를 놓는 쪽이 이 값을 배율에 맞춰 늘려야 합니다. 고정 높이로 두면 배율을
+  /// 올린 기기에서 카드 아래가 잘립니다.
+  static const double baseHeight = 116;
+
   final IconData icon;
   final String label;
   final String value;
@@ -210,11 +220,20 @@ class VicaMetricCard extends StatelessWidget {
                       ),
                 ),
                 const SizedBox(height: 3),
-                Text(
-                  value,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontSize: 25,
-                      ),
+                // 카드가 좁아지면 두 자리 숫자가 두 줄로 접혀 카드 아래로 넘쳤습니다.
+                // 숫자는 줄을 바꾸지 않고 자리에 맞게 줄어들게 합니다. 지표는 한눈에
+                // 읽는 값이라 말줄임표로 자르면 뜻이 사라집니다.
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    maxLines: 1,
+                    softWrap: false,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          fontSize: 25,
+                        ),
+                  ),
                 ),
               ],
             ),
@@ -269,51 +288,167 @@ class VicaRobotCard extends StatelessWidget {
             const _IconBox(
                 icon: Icons.smart_toy, color: VicaColors.primaryDark),
             const SizedBox(width: 14),
+            // Wrap은 자식에게 폭 제한을 물려주지 않아 긴 문구가 그대로 카드 밖으로
+            // 나갔습니다. 실제로 쓸 수 있는 폭을 재서 각 항목에 직접 넘깁니다.
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final contentWidth = constraints.maxWidth;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Text(
-                          robot.robotName,
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
+                      // 로봇 이름이 길고 창이 좁으면 이름과 배지가 한 줄에 못 들어갑니다.
+                      // Wrap으로 두어 그럴 때 배지가 다음 줄로 내려가게 합니다.
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          ConstrainedBox(
+                            constraints: BoxConstraints(maxWidth: contentWidth),
+                            child: Text(
+                              robot.robotName,
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ),
+                          _Pill(
+                            text: _statusLabel(robot.status),
+                            color: robot.hasError
+                                ? VicaColors.red
+                                : VicaColors.primary,
+                          ),
+                        ],
                       ),
-                      _Pill(
-                        text: _statusLabel(robot.status),
-                        color: robot.hasError
-                            ? VicaColors.red
-                            : VicaColors.primary,
+                      const SizedBox(height: 4),
+                      Text('ID: ${robot.robotId}',
+                          style: Theme.of(context).textTheme.bodySmall),
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 14,
+                        runSpacing: 8,
+                        children: [
+                          _InfoChip(
+                              icon: Icons.location_on_outlined,
+                              maxWidth: contentWidth,
+                              text:
+                                  '현재 위치: ${_empty(robot.currentLocation, '수신 대기')}'),
+                          _InfoChip(
+                              icon: Icons.flag_outlined,
+                              maxWidth: contentWidth,
+                              text: '목적지: ${_empty(robot.currentGoal, '없음')}'),
+                          _InfoChip(
+                              icon: Icons.schedule,
+                              maxWidth: contentWidth,
+                              text:
+                                  '마지막 통신: ${_relativeTime(robot.timestamp)}'),
+                        ],
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text('ID: ${robot.robotId}',
-                      style: Theme.of(context).textTheme.bodySmall),
-                  const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 14,
-                    runSpacing: 8,
-                    children: [
-                      _InfoChip(
-                          icon: Icons.location_on_outlined,
-                          text:
-                              '현재 위치: ${_empty(robot.currentLocation, '수신 대기')}'),
-                      _InfoChip(
-                          icon: Icons.flag_outlined,
-                          text: '목적지: ${_empty(robot.currentGoal, '없음')}'),
-                      _InfoChip(
-                          icon: Icons.schedule,
-                          text: '마지막 통신: ${_relativeTime(robot.timestamp)}'),
-                    ],
-                  ),
-                ],
+                  );
+                },
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// 선택 드롭다운과 그 옆의 실행 버튼을 한 줄에 놓습니다.
+//
+// 버튼 폭이 고정이라 좁은 창에서는 드롭다운이 130px까지 밀려 지도 이름이 거의
+// 보이지 않았습니다. 좁으면 버튼을 아래로 내려 드롭다운이 한 줄을 다 쓰게 합니다.
+class VicaFieldWithAction extends StatelessWidget {
+  const VicaFieldWithAction({
+    super.key,
+    required this.field,
+    required this.action,
+    this.actionWidth = 132,
+  });
+
+  final Widget field;
+  final Widget action;
+
+  /// 넓은 창에서 버튼이 차지할 폭입니다.
+  final double actionWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (VicaBreakpoints.isCompact(constraints.maxWidth)) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              field,
+              const SizedBox(height: 10),
+              action,
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: field),
+            const SizedBox(width: 10),
+            SizedBox(width: actionWidth, child: action),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// 라벨과 값을 나란히 보여주는 한 줄입니다. 로봇 상세와 현재 위치 화면이 각자
+// 같은 위젯을 들고 있었고 라벨 폭도 92·100으로 달랐습니다. 하나로 합칩니다.
+//
+// 좁은 창에서는 고정폭 라벨이 값에게 남기는 폭이 너무 적어 값이 여러 줄로 흩어집니다.
+// 그럴 때는 라벨을 값 위로 올려 값이 한 줄 전체를 쓰게 합니다.
+class VicaInfoRow extends StatelessWidget {
+  const VicaInfoRow({
+    super.key,
+    required this.label,
+    required this.value,
+  });
+
+  final String label;
+  final String value;
+
+  /// 라벨 열의 폭입니다. '마지막 통신'까지 한 줄에 들어가는 값으로 잡았습니다.
+  static const double _labelWidth = 100;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = value.isEmpty ? '-' : value;
+    const labelStyle = TextStyle(fontWeight: FontWeight.w800);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // 값에게 라벨 열만큼도 남지 않으면 나란히 두는 의미가 없습니다.
+          final stack = constraints.maxWidth < _labelWidth * 2.4;
+          if (stack) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: labelStyle),
+                const SizedBox(height: 2),
+                Text(text),
+              ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: _labelWidth,
+                child: Text(label, style: labelStyle),
+              ),
+              Expanded(child: Text(text)),
+            ],
+          );
+        },
       ),
     );
   }
@@ -419,20 +554,39 @@ class _IconBox extends StatelessWidget {
 }
 
 class _InfoChip extends StatelessWidget {
-  const _InfoChip({required this.icon, required this.text});
+  const _InfoChip({
+    required this.icon,
+    required this.text,
+    required this.maxWidth,
+  });
 
   final IconData icon;
   final String text;
 
+  /// 이 항목이 차지해도 되는 최대 폭입니다. Wrap 자식은 폭 제한을 받지 못하므로
+  /// 부모가 잰 값을 여기로 넘겨야 문구가 카드 밖으로 나가지 않습니다.
+  final double maxWidth;
+
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 16, color: const Color(0xFF758198)),
-        const SizedBox(width: 4),
-        Text(text, style: Theme.of(context).textTheme.bodySmall),
-      ],
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 문구가 여러 줄로 접히면 아이콘이 가운데로 떠 보이므로 첫 줄에 맞춥니다.
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Icon(icon, size: 16, color: const Color(0xFF758198)),
+          ),
+          const SizedBox(width: 4),
+          // 장소 이름은 관리자가 읽어야 할 정보라 말줄임표로 자르지 않고 줄을 바꿉니다.
+          Flexible(
+            child: Text(text, style: Theme.of(context).textTheme.bodySmall),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -70,52 +70,44 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     return VicaPage(
       title: '장소 저장',
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                initialValue: map?.mapId,
-                decoration: _compactDropdownDecoration,
-                isExpanded: true,
-                itemHeight: null,
-                items: supervisor.maps
-                    .map(
-                      (item) => DropdownMenuItem(
-                        value: item.mapId,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Text(item.mapName),
-                        ),
-                      ),
-                    )
-                    .toList(),
-                selectedItemBuilder: (context) => supervisor.maps
-                    .map(
-                      (item) => Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          item.mapName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) => supervisor.selectMap(settings, value),
-              ),
-            ),
-            const SizedBox(width: 10),
-            SizedBox(
-              width: 132,
-              child: OutlinedButton.icon(
-                onPressed: map == null
-                    ? null
-                    : () => supervisor.requestLocationList(settings, map.mapId),
-                icon: const Icon(Icons.refresh, size: 18),
-                label: const Text('새로고침'),
-              ),
-            ),
-          ],
+        VicaFieldWithAction(
+          field: DropdownButtonFormField<String>(
+            initialValue: map?.mapId,
+            decoration: _compactDropdownDecoration,
+            isExpanded: true,
+            itemHeight: null,
+            items: supervisor.maps
+                .map(
+                  (item) => DropdownMenuItem(
+                    value: item.mapId,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Text(item.mapName),
+                    ),
+                  ),
+                )
+                .toList(),
+            selectedItemBuilder: (context) => supervisor.maps
+                .map(
+                  (item) => Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      item.mapName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) => supervisor.selectMap(settings, value),
+          ),
+          action: OutlinedButton.icon(
+            onPressed: map == null
+                ? null
+                : () => supervisor.requestLocationList(settings, map.mapId),
+            icon: const Icon(Icons.refresh, size: 18),
+            label: const Text('새로고침'),
+          ),
         ),
         const SizedBox(height: 18),
         if (map == null)
@@ -167,11 +159,18 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                 DropdownButtonFormField<String>(
                   initialValue: deleteTarget?.locationId,
                   decoration: const InputDecoration(labelText: '장소 선택'),
+                  // isExpanded가 없으면 드롭다운이 장소 이름의 원래 폭을 그대로
+                  // 요구해 좁은 창에서 카드 밖으로 85px까지 삐져나갔습니다.
+                  isExpanded: true,
                   items: locations
                       .map(
                         (location) => DropdownMenuItem(
                           value: location.locationId,
-                          child: Text(location.name),
+                          child: Text(
+                            location.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                       )
                       .toList(),

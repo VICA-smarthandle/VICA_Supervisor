@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'core/app_settings.dart';
+import 'core/layout_breakpoints.dart';
 import 'providers/auth_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/supervisor_provider.dart';
@@ -164,7 +165,8 @@ class _SupervisorShellState extends State<SupervisorShell> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final useNavigationRail = constraints.maxWidth >= 900;
+        final useNavigationRail =
+            constraints.maxWidth >= VicaBreakpoints.medium;
 
         return PopScope(
           canPop: !supervisor.emergencyOverlayVisible,

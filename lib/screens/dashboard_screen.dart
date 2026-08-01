@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/layout_breakpoints.dart';
 import '../models/robot_status.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
@@ -78,45 +79,34 @@ class DashboardScreen extends StatelessWidget {
           VicaDisconnectedNotice(detail: supervisor.connectionDetail),
         // 최고 등급 결함을 한 줄로 알립니다. 결함이 없으면 아무것도 그리지 않습니다.
         HealthBanner(onTap: onOpenDiagnostics),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: connected
-                    ? supervisor.disconnect
-                    : () => supervisor.connect(settings),
-                icon: Icon(
-                  connected ? Icons.check_circle : Icons.radio_button_unchecked,
-                ),
-                label: Text(connected ? 'ROS 연결됨' : 'ROS 연결'),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: connected
-                    ? () => supervisor.requestMapList(settings)
-                    : null,
-                icon: Icon(
-                  supervisor.maps.isEmpty
-                      ? Icons.radio_button_unchecked
-                      : Icons.check_circle,
-                ),
-                label: Text(
-                  supervisor.maps.isEmpty ? '지도 미연결' : '지도 연결됨',
-                ),
-              ),
-            ),
-          ],
+        // 좁은 창에서는 두 버튼을 나란히 두면 각 버튼이 130px까지 줄어 라벨이
+        // 잘립니다. 그때는 위아래로 쌓아 문구를 그대로 보여줍니다.
+        _ConnectionButtons(
+          connected: connected,
+          hasMaps: supervisor.maps.isNotEmpty,
+          onToggleRos: connected
+              ? supervisor.disconnect
+              : () => supervisor.connect(settings),
+          onRequestMaps:
+              connected ? () => supervisor.requestMapList(settings) : null,
         ),
         const SizedBox(height: 18),
         Align(
           alignment: Alignment.topCenter,
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1040),
+            constraints: const BoxConstraints(
+              maxWidth: VicaBreakpoints.metricGridMaxWidth,
+            ),
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final columnCount = constraints.maxWidth >= 720 ? 4 : 2;
+                final columnCount =
+                    constraints.maxWidth >= VicaBreakpoints.metricGridWide
+                        ? 4
+                        : 2;
+                // 셀 높이를 116으로 고정하면 글자 배율을 올린 기기에서 카드 아래가
+                // 잘립니다. 안의 글자와 같은 비율로 셀도 늘립니다.
+                final cellHeight = MediaQuery.textScalerOf(context)
+                    .scale(VicaMetricCard.baseHeight);
                 return GridView.builder(
                   itemCount: metricCards.length,
                   shrinkWrap: true,
@@ -125,7 +115,7 @@ class DashboardScreen extends StatelessWidget {
                     crossAxisCount: columnCount,
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 4,
-                    mainAxisExtent: 116,
+                    mainAxisExtent: cellHeight,
                   ),
                   itemBuilder: (context, index) => metricCards[index],
                 );
@@ -158,6 +148,61 @@ class DashboardScreen extends StatelessWidget {
       waitingReason: '로봇 상태 메시지 수신 대기',
       mapId: '',
       timestamp: DateTime.now().subtract(const Duration(minutes: 1)),
+    );
+  }
+}
+
+// ROS 연결과 지도 연결 버튼입니다. 넓으면 나란히, 좁으면 위아래로 놓습니다.
+class _ConnectionButtons extends StatelessWidget {
+  const _ConnectionButtons({
+    required this.connected,
+    required this.hasMaps,
+    required this.onToggleRos,
+    required this.onRequestMaps,
+  });
+
+  final bool connected;
+  final bool hasMaps;
+  final VoidCallback onToggleRos;
+  final VoidCallback? onRequestMaps;
+
+  @override
+  Widget build(BuildContext context) {
+    final rosButton = OutlinedButton.icon(
+      onPressed: onToggleRos,
+      icon: Icon(
+        connected ? Icons.check_circle : Icons.radio_button_unchecked,
+      ),
+      label: Text(connected ? 'ROS 연결됨' : 'ROS 연결'),
+    );
+    final mapButton = OutlinedButton.icon(
+      onPressed: onRequestMaps,
+      icon: Icon(
+        hasMaps ? Icons.check_circle : Icons.radio_button_unchecked,
+      ),
+      label: Text(hasMaps ? '지도 연결됨' : '지도 미연결'),
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (VicaBreakpoints.isCompact(constraints.maxWidth)) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              rosButton,
+              const SizedBox(height: 10),
+              mapButton,
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: rosButton),
+            const SizedBox(width: 10),
+            Expanded(child: mapButton),
+          ],
+        );
+      },
     );
   }
 }

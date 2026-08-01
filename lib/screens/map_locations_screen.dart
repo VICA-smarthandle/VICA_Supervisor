@@ -40,52 +40,45 @@ class MapLocationsScreen extends StatelessWidget {
     return VicaPage(
       title: '원격 주행',
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                initialValue: map?.mapId,
-                decoration: _compactDropdownDecoration,
-                isExpanded: true,
-                itemHeight: null,
-                items: supervisor.maps
-                    .map(
-                      (item) => DropdownMenuItem(
-                        value: item.mapId,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Text(item.mapName),
-                        ),
-                      ),
-                    )
-                    .toList(),
-                selectedItemBuilder: (context) => supervisor.maps
-                    .map(
-                      (item) => Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          item.mapName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) => supervisor.selectMap(settings, value),
-              ),
-            ),
-            const SizedBox(width: 10),
-            SizedBox(
-              width: 112,
-              child: OutlinedButton.icon(
-                onPressed: map == null
-                    ? null
-                    : () => supervisor.requestLocationList(settings, map.mapId),
-                icon: const Icon(Icons.sync, size: 18),
-                label: const Text('동기화', maxLines: 1),
-              ),
-            ),
-          ],
+        VicaFieldWithAction(
+          actionWidth: 112,
+          field: DropdownButtonFormField<String>(
+            initialValue: map?.mapId,
+            decoration: _compactDropdownDecoration,
+            isExpanded: true,
+            itemHeight: null,
+            items: supervisor.maps
+                .map(
+                  (item) => DropdownMenuItem(
+                    value: item.mapId,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Text(item.mapName),
+                    ),
+                  ),
+                )
+                .toList(),
+            selectedItemBuilder: (context) => supervisor.maps
+                .map(
+                  (item) => Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      item.mapName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) => supervisor.selectMap(settings, value),
+          ),
+          action: OutlinedButton.icon(
+            onPressed: map == null
+                ? null
+                : () => supervisor.requestLocationList(settings, map.mapId),
+            icon: const Icon(Icons.sync, size: 18),
+            label: const Text('동기화', maxLines: 1),
+          ),
         ),
         const SizedBox(height: 18),
         if (map == null)

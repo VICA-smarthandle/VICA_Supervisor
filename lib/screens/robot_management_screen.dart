@@ -58,7 +58,9 @@ class _RobotManagementScreenState extends State<RobotManagementScreen> {
             color: VicaColors.background,
             borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
           ),
-          child: Padding(
+          // 좁은 창에서는 항목이 두 줄로 접혀 시트가 길어집니다. 화면보다 길어지면
+          // 아래가 잘려 '마지막 통신'을 볼 수 없으므로 시트 안에서 스크롤합니다.
+          child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -77,12 +79,12 @@ class _RobotManagementScreenState extends State<RobotManagementScreen> {
                 const SizedBox(height: 18),
                 Text('상세 정보', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 14),
-                _Info(label: '상태', value: robot.status),
-                _Info(label: '현재 위치', value: robot.currentLocation),
-                _Info(label: '목적지', value: robot.currentGoal),
-                _Info(label: '오류 사유', value: robot.errorReason),
-                _Info(label: '대기 사유', value: robot.waitingReason),
-                _Info(
+                VicaInfoRow(label: '상태', value: robot.status),
+                VicaInfoRow(label: '현재 위치', value: robot.currentLocation),
+                VicaInfoRow(label: '목적지', value: robot.currentGoal),
+                VicaInfoRow(label: '오류 사유', value: robot.errorReason),
+                VicaInfoRow(label: '대기 사유', value: robot.waitingReason),
+                VicaInfoRow(
                     label: '마지막 통신',
                     value: robot.timestamp.toLocal().toString()),
                 const SizedBox(height: 10),
@@ -122,31 +124,6 @@ class _RobotManagementScreenState extends State<RobotManagementScreen> {
       waitingReason: '로봇 상태 메시지 수신 대기',
       mapId: '',
       timestamp: DateTime.now().subtract(const Duration(minutes: 6)),
-    );
-  }
-}
-
-class _Info extends StatelessWidget {
-  const _Info({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 92,
-            child: Text(label,
-                style: const TextStyle(fontWeight: FontWeight.w800)),
-          ),
-          Expanded(child: Text(value.isEmpty ? '-' : value)),
-        ],
-      ),
     );
   }
 }

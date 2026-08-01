@@ -708,6 +708,18 @@ class SupervisorProvider extends ChangeNotifier {
   void handleRobotEventForTest(Map<String, Object?> message) =>
       _handleRobotEvent(message);
 
+  @visibleForTesting
+  void handleMapListForTest(Map<String, Object?> message) =>
+      _handleMapList(message);
+
+  @visibleForTesting
+  void handleLocationListForTest(Map<String, Object?> message) =>
+      _handleLocationList(message);
+
+  @visibleForTesting
+  void handleRobotStatusForTest(Map<String, Object?> message) =>
+      _handleRobotStatus(message);
+
   // /app_estop_state 주기 브로드캐스트로 오버레이 상태를 노드 실제 상태에 맞춥니다.
   // 앱이 비상정지 중에 재접속하면 이 토픽으로 활성 오버레이를 복구합니다.
   void _handleEmergencyStopState(Map<String, Object?> message) {
