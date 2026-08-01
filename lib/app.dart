@@ -19,6 +19,14 @@ import 'screens/save_location_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/system_diagnostics_screen.dart';
 
+/// 앱 전체가 쓰는 글꼴. pubspec.yaml의 `fonts: family:`와 반드시 같아야 한다.
+///
+/// 상수로 두는 이유는 `ThemeData.fontFamily`가 모든 곳에 퍼지지 않기 때문이다.
+/// `textTheme`에는 자동으로 적용되지만 `appBarTheme.titleTextStyle`처럼 하위 테마가
+/// 직접 들고 있는 TextStyle에는 적용되지 않는다. 그런 자리에는 이 상수를 손으로 넣는다.
+/// 넣지 않으면 그 자리만 기본 글꼴(Roboto)로 그려져 한글이 네모(□)가 된다.
+const String kVicaFontFamily = 'NanumGothic';
+
 class VicaSupervisorApp extends StatelessWidget {
   const VicaSupervisorApp({super.key});
 
@@ -28,7 +36,7 @@ class VicaSupervisorApp extends StatelessWidget {
       title: 'VICA_Supervisor',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        fontFamily: 'NanumGothic',
+        fontFamily: kVicaFontFamily,
         scaffoldBackgroundColor: VicaColors.background,
         colorScheme: ColorScheme.fromSeed(
           seedColor: VicaColors.primary,
@@ -40,7 +48,11 @@ class VicaSupervisorApp extends StatelessWidget {
           foregroundColor: VicaColors.text,
           elevation: 0,
           centerTitle: false,
+          // fontFamily를 여기 직접 넣어야 한다. ThemeData.fontFamily는 textTheme에만
+          // 적용되고 appBarTheme이 들고 있는 TextStyle에는 닿지 않는다. 빠뜨렸더니
+          // 햄버거 메뉴 옆 제목만 한글이 네모로 나왔다(2026-08-01 Jetson 화면 확인).
           titleTextStyle: TextStyle(
+            fontFamily: kVicaFontFamily,
             color: VicaColors.text,
             fontSize: 17,
             fontWeight: FontWeight.w900,

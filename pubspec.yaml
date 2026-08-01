@@ -26,6 +26,21 @@ flutter:
   assets:
     - assets/icon/app_icon.png
 
+  # 폰트를 앱에 넣는다. 이름만 지정하고 파일을 넣지 않으면 그 기기에 같은 이름의
+  # 폰트가 깔려 있을 때만 한글이 보인다. Jetson에는 fonts-nanum이 깔려 있어 넘어갔지만
+  # APK나 다른 PC에서는 한글이 전부 네모(□)로 나온다.
+  #
+  # NanumGothic은 SIL Open Font License 1.1이라 재배포할 수 있다. 라이선스 전문을
+  # assets/fonts/NanumGothic-LICENSE.txt에 함께 둔다 — OFL이 요구한다.
+  # Noto Sans CJK도 후보였지만 굵기당 19 MB라 9 MB인 이쪽을 골랐다.
+  fonts:
+    - family: NanumGothic
+      fonts:
+        - asset: assets/fonts/NanumGothic.ttf
+          weight: 400
+        - asset: assets/fonts/NanumGothicBold.ttf
+          weight: 700
+
 flutter_launcher_icons:
   android: true
   ios: false
