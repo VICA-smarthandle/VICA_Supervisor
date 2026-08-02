@@ -95,18 +95,35 @@ class VicaStatusAppNode(Node):
         #   "diagnostics" (기본) : /diagnostics를 직접 읽어 판정합니다. 현재 동작입니다
         #   "health"             : vica_system_monitor의 /robot/health를 씁니다
         #
-        # 기본값을 현재 동작으로 두는 이유:
-        #   1. 병합·빌드해도 거동이 바뀌지 않습니다. 전환은 Jetson에서 파라미터 한 줄로
-        #      A/B한 뒤 별도 커밋으로 기본값을 바꿉니다.
-        #   2. "health" 모드는 vica_interfaces의 RobotHealth를 필요로 합니다. 무조건
-        #      import하면 그 메시지를 빌드하지 않은 환경에서 노드가 기동 실패합니다.
-        #      아래에서 이 모드일 때만 import합니다.
-        #
         # health 모드가 /diagnostics 판정과 다른 점:
         #   - 판정 지점이 로봇 쪽 robot_health_monitor_node 하나로 모입니다
         #   - 앱 화면과 error_reason이 같은 근거를 씁니다
         #   - 컴포넌트·등급·조치 문구를 로봇이 결정합니다
-        self.declare_parameter("error_source", "diagnostics")
+        #
+        # 2026-08-02: 기본값을 "diagnostics" -> "health"로 바꿉니다. 위 주석이
+        # 예고한 "Jetson에서 A/B한 뒤 별도 커밋으로 기본값을 바꾼다"를 수행합니다.
+        #
+        # 실측 근거(run1104, 509초, /robot_status 5083건):
+        #   error_reason 이 전 구간 "No events recorded." 로 고정
+        #   -> _status()가 첫 줄에서 "error"를 돌려주고 끝나 moving/waiting 에
+        #      도달하지 못한다
+        #   -> 앱 대시보드가 "전체 1 / 운행 중 0 / 대기 중 0 / 오류 1" 로 굳는다
+        #      주행 중에도 배지가 계속 '오류'다
+        #
+        # 그 문자열의 정체는 robot_localization 의 죽은 진단이다. /odom 은 같은
+        # 시각 24.7 Hz 로 정상 발행 중인데 FrequencyStatus 카운터가 한 번도 돌지
+        # 않아 "No events recorded." 를 낸다. ekf.yaml 에 print_diagnostics: false
+        # 를 넣어도 사라지지 않는다(2026-08-01 확인, 2026-08-02 재확인).
+        #
+        # robot_health_monitor_node 는 이 항목을 agg_parser.IGNORED_NAME_FRAGMENTS
+        # 로 이미 걸러낸다. 그래서 앱의 시스템 진단 화면은 정상(결함 0)인데
+        # 대시보드만 오류로 표시되는 어긋남이 생겼다. 두 화면이 같은 근거를
+        # 쓰게 하면 이 어긋남이 구조적으로 사라진다.
+        #
+        # 되돌리려면 이 값을 "diagnostics" 로 바꾼다. health 모드는 vica_interfaces
+        # 의 RobotHealth 를 필요로 하며, import 에 실패하면 아래에서 로그를 남기고
+        # diagnostics 로 자동 폴백한다.
+        self.declare_parameter("error_source", "health")
         # /robot/health 만료. 모니터가 죽으면 마지막 상태를 현재로 쓰지 않습니다.
         self.declare_parameter("health_timeout_sec", 5.0)
         self.declare_parameter("moving_linear_threshold", 0.03)
@@ -695,7 +712,7 @@ class VicaStatusAppNode(Node):
                 nearest_name = str(
                     location.get("name") or location.get("id") or ""
                 )
-        return nearest_name or "현재 위치 확인 중"
+        return nearest_name or "이동 중"
 
     def _read_locations(self, map_id: str) -> list[dict[str, Any]]:
         """지도별 destinations.yaml을 읽습니다(2초 캐시).

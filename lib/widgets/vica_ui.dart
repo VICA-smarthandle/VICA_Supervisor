@@ -341,6 +341,16 @@ class VicaRobotCard extends StatelessWidget {
                               maxWidth: contentWidth,
                               text:
                                   '마지막 통신: ${_relativeTime(robot.timestamp)}'),
+                          // 좌표를 표시하는 이유: 이 카드에서 10 Hz로 실제 변하는
+                          // 값은 좌표뿐입니다. 나머지(상태·현재 위치·마지막 통신)는
+                          // 몇 초씩 같은 값이라, 좌표가 없으면 화면이 멈춘 것처럼
+                          // 보입니다. 2026-08-02에 "상태가 갱신되지 않는다"는 보고가
+                          // 있었고 실제로는 초당 6회 갱신 중이었습니다.
+                          _InfoChip(
+                              icon: Icons.my_location_outlined,
+                              maxWidth: contentWidth,
+                              text:
+                                  '좌표: ${robot.x.toStringAsFixed(2)}, ${robot.y.toStringAsFixed(2)}'),
                         ],
                       ),
                     ],
@@ -628,8 +638,14 @@ String _statusLabel(String status) {
 
 String _relativeTime(DateTime time) {
   final diff = DateTime.now().difference(time);
-  if (diff.inMinutes < 1) {
+  // 1분 미만을 '방금 전' 하나로 뭉개면 통신이 살아 있는지 화면으로 알 수 없습니다.
+  // /robot_status는 10 Hz로 오므로 정상이면 항상 '0초 전'이고, 숫자가 올라가기
+  // 시작하면 그 자체가 끊김 신호입니다(2026-08-02).
+  if (diff.isNegative) {
     return '방금 전';
+  }
+  if (diff.inSeconds < 60) {
+    return '${diff.inSeconds}초 전';
   }
   if (diff.inHours < 1) {
     return '${diff.inMinutes}분 전';

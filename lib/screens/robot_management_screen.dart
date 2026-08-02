@@ -38,7 +38,10 @@ class _RobotManagementScreenState extends State<RobotManagementScreen> {
             selected: selected.robotId == robot.robotId,
             onTap: () {
               setState(() => _selectedRobotId = robot.robotId);
-              _showRobotDetail(context, robot);
+              // 객체가 아니라 id만 넘깁니다. 객체를 넘기면 시트가 탭한 순간의
+              // 스냅샷을 들고 있어 열어둔 동안 값이 갱신되지 않습니다
+              // (2026-08-02 "상태가 갱신되지 않는다" 보고의 실제 원인 중 하나).
+              _showRobotDetail(context, robot.robotId);
             },
           ),
         ),
@@ -46,13 +49,18 @@ class _RobotManagementScreenState extends State<RobotManagementScreen> {
     );
   }
 
-  Future<void> _showRobotDetail(BuildContext context, RobotStatus robot) async {
+  Future<void> _showRobotDetail(BuildContext context, String robotId) async {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
+        // 시트 안에서 provider를 다시 구독합니다. 그래야 열어둔 채로도 값이
+        // 계속 갱신됩니다. 목록에서 로봇이 사라지면(연결 끊김 등) 마지막으로
+        // 알던 값 대신 '수신 대기' 항목이 나오도록 _waitingRobot()으로 떨어집니다.
+        final supervisor = sheetContext.watch<SupervisorProvider>();
+        final robot = _findRobot(supervisor.robots, robotId) ?? _waitingRobot();
         return DecoratedBox(
           decoration: const BoxDecoration(
             color: VicaColors.background,
@@ -84,6 +92,10 @@ class _RobotManagementScreenState extends State<RobotManagementScreen> {
                 VicaInfoRow(label: '목적지', value: robot.currentGoal),
                 VicaInfoRow(label: '오류 사유', value: robot.errorReason),
                 VicaInfoRow(label: '대기 사유', value: robot.waitingReason),
+                VicaInfoRow(
+                    label: '좌표',
+                    value:
+                        'x ${robot.x.toStringAsFixed(2)} · y ${robot.y.toStringAsFixed(2)} · yaw ${robot.yaw.toStringAsFixed(2)}'),
                 VicaInfoRow(
                     label: '마지막 통신',
                     value: robot.timestamp.toLocal().toString()),
