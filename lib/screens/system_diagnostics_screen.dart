@@ -314,6 +314,48 @@ class _Readiness extends StatelessWidget {
   }
 }
 
+// 같은 결함의 같은 전이가 연달아 들어온 구간입니다. 목록에서 지우지 않고 한 줄로
+// 접기만 하므로 몇 번 있었는지, 언제부터인지가 그대로 남습니다.
+//
+// 로봇 쪽에서 이미 두 겹으로 줄이고 있습니다 — event_deduplicator 가 재알림 간격을
+// 두고(reminder_interval_sec 300, latched 10), 임계값 근처에서 오르내리는 관측은
+// clear_confirm_ticks 3 으로 해소를 확정 지연합니다. 이 접기는 그래도 남는 반복을
+// 화면에서 정리하는 마지막 층입니다.
+class _EventGroup {
+  const _EventGroup({
+    required this.latest,
+    required this.first,
+    required this.count,
+  });
+
+  final RobotEvent latest;
+  final RobotEvent first;
+  final int count;
+}
+
+List<_EventGroup> _groupConsecutive(List<RobotEvent> events) {
+  final groups = <_EventGroup>[];
+  for (final event in events) {
+    final last = groups.isEmpty ? null : groups.last;
+    final sameAsLast = last != null &&
+        last.latest.fault.componentLabelText ==
+            event.fault.componentLabelText &&
+        last.latest.fault.faultCode == event.fault.faultCode &&
+        last.latest.transition == event.transition;
+    if (sameAsLast) {
+      // events 는 최신순이므로 뒤에 오는 것이 더 오래된 항목입니다.
+      groups[groups.length - 1] = _EventGroup(
+        latest: last.latest,
+        first: event,
+        count: last.count + 1,
+      );
+    } else {
+      groups.add(_EventGroup(latest: event, first: event, count: 1));
+    }
+  }
+  return groups;
+}
+
 class _EventHistory extends StatelessWidget {
   const _EventHistory({required this.events});
 
@@ -321,6 +363,7 @@ class _EventHistory extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final groups = _groupConsecutive(events);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -332,20 +375,21 @@ class _EventHistory extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             child: Column(
               children: [
-                for (final event in events)
+                for (final group in groups)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 7),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Icon(
-                          event.transition == FaultTransition.cleared
+                          group.latest.transition == FaultTransition.cleared
                               ? Icons.check_circle_outline
-                              : event.fault.severity.icon,
+                              : group.latest.fault.severity.icon,
                           size: 18,
-                          color: event.transition == FaultTransition.cleared
-                              ? VicaColors.green
-                              : event.fault.severity.color,
+                          color:
+                              group.latest.transition == FaultTransition.cleared
+                                  ? VicaColors.green
+                                  : group.latest.fault.severity.color,
                         ),
                         const SizedBox(width: 10),
                         Expanded(
@@ -353,24 +397,31 @@ class _EventHistory extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '${event.fault.componentLabelText} · '
-                                '${event.transition.label}',
+                                '${group.latest.fault.componentLabelText} · '
+                                '${group.latest.transition.label}'
+                                '${group.count > 1 ? '  ×${group.count}회' : ''}',
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w700),
                               ),
                               Text(
-                                event.fault.detail.isEmpty
-                                    ? event.fault.faultCode
-                                    : event.fault.detail,
+                                group.latest.fault.detail.isEmpty
+                                    ? group.latest.fault.faultCode
+                                    : group.latest.fault.detail,
                                 style: const TextStyle(
                                     color: VicaColors.muted, fontSize: 12),
                               ),
+                              if (group.count > 1)
+                                Text(
+                                  '처음 ${_formatTime(group.first.receivedAt)}',
+                                  style: const TextStyle(
+                                      color: VicaColors.muted, fontSize: 11),
+                                ),
                             ],
                           ),
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          _formatTime(event.receivedAt),
+                          _formatTime(group.latest.receivedAt),
                           style: const TextStyle(
                               color: VicaColors.muted, fontSize: 12),
                         ),

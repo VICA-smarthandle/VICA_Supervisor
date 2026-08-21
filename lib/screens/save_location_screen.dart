@@ -23,7 +23,11 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     isDense: true,
     contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 9),
   );
-  static const _yawDirectionOptions = ['앞', '뒤', '우측', '좌측'];
+  // 표시 문구만 바꾼 것입니다. 저장되는 값은 문자열이 아니라 각도(double)라
+  // 기존에 저장된 장소는 손댈 필요가 없습니다. 다만 _yawFromDirection·
+  // _directionFromYaw 와 반드시 함께 바꿔야 합니다 — 역변환이 이 목록에 없는
+  // 문자열을 돌려주면 DropdownButtonFormField 가 그 자리에서 예외를 던집니다.
+  static const _yawDirectionOptions = ['정면', '후면', '우측', '좌측'];
 
   final _uuid = const Uuid();
   final _formKey = GlobalKey<FormState>();
@@ -64,8 +68,10 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     final locations = supervisor.locationsFor(map?.mapId);
     final deleteTarget = _selectedLocation(locations);
     final draft = supervisor.draftLocation;
-    final previewLocation =
-        draft ?? (map == null ? null : _previewLocation(map.mapId));
+    // 지도를 누르면 임시 저장 장소를 버리므로(사용자 결정 2026-08-21) 초록 점과
+    // 주황 점이 동시에 뜨는 상태는 없습니다. draft 가 있으면 그쪽이 우선입니다.
+    final pickedLocation =
+        (draft != null || map == null) ? null : _previewLocation(map.mapId);
 
     return VicaPage(
       title: '장소 저장',
@@ -119,23 +125,66 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               map: map,
               settings: settings,
               locations: locations,
-              draftLocation: previewLocation,
-              onTapMap: (ros) async {
+              draftLocation: draft,
+              pickedLocation: pickedLocation,
+              // 여기서 정보 입력 시트를 띄우지 않습니다. 누르자마자 시트가 덮으면
+              // 점이 원하는 자리에 찍혔는지 볼 수가 없고, 시트를 닫으면 점까지
+              // 사라져 처음부터 다시 해야 했습니다. 이제 누르는 것은 '점 옮기기'
+              // 뿐이고, 시트는 아래 '장소 정보 입력' 버튼이 엽니다.
+              onTapMap: (ros) {
+                // 임시 저장 장소를 버리는 것은 의도한 동작입니다. 최종 저장 전에
+                // 다른 자리를 새로 찍었다면 그 장소가 더 이상 필요 없어진 것으로
+                // 봅니다(사용자 판정 2026-08-21).
                 supervisor.setDraftLocation(null);
                 _resetLocationInput();
                 setState(() => _pickedRos = ros);
-                await _showLocationInfoSheet(
-                  context,
-                  supervisor,
-                  map.mapId,
-                  locations,
-                );
-                if (mounted) {
-                  _clearPickedLocation();
-                }
               },
             ),
           ),
+          // 찍은 점을 확인하고 정보 입력을 '시작'하는 칸입니다. draft 가 생기면
+          // 아래 카드의 수정·저장 버튼이 그 역할을 이어받으므로 이 칸은 감춥니다.
+          if (draft == null) ...[
+            const SizedBox(height: 12),
+            VicaCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _pickedRos == null
+                        ? '지도를 눌러 저장할 위치를 찍으세요. 다시 누르면 점이 옮겨갑니다.'
+                        : '선택 위치   x ${_pickedRos!.dx.toStringAsFixed(2)}   '
+                            'y ${_pickedRos!.dy.toStringAsFixed(2)}',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: _pickedRos == null
+                              ? null
+                              : () => _showLocationInfoSheet(
+                                    context,
+                                    supervisor,
+                                    map.mapId,
+                                    locations,
+                                  ),
+                          icon: const Icon(Icons.edit_location_alt_outlined),
+                          label: const Text('장소 정보 입력'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      OutlinedButton(
+                        onPressed:
+                            _pickedRos == null ? null : _clearPickedLocation,
+                        child: const Text('선택 취소'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 20),
           VicaCard(
             child: Column(
@@ -643,22 +692,22 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     final normalized = yaw % 360.0;
     final degrees = normalized < 0 ? normalized + 360.0 : normalized;
     if (degrees >= 45 && degrees < 135) {
-      return '앞';
+      return '정면';
     }
     if (degrees >= 135 && degrees < 225) {
       return '좌측';
     }
     if (degrees >= 225 && degrees < 315) {
-      return '뒤';
+      return '후면';
     }
     return '우측';
   }
 
   double _yawFromDirection(String direction) {
     switch (direction) {
-      case '앞':
+      case '정면':
         return 90;
-      case '뒤':
+      case '후면':
         return 270;
       case '좌측':
         return 180;

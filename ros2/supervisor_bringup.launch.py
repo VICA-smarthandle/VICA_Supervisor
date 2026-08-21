@@ -51,6 +51,24 @@ def generate_launch_description() -> LaunchDescription:
                 launch_arguments={
                     "address": "0.0.0.0",
                     "port": "9090",
+                    # [2026-08-21] 서비스 호출을 rosbridge 본 흐름에서 떼어낸다.
+                    #
+                    # rosbridge_websocket_launch.xml 의 기본값은
+                    #   call_services_in_new_thread  false
+                    #   default_call_service_timeout 0.0   (시한 없음)
+                    # 이라, 응답하지 않는 서비스 호출 하나가 rosbridge 전체를 막았다.
+                    # 그러면 앱을 재연결해도 비상정지를 눌러도 아무것도 통하지 않고
+                    # 젯슨에서 rosbridge 노드를 껐다 켜야만 풀렸다.
+                    #
+                    # 실제로 mission_manager 의 일시정지 서비스가 Nav2 취소 응답을
+                    # 기다리다 멈추면서 이 상태가 재현됐다. 그 원인은 따로 고쳤지만
+                    # (mission_manager_node._cancel_nav), 다음에 어떤 서비스가 또
+                    # 멈추더라도 rosbridge 까지 같이 서지 않게 하는 방벽이 필요하다.
+                    #
+                    # 5.0 초는 앱 쪽 기본 timeout(ros_bridge_client.callService 5초)과
+                    # 같은 값이다. 앱이 이미 포기한 호출을 서버가 붙들고 있을 이유가 없다.
+                    "call_services_in_new_thread": "true",
+                    "default_call_service_timeout": "5.0",
                 }.items(),
             ),
             ExecuteProcess(

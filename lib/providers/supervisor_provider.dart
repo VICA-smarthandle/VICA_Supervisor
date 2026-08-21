@@ -81,7 +81,14 @@ class SupervisorProvider extends ChangeNotifier {
   final List<RobotEvent> _healthEvents = [];
 
   // 이벤트 이력 상한. _logs와 같은 값으로 둡니다.
-  static const _maxHealthEvents = 200;
+  // 200 -> 100. 래치된 결함이 1 Hz 로 '지속 중' 이벤트를 내던 동안 200칸이
+  // 3분 20초 만에 찼습니다. 로봇 쪽 재알림 간격을 늘리고(아래 참조) 화면에서
+  // 같은 결함을 한 줄로 접으므로 100칸이면 몇 시간치가 들어갑니다.
+  //   vica_ros2_ws/src/vica_system_monitor/config/required_components.yaml
+  //   latched_reminder_interval_sec / reminder_interval_sec
+  static const _maxHealthEvents = 100;
+  // 알림 및 로그 화면의 상한. 진단 이벤트 이력과 같은 값으로 둡니다.
+  static const _maxLogs = 100;
 
   RosConnectionState get connectionState => _connectionState;
   String get connectionDetail => _connectionDetail;
@@ -792,8 +799,8 @@ class SupervisorProvider extends ChangeNotifier {
         createdAt: DateTime.now(),
       ),
     );
-    if (_logs.length > 200) {
-      _logs.removeRange(200, _logs.length);
+    if (_logs.length > _maxLogs) {
+      _logs.removeRange(_maxLogs, _logs.length);
     }
   }
 

@@ -7,6 +7,11 @@ import '../models/location_point.dart';
 import '../models/robot_status.dart';
 import '../models/vica_map.dart';
 
+// 지도 위 점의 지름(px). 저장된 장소·임시 저장 장소·선택 위치가 같은 크기여야
+// 색만으로 구분되고 크기 차이가 의미로 오해되지 않습니다.
+// 7/8 -> 5 로 줄였습니다. 장소가 늘어나면 점이 서로 겹쳐 지도가 안 보였습니다.
+const double _markerSize = 5;
+
 class ResponsiveMapFrame extends StatelessWidget {
   const ResponsiveMapFrame({
     super.key,
@@ -53,6 +58,7 @@ class MapCanvas extends StatelessWidget {
     this.selectedLocationId,
     this.robot,
     this.draftLocation,
+    this.pickedLocation,
     this.onTapMap,
     this.onSelectLocation,
   });
@@ -63,6 +69,9 @@ class MapCanvas extends StatelessWidget {
   final String? selectedLocationId;
   final RobotStatus? robot;
   final LocationPoint? draftLocation;
+  // 지도를 눌러 좌표만 찍어 둔 점입니다. 정보 입력을 마친 draftLocation과 달리
+  // 아직 아무 내용도 없으므로 속을 비운 원으로 그려 한눈에 구분되게 합니다.
+  final LocationPoint? pickedLocation;
   final ValueChanged<Offset>? onTapMap;
   final ValueChanged<LocationPoint>? onSelectLocation;
 
@@ -141,7 +150,7 @@ class MapCanvas extends StatelessWidget {
                                   _scaledOffset(location.x, location.y, scale),
                               label: location.name,
                               color: Colors.blue,
-                              size: 7,
+                              size: _markerSize,
                               onTap: onSelectLocation == null
                                   ? null
                                   : () => onSelectLocation!(location),
@@ -154,9 +163,21 @@ class MapCanvas extends StatelessWidget {
                           draftLocation!.y,
                           scale,
                         ),
-                        label: '임시',
+                        label: '임시 저장',
                         color: Colors.green,
-                        size: 8,
+                        size: _markerSize,
+                      ),
+                    if (pickedLocation != null)
+                      _Marker(
+                        offset: _scaledOffset(
+                          pickedLocation!.x,
+                          pickedLocation!.y,
+                          scale,
+                        ),
+                        label: '선택 위치',
+                        color: Colors.deepOrange,
+                        size: _markerSize,
+                        filled: false,
                       ),
                     if (robot != null && robot!.mapId == map.mapId)
                       _RobotMarker(
@@ -212,7 +233,9 @@ class _SelectedLocationMarker extends StatelessWidget {
   Widget build(BuildContext context) {
     return Positioned(
       left: offset.dx - 28,
-      top: offset.dy - 32,
+      // 핀 아이콘을 20 -> 16 으로 줄인 만큼(4px) 함께 내립니다. 이 값을 그대로 두면
+      // 핀 끝이 실제 좌표보다 4px 위를 가리키게 됩니다.
+      top: offset.dy - 28,
       width: 56,
       child: IgnorePointer(
         child: Column(
@@ -246,7 +269,7 @@ class _SelectedLocationMarker extends StatelessWidget {
             const Icon(
               Icons.location_on,
               color: Colors.deepOrange,
-              size: 20,
+              size: 16,
             ),
           ],
         ),
@@ -261,6 +284,7 @@ class _Marker extends StatelessWidget {
     required this.label,
     required this.color,
     required this.size,
+    this.filled = true,
     this.onTap,
   });
 
@@ -268,6 +292,9 @@ class _Marker extends StatelessWidget {
   final String label;
   final Color color;
   final double size;
+  // false 면 속을 비우고 테두리만 그립니다. "좌표만 찍었고 아직 아무 정보도 없다"를
+  // 색이 아니라 형태로 알리기 위한 것입니다.
+  final bool filled;
   final VoidCallback? onTap;
 
   @override
@@ -281,9 +308,13 @@ class _Marker extends StatelessWidget {
           onTap: onTap,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: color,
+              color: filled ? color : Colors.white,
               shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 1.4),
+              // 지름 5 에서 1.4 는 점의 절반을 넘게 먹어 속이 안 보였습니다.
+              border: Border.all(
+                color: filled ? Colors.white : color,
+                width: 1.0,
+              ),
             ),
             child: SizedBox(width: size, height: size),
           ),

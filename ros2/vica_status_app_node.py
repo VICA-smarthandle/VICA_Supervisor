@@ -215,6 +215,9 @@ class VicaStatusAppNode(Node):
             String, "/vica_goal_event", self.handle_goal_event, 10
         )
 
+        # 일시정지 여부의 정본. 이벤트 한 번이 아니라 1 Hz 상태를 본다.
+        self._setup_paused_source()
+
         # health 모드일 때만 /robot/health를 구독합니다.
         self._setup_health_source()
 
@@ -551,6 +554,43 @@ class VicaStatusAppNode(Node):
     # ------------------------------------------------------------------
     # 오류 사유 원천 (error_source 파라미터가 고릅니다)
     # ------------------------------------------------------------------
+    def _setup_paused_source(self) -> None:
+        """/vica/robot_state의 is_paused를 일시정지 판정의 정본으로 삼습니다.
+
+        [2026-08-21] 종전에는 /vica_goal_event의 goal_paused 한 번만 보고 판단했습니다.
+        그런데 그 이벤트를 발행하는 mission_manager_node._cancel_nav가 Nav2 취소 응답을
+        기다리다 멈추면 이벤트가 아예 나가지 않아, 앱의 '다시 출발' 버튼이 뜰 때도 있고
+        안 뜰 때도 있었습니다. 앱을 나중에 켠 경우에도 지나간 이벤트는 받을 수 없습니다.
+
+        Mission Manager는 같은 사실을 RobotState.is_paused로 1 Hz 상시 발행하고
+        있었습니다(mission_manager_node._publish_robot_state). 이벤트는 빠르고 상태는
+        확실하므로 둘을 함께 씁니다 — 이벤트가 오면 즉시 바뀌고, 놓쳤어도 1초 뒤에
+        상태가 바로잡습니다.
+
+        RobotState에는 목적지 이름이 없으므로 current_goal은 종전대로 goal 이벤트가
+        담당합니다. 이 구독은 is_paused 하나만 대체합니다.
+
+        _setup_health_source와 같은 이유로 import를 감쌉니다. vica_interfaces를 빌드하지
+        않은 환경에서 이 노드가 기동 실패하면 안 됩니다.
+        """
+        try:
+            from vica_interfaces.msg import RobotState
+        except ImportError as exc:
+            self.get_logger().warn(
+                f"vica_interfaces/RobotState import 실패: {exc}. "
+                "일시정지 표시는 goal 이벤트에만 의존합니다."
+            )
+            return
+
+        self.create_subscription(
+            RobotState, "/vica/robot_state", self.handle_robot_state, 10
+        )
+        self.get_logger().info("/vica/robot_state 구독: is_paused 정본")
+
+    def handle_robot_state(self, msg) -> None:
+        """Mission Manager가 1 Hz로 알려주는 일시정지 여부를 반영합니다."""
+        self.navigation_paused = bool(msg.is_paused)
+
     def _setup_health_source(self) -> None:
         """error_source가 health일 때만 /robot/health를 구독합니다.
 
