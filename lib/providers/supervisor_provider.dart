@@ -1010,6 +1010,10 @@ class SupervisorProvider extends ChangeNotifier {
       _handleMapList(message);
 
   @visibleForTesting
+  void handleEmergencyStopStateForTest(Map<String, Object?> message) =>
+      _handleEmergencyStopState(message);
+
+  @visibleForTesting
   void handleMappingStatusForTest(Map<String, Object?> message) =>
       _handleMappingStatus(message);
 

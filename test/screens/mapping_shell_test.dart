@@ -13,6 +13,9 @@ import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/screens/mapping_shell.dart';
 
 class _FakeSupervisor extends SupervisorProvider {
+  void injectEstop(Map<String, Object?> json) =>
+      handleEmergencyStopStateForTest(json);
+
   void injectStatus(Map<String, Object?> json) =>
       handleMappingStatusForTest({'data': _encode(json)});
 
@@ -172,6 +175,34 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('매핑이 진행 중입니다'), findsOneWidget);
+  });
+
+  testWidgets('비상정지가 안 걸려 있으면 해제 카드를 그리지 않는다', (tester) async {
+    await pump(tester, status: statusJson());
+    expect(find.textContaining('비상정지가 걸려 있습니다'), findsNothing);
+  });
+
+  testWidgets('비상정지가 걸려 있으면 해제 버튼을 준다', (tester) async {
+    // 래치는 기동 직후 latched 로 시작한다. 풀지 않으면 /cmd_vel_safe 가 안 나가
+    // 로봇을 끌고 다닐 수 없어 지도 작성 자체가 시작되지 않는다.
+    final supervisor = await pump(tester, status: statusJson());
+    supervisor.injectEstop({'active': true});
+    await tester.pump();
+
+    expect(find.text('비상정지가 걸려 있습니다'), findsOneWidget);
+    final button = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, '비상정지 해제'),
+    );
+    expect(button.onPressed, isNotNull);
+  });
+
+  testWidgets('해제 카드가 선행 조건을 적어 둔다', (tester) async {
+    // motor 가 없으면 motor_can_stale 이 남아 reset 이 거부된다. 고장이 아니라 설계다.
+    final supervisor = await pump(tester, status: statusJson());
+    supervisor.injectEstop({'active': true});
+    await tester.pump();
+
+    expect(find.textContaining('safety 와 motor 가 먼저'), findsOneWidget);
   });
 
   testWidgets('대기 상태면 모드를 바꿀 수 있다', (tester) async {

@@ -88,6 +88,7 @@ class _MappingShellState extends State<MappingShell> {
           title: '새 지도 그리기',
           children: [
             const VicaRosConnectionTile(),
+            const _EmergencyResetCard(),
             if (status == null) const _WaitingForSupervisor(),
             _Step(
               index: 0,
@@ -282,6 +283,100 @@ class _Step extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+// 중앙 E-stop 래치를 앱에서 푸는 자리입니다.
+//
+// **왜 매핑 모드에 따로 필요한가.** 비상정지 오버레이는 주행 모드 화면(SupervisorShell)
+// 에만 있습니다. 그런데 래치는 기동 직후 latched 로 시작하고, 풀지 않으면
+// /cmd_vel_safe 가 나가지 않아 **로봇을 끌고 다닐 수 없습니다** — 지도 작성 자체가
+// 시작되지 않습니다(vica_map 프로파일 설명).
+//
+// **순서가 있습니다.** 선행 조건이 safety 와 motor 입니다. /motor/can_ok 가 래치
+// 원인의 하나라 motor node 가 없으면 motor_can_stale 이 남아 reset 이 거부됩니다.
+// 고장이 아니라 설계입니다 — 동력 상태를 모르는 채로는 풀지 않습니다.
+//
+// 정본은 로그인한 관리자가 앱에서 하는 단일 reset 이고(AGENTS.md 4절), 이 버튼이
+// 부르는 /app_estop_reset 이 바로 그 경로입니다.
+class _EmergencyResetCard extends StatelessWidget {
+  const _EmergencyResetCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = context.watch<SettingsProvider>().settings;
+    final supervisor = context.watch<SupervisorProvider>();
+    final state = supervisor.emergencyStopState;
+
+    // 걸려 있지 않으면 자리를 차지하지 않습니다.
+    if (state == EmergencyStopState.inactive) {
+      return const SizedBox.shrink();
+    }
+
+    final busy = state == EmergencyStopState.releasing ||
+        state == EmergencyStopState.activating;
+    final label = switch (state) {
+      EmergencyStopState.active => '비상정지가 걸려 있습니다',
+      EmergencyStopState.releasing => '해제하는 중입니다',
+      EmergencyStopState.releaseFailed => '해제하지 못했습니다',
+      EmergencyStopState.activating => '비상정지를 거는 중입니다',
+      EmergencyStopState.activationFailed => '비상정지에 실패했습니다',
+      EmergencyStopState.inactive => '',
+    };
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: VicaColors.red.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: VicaColors.red.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.warning_rounded,
+                  color: VicaColors.red, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            supervisor.emergencyStopMessage.isEmpty
+                ? '풀기 전에는 로봇이 움직이지 않아 지도를 그릴 수 없습니다.'
+                : supervisor.emergencyStopMessage,
+            style: const TextStyle(fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          FilledButton.icon(
+            onPressed:
+                busy ? null : () => supervisor.resetEmergencyStop(settings),
+            icon: const Icon(Icons.lock_open),
+            label: Text(
+              state == EmergencyStopState.releaseFailed
+                  ? '해제 다시 시도'
+                  : '비상정지 해제',
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '거부되면 아직 남은 원인이 있는 것입니다. safety 와 motor 가 먼저 떠 '
+            '있어야 합니다 — /motor/can_ok 가 래치 원인의 하나라, 동력 상태를 모르는 '
+            '채로는 풀지 않습니다.',
+            style: TextStyle(fontSize: 11, color: VicaColors.muted),
+          ),
+        ],
       ),
     );
   }
