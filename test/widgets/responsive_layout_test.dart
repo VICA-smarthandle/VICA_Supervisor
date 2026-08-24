@@ -23,7 +23,6 @@ import 'package:vica_supervisor/screens/logs_screen.dart';
 import 'package:vica_supervisor/screens/map_locations_screen.dart';
 import 'package:vica_supervisor/screens/mapping_shell.dart';
 import 'package:vica_supervisor/screens/mode_select_screen.dart';
-import 'package:vica_supervisor/screens/robot_management_screen.dart';
 import 'package:vica_supervisor/screens/save_location_screen.dart';
 import 'package:vica_supervisor/screens/settings_screen.dart';
 import 'package:vica_supervisor/screens/system_diagnostics_screen.dart';
@@ -151,10 +150,6 @@ void main() {
       '시스템 진단': (s) {
         s.injectHealth(healthMsg(faults: [faultMsg(latched: true)]));
         return const SystemDiagnosticsScreen();
-      },
-      '로봇 관리': (s) {
-        s.injectRobot();
-        return const RobotManagementScreen();
       },
       '장소 저장': (s) {
         s

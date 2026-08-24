@@ -18,7 +18,6 @@ import 'screens/login_screen.dart';
 import 'screens/map_locations_screen.dart';
 import 'screens/mapping_shell.dart';
 import 'screens/mode_select_screen.dart';
-import 'screens/robot_management_screen.dart';
 import 'screens/save_location_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/system_diagnostics_screen.dart';
@@ -165,25 +164,27 @@ class _SupervisorShellState extends State<SupervisorShell> {
         const SaveLocationScreen(),
         const MapLocationsScreen(),
         const CurrentLocationScreen(),
-        const RobotManagementScreen(),
         const SystemDiagnosticsScreen(),
         const LogsScreen(),
         const SettingsScreen(),
       ];
 
-  // AppBar 바로가기와 배너가 참조하는 인덱스입니다. 화면 순서를 바꿀 때 함께 바꿔야
-  // 하므로 숫자를 코드에 직접 쓰지 않습니다.
-  static const _dashboardIndex = 0;
-  static const _saveLocationIndex = 1;
-  static const _systemDiagnosticsIndex = 5;
-  static const _settingsIndex = 7;
+  // AppBar 바로가기와 배너가 참조하는 인덱스입니다.
+  //
+  // 숫자를 직접 쓰지 않고 _titles 에서 찾습니다. 종전에는 5, 7 처럼 박아 두고
+  // "화면 순서를 바꿀 때 함께 바꾼다"고 주석으로 약속했는데, 2026-08-21 에 화면
+  // 하나(로봇 관리)를 지우면서 그 약속이 실제로 깨질 뻔했습니다. 손으로 맞추는
+  // 약속은 언젠가 어긋납니다 — 찾게 하면 어긋날 수가 없습니다.
+  static int get _dashboardIndex => _titles.indexOf('대시보드');
+  static int get _saveLocationIndex => _titles.indexOf('장소 저장');
+  static int get _systemDiagnosticsIndex => _titles.indexOf('시스템 진단');
+  static int get _settingsIndex => _titles.indexOf('설정');
 
   static const _titles = [
     '대시보드',
     '장소 저장',
     '원격 주행',
     '현재 위치',
-    '로봇 관리',
     '시스템 진단',
     '알림 및 로그',
     '설정',
@@ -710,10 +711,6 @@ class _SupervisorShellState extends State<SupervisorShell> {
       label: Text('현재 위치'),
     ),
     NavigationDrawerDestination(
-      icon: Icon(Icons.precision_manufacturing),
-      label: Text('로봇 관리'),
-    ),
-    NavigationDrawerDestination(
       icon: Icon(Icons.monitor_heart),
       label: Text('시스템 진단'),
     ),
@@ -747,11 +744,6 @@ class _SupervisorShellState extends State<SupervisorShell> {
       icon: Icons.my_location_outlined,
       selectedIcon: Icons.my_location,
       label: '현재 위치',
-    ),
-    _SidebarNavigationItem(
-      icon: Icons.precision_manufacturing_outlined,
-      selectedIcon: Icons.precision_manufacturing,
-      label: '로봇 관리',
     ),
     _SidebarNavigationItem(
       icon: Icons.monitor_heart_outlined,
