@@ -2,8 +2,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'core/app_mode.dart';
 import 'core/app_settings.dart';
 import 'core/layout_breakpoints.dart';
+import 'providers/app_mode_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/supervisor_provider.dart';
@@ -14,6 +16,8 @@ import 'screens/dashboard_screen.dart';
 import 'screens/logs_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/map_locations_screen.dart';
+import 'screens/mapping_shell.dart';
+import 'screens/mode_select_screen.dart';
 import 'screens/robot_management_screen.dart';
 import 'screens/save_location_screen.dart';
 import 'screens/settings_screen.dart';
@@ -120,7 +124,25 @@ class AuthGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isLoggedIn = context.watch<AuthProvider>().isLoggedIn;
-    return isLoggedIn ? const SupervisorShell() : const LoginScreen();
+    final modeProvider = context.watch<AppModeProvider>();
+
+    if (!isLoggedIn) {
+      // 로그아웃하면 모드도 함께 비웁니다. 안 비우면 다시 로그인했을 때 모드 선택을
+      // 건너뛰고 지난번 모드로 바로 들어갑니다. build 중에 상태를 바꿀 수 없어
+      // 프레임이 끝난 뒤로 미룹니다.
+      if (modeProvider.isSelected) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          modeProvider.clear();
+        });
+      }
+      return const LoginScreen();
+    }
+
+    return switch (modeProvider.mode) {
+      null => const ModeSelectScreen(),
+      AppMode.drive => const SupervisorShell(),
+      AppMode.mapping => const MappingShell(),
+    };
   }
 }
 
@@ -196,6 +218,11 @@ class _SupervisorShellState extends State<SupervisorShell> {
                           ),
                         ),
                   actions: [
+                    IconButton(
+                      onPressed: () => _changeMode(context),
+                      icon: const Icon(Icons.swap_horiz),
+                      tooltip: '모드 바꾸기',
+                    ),
                     // 어느 화면에서든 장소 저장으로 한 번에 이동합니다.
                     IconButton(
                       onPressed: () =>
@@ -279,6 +306,40 @@ class _SupervisorShellState extends State<SupervisorShell> {
           ),
         );
       },
+    );
+  }
+
+  /// 모드 선택 화면으로 돌아갑니다.
+  ///
+  /// [A4 예정] 지금은 '주행 중'만 막습니다. 남은 기준은 다음과 같고 각각 근거가 있습니다.
+  ///   - 매핑 작성·저장 중 (매핑 모드 쪽 화면이 판정한다)
+  ///   - 매핑 bag 기록 중 — bag 이 유일한 재현 수단이다
+  ///   - 저장 안 한 임시 장소가 있으면 확인받기
+  /// 젯슨 스택이 떠 있는지는 모드 선택 화면이 카드 상태 점으로 이미 보여주므로
+  /// 여기서 또 막지 않습니다 — 돌아가는 것 자체는 위험하지 않습니다.
+  Future<void> _changeMode(BuildContext context) async {
+    final supervisor = context.read<SupervisorProvider>();
+    final goal = supervisor.primaryRobot?.currentGoal.trim() ?? '';
+    if (goal.isEmpty) {
+      context.read<AppModeProvider>().clear();
+      return;
+    }
+    // 화면을 떠나면 취소·일시정지 버튼에 손이 닿지 않습니다.
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('주행 중입니다'),
+        content: Text(
+          "'$goal'(으)로 주행 중입니다. 모드를 바꾸면 취소·일시정지 버튼에 "
+          '닿을 수 없으니 먼저 주행을 끝내거나 취소해 주세요.',
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
     );
   }
 

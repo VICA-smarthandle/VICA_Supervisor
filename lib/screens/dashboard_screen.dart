@@ -8,6 +8,7 @@ import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../ros/ros_bridge_client.dart';
 import '../widgets/health_banner.dart';
+import '../widgets/ros_connection_tile.dart';
 import '../widgets/vica_ui.dart';
 
 class DashboardScreen extends StatelessWidget {
@@ -82,11 +83,7 @@ class DashboardScreen extends StatelessWidget {
         // 좁은 창에서는 두 버튼을 나란히 두면 각 버튼이 130px까지 줄어 라벨이
         // 잘립니다. 그때는 위아래로 쌓아 문구를 그대로 보여줍니다.
         _ConnectionButtons(
-          connected: connected,
           hasMaps: supervisor.maps.isNotEmpty,
-          onToggleRos: connected
-              ? supervisor.disconnect
-              : () => supervisor.connect(settings),
           onRequestMaps:
               connected ? () => supervisor.requestMapList(settings) : null,
         ),
@@ -155,26 +152,18 @@ class DashboardScreen extends StatelessWidget {
 // ROS 연결과 지도 연결 버튼입니다. 넓으면 나란히, 좁으면 위아래로 놓습니다.
 class _ConnectionButtons extends StatelessWidget {
   const _ConnectionButtons({
-    required this.connected,
     required this.hasMaps,
-    required this.onToggleRos,
     required this.onRequestMaps,
   });
 
-  final bool connected;
   final bool hasMaps;
-  final VoidCallback onToggleRos;
   final VoidCallback? onRequestMaps;
 
   @override
   Widget build(BuildContext context) {
-    final rosButton = OutlinedButton.icon(
-      onPressed: onToggleRos,
-      icon: Icon(
-        connected ? Icons.check_circle : Icons.radio_button_unchecked,
-      ),
-      label: Text(connected ? 'ROS 연결됨' : 'ROS 연결'),
-    );
+    // 연결은 앱 전체에 하나뿐이라 버튼도 공통 위젯을 씁니다. 모드 선택 화면과
+    // 매핑 준비 확인이 같은 것을 봅니다.
+    const rosButton = VicaRosConnectionButton();
     final mapButton = OutlinedButton.icon(
       onPressed: onRequestMaps,
       icon: Icon(
@@ -197,7 +186,7 @@ class _ConnectionButtons extends StatelessWidget {
         }
         return Row(
           children: [
-            Expanded(child: rosButton),
+            const Expanded(child: rosButton),
             const SizedBox(width: 10),
             Expanded(child: mapButton),
           ],

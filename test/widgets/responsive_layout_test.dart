@@ -12,12 +12,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:vica_supervisor/models/stack_status.dart';
+import 'package:vica_supervisor/providers/app_mode_provider.dart';
+import 'package:vica_supervisor/providers/auth_provider.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/screens/current_location_screen.dart';
 import 'package:vica_supervisor/screens/dashboard_screen.dart';
 import 'package:vica_supervisor/screens/logs_screen.dart';
 import 'package:vica_supervisor/screens/map_locations_screen.dart';
+import 'package:vica_supervisor/screens/mapping_shell.dart';
+import 'package:vica_supervisor/screens/mode_select_screen.dart';
 import 'package:vica_supervisor/screens/robot_management_screen.dart';
 import 'package:vica_supervisor/screens/save_location_screen.dart';
 import 'package:vica_supervisor/screens/settings_screen.dart';
@@ -30,6 +35,20 @@ import '../screens/system_diagnostics_screen_test.dart'
 /// 화면 표시 규칙만 보기 위해 rosbridge 없이 상태를 넣습니다.
 class _Supervisor extends SupervisorProvider {
   void injectHealth(Map<String, Object?> msg) => handleRobotHealthForTest(msg);
+
+  // 카드에 가장 긴 문구가 들어가는 상태(중복 실행 경고)로 배치를 확인합니다.
+  void injectConflictingStack() => setStackStatusForTest(
+        StackStatus(
+          nodes: const [
+            '/amcl',
+            '/cartographer_node',
+            '/ekf_filter_node',
+            '/ekf_filter_node',
+          ],
+          odomPublishers: const ['/ekf_filter_node', '/ekf_filter_node'],
+          checkedAt: DateTime(2026, 8, 21),
+        ),
+      );
 
   void injectMaps() => handleMapListForTest({
         'maps': [
@@ -76,6 +95,8 @@ Widget _wrap(Widget child, SupervisorProvider supervisor, double textScale) {
       providers: [
         ChangeNotifierProvider<SupervisorProvider>.value(value: supervisor),
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
+        ChangeNotifierProvider(create: (_) => AppModeProvider()),
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
       ],
       child: MaterialApp(home: Scaffold(body: child)),
     ),
@@ -155,6 +176,11 @@ void main() {
           ..injectRobot();
         return const CurrentLocationScreen();
       },
+      '모드 선택': (s) {
+        s.injectConflictingStack();
+        return const ModeSelectScreen();
+      },
+      '지도 모드': (s) => const MappingShell(),
       '설정': (s) => const SettingsScreen(),
       '알림 및 로그': (s) {
         s

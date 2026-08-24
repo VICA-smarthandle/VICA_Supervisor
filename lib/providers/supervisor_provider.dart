@@ -11,6 +11,7 @@ import '../models/location_point.dart';
 import '../models/robot_event.dart';
 import '../models/robot_health.dart';
 import '../models/robot_status.dart';
+import '../models/stack_status.dart';
 import '../models/supervisor_log.dart';
 import '../models/vica_map.dart';
 import '../ros/ros_bridge_client.dart';
@@ -75,6 +76,13 @@ class SupervisorProvider extends ChangeNotifier {
   // 사유가 실제로 바뀔 때만 알림을 남기기 위해 들고 있습니다.
   String _lastLoggedErrorReason = '';
 
+  // 젯슨에 지금 어떤 스택이 떠 있는지. 모드 선택 화면이 중복 실행을 막는 근거입니다.
+  // 상시 구독이 아니라 요청할 때만 갱신합니다 — 노드 목록은 자주 바뀌지 않고,
+  // rosapi 조회는 그래프 전체를 훑는 일이라 주기 호출로 둘 만큼 싸지 않습니다.
+  StackStatus? _stackStatus;
+  bool _stackStatusLoading = false;
+  String _stackStatusError = '';
+
   // robot_health_monitor_node가 보내는 상세 진단. /robot_status.error_reason이
   // 문자열 한 줄인 것과 달리 컴포넌트·등급·조치·발생횟수를 담습니다.
   RobotHealth? _health;
@@ -89,6 +97,10 @@ class SupervisorProvider extends ChangeNotifier {
   static const _maxHealthEvents = 100;
   // 알림 및 로그 화면의 상한. 진단 이벤트 이력과 같은 값으로 둡니다.
   static const _maxLogs = 100;
+
+  StackStatus? get stackStatus => _stackStatus;
+  bool get stackStatusLoading => _stackStatusLoading;
+  String get stackStatusError => _stackStatusError;
 
   RosConnectionState get connectionState => _connectionState;
   String get connectionDetail => _connectionDetail;
@@ -182,6 +194,10 @@ class SupervisorProvider extends ChangeNotifier {
     // 연결이 끊기면 진단도 현재 상태가 아닙니다. 이벤트 이력은 지나간 기록이므로
     // 남겨둡니다 — 관리자가 왜 끊겼는지 되짚을 수 있어야 합니다.
     _health = null;
+    // 노드 목록도 현재 사실이 아닙니다. 남겨 두면 모드 선택 화면이 "아무것도 안
+    // 떠 있다"고 잘못된 안심을 줄 수 있습니다 — 그래서 '확인 불가'로 되돌립니다.
+    _stackStatus = null;
+    _stackStatusError = '';
     if (_robotsById.isEmpty) {
       return;
     }
@@ -499,6 +515,69 @@ class SupervisorProvider extends ChangeNotifier {
     return _sendMissionCommand(settings.missionResumeService, '다시 출발합니다.');
   }
 
+  /// 젯슨의 노드 목록을 조회해 어떤 스택이 떠 있는지 갱신합니다.
+  ///
+  /// rosapi 노드는 rosbridge 가 함께 띄웁니다
+  /// (rosbridge_websocket_launch.xml 74행 `<node name="rosapi" ...>`).
+  /// supervisor_bringup 을 실행했다면 이 서비스는 이미 있습니다.
+  ///
+  /// 연결이 없으면 조용히 비웁니다. "확인 불가"와 "아무것도 안 떠 있음"은
+  /// 다른 상태이고, 둘을 섞으면 화면이 잘못된 안심을 줍니다.
+  Future<void> refreshStackStatus() async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      _stackStatus = null;
+      _stackStatusError = '';
+      _stackStatusLoading = false;
+      notifyListeners();
+      return;
+    }
+
+    _stackStatusLoading = true;
+    _stackStatusError = '';
+    notifyListeners();
+
+    try {
+      final nodesResponse = await client.callService(
+        service: '/rosapi/nodes',
+        type: 'rosapi_msgs/srv/Nodes',
+      );
+      // /odom 발행자는 '두 벌' 판정의 두 번째 신호입니다. 조회에 실패해도
+      // 노드 목록만으로 판정할 수 있으므로 여기서 전체를 실패로 만들지 않습니다.
+      List<String> odomPublishers = const [];
+      try {
+        final publishersResponse = await client.callService(
+          service: '/rosapi/publishers',
+          type: 'rosapi_msgs/srv/Publishers',
+          args: const {'topic': '/odom'},
+        );
+        odomPublishers = _asStringList(publishersResponse.values['publishers']);
+      } catch (_) {
+        odomPublishers = const [];
+      }
+
+      _stackStatus = StackStatus(
+        nodes: _asStringList(nodesResponse.values['nodes']),
+        odomPublishers: odomPublishers,
+        checkedAt: DateTime.now(),
+      );
+      _stackStatusError = '';
+    } catch (error) {
+      _stackStatus = null;
+      _stackStatusError = '노드 목록을 조회하지 못했습니다: $error';
+    } finally {
+      _stackStatusLoading = false;
+      notifyListeners();
+    }
+  }
+
+  static List<String> _asStringList(Object? value) {
+    if (value is! List) {
+      return const [];
+    }
+    return value.whereType<String>().toList(growable: false);
+  }
+
   Future<String> _sendMissionCommand(
     String service,
     String defaultSuccessMessage,
@@ -718,6 +797,14 @@ class SupervisorProvider extends ChangeNotifier {
   @visibleForTesting
   void handleMapListForTest(Map<String, Object?> message) =>
       _handleMapList(message);
+
+  /// rosapi 를 띄우지 않고 모드 선택 화면의 표시 규칙만 검증하기 위한 주입 지점입니다.
+  @visibleForTesting
+  void setStackStatusForTest(StackStatus? status) {
+    _stackStatus = status;
+    _stackStatusLoading = false;
+    notifyListeners();
+  }
 
   @visibleForTesting
   void handleLocationListForTest(Map<String, Object?> message) =>
