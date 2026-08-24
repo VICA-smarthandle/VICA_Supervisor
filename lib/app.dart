@@ -311,28 +311,81 @@ class _SupervisorShellState extends State<SupervisorShell> {
 
   /// 모드 선택 화면으로 돌아갑니다.
   ///
-  /// [A4 예정] 지금은 '주행 중'만 막습니다. 남은 기준은 다음과 같고 각각 근거가 있습니다.
-  ///   - 매핑 작성·저장 중 (매핑 모드 쪽 화면이 판정한다)
-  ///   - 매핑 bag 기록 중 — bag 이 유일한 재현 수단이다
-  ///   - 저장 안 한 임시 장소가 있으면 확인받기
-  /// 젯슨 스택이 떠 있는지는 모드 선택 화면이 카드 상태 점으로 이미 보여주므로
-  /// 여기서 또 막지 않습니다 — 돌아가는 것 자체는 위험하지 않습니다.
+  /// 기준마다 근거가 따로 있습니다. 공통점은 "화면을 떠나면 그 일을 멈출 버튼에
+  /// 손이 닿지 않는다"입니다.
+  ///
+  /// 젯슨 스택이 떠 있는지는 여기서 막지 않습니다. 모드 선택 화면이 카드 상태 점
+  /// 으로 이미 보여주고, 돌아가는 것 자체는 위험하지 않기 때문입니다.
   Future<void> _changeMode(BuildContext context) async {
     final supervisor = context.read<SupervisorProvider>();
+
+    // ① 주행 중 — 취소·일시정지 버튼이 이 화면에만 있습니다.
     final goal = supervisor.primaryRobot?.currentGoal.trim() ?? '';
-    if (goal.isEmpty) {
-      context.read<AppModeProvider>().clear();
+    if (goal.isNotEmpty) {
+      await _blockDialog(
+        context,
+        '주행 중입니다',
+        "'$goal'(으)로 주행 중입니다. 모드를 바꾸면 취소·일시정지 버튼에 "
+            '닿을 수 없으니 먼저 주행을 끝내거나 취소해 주세요.',
+      );
       return;
     }
-    // 화면을 떠나면 취소·일시정지 버튼에 손이 닿지 않습니다.
-    await showDialog<void>(
+
+    // ② 매핑 중 — 지도를 그리다 말고 나가면 저장할 방법이 없습니다.
+    final mapping = supervisor.mappingStatus;
+    if (mapping != null && mapping.busy) {
+      await _blockDialog(
+        context,
+        '매핑이 진행 중입니다',
+        '${mapping.state.label} 상태입니다. 지도 모드에서 저장하거나 종료한 뒤에 '
+            '모드를 바꿔 주세요.',
+      );
+      return;
+    }
+
+    // ③ 저장 안 한 임시 장소 — 막지 않고 한 번 묻습니다. 사람이 버려도 되는
+    //    것인지 아는 유일한 주체입니다.
+    final draft = supervisor.draftLocation;
+    if (draft != null) {
+      final leave = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('저장하지 않은 장소가 있습니다'),
+          content: Text(
+            "'${draft.name}'을(를) 아직 ROS2에 저장하지 않았습니다. "
+            '모드를 바꾸면 사라집니다.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('남아서 저장'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('버리고 나가기'),
+            ),
+          ],
+        ),
+      );
+      if (leave != true || !context.mounted) {
+        return;
+      }
+      supervisor.setDraftLocation(null);
+    }
+
+    context.read<AppModeProvider>().clear();
+  }
+
+  Future<void> _blockDialog(
+    BuildContext context,
+    String title,
+    String body,
+  ) {
+    return showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('주행 중입니다'),
-        content: Text(
-          "'$goal'(으)로 주행 중입니다. 모드를 바꾸면 취소·일시정지 버튼에 "
-          '닿을 수 없으니 먼저 주행을 끝내거나 취소해 주세요.',
-        ),
+        title: Text(title),
+        content: Text(body),
         actions: [
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(),

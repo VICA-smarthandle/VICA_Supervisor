@@ -10,6 +10,8 @@ import '../core/log_filter.dart';
 import '../models/location_point.dart';
 import '../models/robot_event.dart';
 import '../models/robot_health.dart';
+import '../models/map_preview.dart';
+import '../models/mapping_status.dart';
 import '../models/robot_status.dart';
 import '../models/stack_status.dart';
 import '../models/supervisor_log.dart';
@@ -79,6 +81,12 @@ class SupervisorProvider extends ChangeNotifier {
   // 젯슨에 지금 어떤 스택이 떠 있는지. 모드 선택 화면이 중복 실행을 막는 근거입니다.
   // 상시 구독이 아니라 요청할 때만 갱신합니다 — 노드 목록은 자주 바뀌지 않고,
   // rosapi 조회는 그래프 전체를 훑는 일이라 주기 호출로 둘 만큼 싸지 않습니다.
+  // 매핑 세션 상태와 지도 미리보기. 매핑 모드에서만 의미가 있지만, 구독은 연결 시
+  // 한 번만 걸고 화면이 바뀌어도 유지합니다 — 구독을 붙였다 뗐다 하면 화면 전환
+  // 순간의 메시지를 놓칩니다.
+  MappingStatus? _mappingStatus;
+  MapPreview? _mapPreview;
+
   StackStatus? _stackStatus;
   bool _stackStatusLoading = false;
   String _stackStatusError = '';
@@ -97,6 +105,9 @@ class SupervisorProvider extends ChangeNotifier {
   static const _maxHealthEvents = 100;
   // 알림 및 로그 화면의 상한. 진단 이벤트 이력과 같은 값으로 둡니다.
   static const _maxLogs = 100;
+
+  MappingStatus? get mappingStatus => _mappingStatus;
+  MapPreview? get mapPreview => _mapPreview;
 
   StackStatus? get stackStatus => _stackStatus;
   bool get stackStatusLoading => _stackStatusLoading;
@@ -194,6 +205,14 @@ class SupervisorProvider extends ChangeNotifier {
     // 연결이 끊기면 진단도 현재 상태가 아닙니다. 이벤트 이력은 지나간 기록이므로
     // 남겨둡니다 — 관리자가 왜 끊겼는지 되짚을 수 있어야 합니다.
     _health = null;
+    // 연결이 끊기면 teleop 반복도 멈춥니다. 로봇은 0.5초 watchdog 으로 서지만,
+    // 앱이 계속 보내려 시도하며 로그를 채울 이유가 없습니다.
+    _teleopTimer?.cancel();
+    _teleopTimer = null;
+    _teleopAdvertised = false;
+    // 매핑 상태와 미리보기도 현재 사실이 아닙니다.
+    _mappingStatus = null;
+    _mapPreview = null;
     // 노드 목록도 현재 사실이 아닙니다. 남겨 두면 모드 선택 화면이 "아무것도 안
     // 떠 있다"고 잘못된 안심을 줄 수 있습니다 — 그래서 '확인 불가'로 되돌립니다.
     _stackStatus = null;
@@ -238,6 +257,14 @@ class SupervisorProvider extends ChangeNotifier {
       )
       // 커스텀 메시지는 type을 지정해 구독합니다. RosBridgeClient가 msg['data']가
       // String이 아닌 경우 raw 필드 map을 그대로 handler에 넘깁니다.
+      ..subscribe(
+        topic: settings.mappingStatusTopic,
+        handler: _handleMappingStatus,
+      )
+      ..subscribe(
+        topic: settings.mapPreviewTopic,
+        handler: _handleMapPreview,
+      )
       ..subscribe(
         topic: settings.robotHealthTopic,
         handler: _handleRobotHealth,
@@ -578,6 +605,157 @@ class SupervisorProvider extends ChangeNotifier {
     return value.whereType<String>().toList(growable: false);
   }
 
+  // ---- 매핑 세션 제어 ---------------------------------------------------
+  //
+  // 앱은 프로세스를 직접 띄우지 않습니다. 젯슨에 상주하는 mapping_supervisor_node
+  // 가 자식을 소유하고, 앱은 서비스만 부릅니다. 앱이 꺼져도 고아 프로세스가 남지
+  // 않게 하기 위해서입니다.
+
+  Future<String> startMapping(AppSettings settings) {
+    return _callMappingTrigger(settings.mappingStartService, '매핑을 시작했습니다.');
+  }
+
+  Future<String> stopMapping(AppSettings settings) {
+    return _callMappingTrigger(settings.mappingStopService, '매핑을 종료했습니다.');
+  }
+
+  Future<String> _callMappingTrigger(String service, String fallback) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return 'ROS Bridge에 연결되지 않았습니다.';
+    }
+    try {
+      final response = await client.callService(
+        service: service,
+        type: 'std_srvs/srv/Trigger',
+        // 시작은 launch 를 띄우는 일이라 응답이 조금 늦을 수 있습니다.
+        timeout: const Duration(seconds: 15),
+      );
+      final message = response.message.isEmpty ? fallback : response.message;
+      _addLog(LogFilter.coordinateTransfer, message);
+      return message;
+    } catch (error) {
+      final message = '매핑 요청 실패: $error';
+      _addLog(LogFilter.coordinateTransfer, message);
+      return message;
+    }
+  }
+
+  /// 지도를 저장합니다. 이름은 사람이, 날짜는 로봇이 붙입니다.
+  ///
+  /// 서비스는 곧바로 응답하고 실제 저장은 젯슨에서 따로 돕니다 — vica_map_save.sh
+  /// 가 최대 120초까지 걸릴 수 있어 기다리면 다른 요청이 전부 막힙니다. 결과는
+  /// /vica/mapping_status 의 detail 로 옵니다.
+  Future<String> saveMap(AppSettings settings, String name) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return 'ROS Bridge에 연결되지 않았습니다.';
+    }
+    try {
+      final response = await client.callService(
+        service: settings.mappingSaveService,
+        type: 'vica_interfaces/srv/SaveMap',
+        args: {'name': name},
+      );
+      final message = response.message.isEmpty
+          ? (response.accepted ? '저장을 시작했습니다.' : '저장이 거부되었습니다.')
+          : response.message;
+      _addLog(LogFilter.coordinateTransfer, message);
+      return message;
+    } catch (error) {
+      final message = '지도 저장 요청 실패: $error';
+      _addLog(LogFilter.coordinateTransfer, message);
+      return message;
+    }
+  }
+
+  // ---- 매핑 teleop -----------------------------------------------------
+  //
+  // 젯슨 터미널의 teleop 칸과 **같은 경로**를 씁니다.
+  //     ros2 run teleop_twist_keyboard ... -r /cmd_vel:=/cmd_vel_req
+  // 즉 /cmd_vel_req -> Safety Supervisor -> /cmd_vel_safe -> motor 로,
+  // Safety 를 우회하지 않습니다.
+  //
+  // **데드맨은 이미 두 겹 있습니다.** safety_supervisor_node 와
+  // mdrobot_can_control 이 각각 cmd_timeout_sec 0.5 를 갖습니다. 앱이 명령을
+  // 멈추면(손을 뗌·WiFi 끊김·앱 종료) 0.5초 안에 두 계층이 각각 정지시킵니다.
+  // 그래서 이 코드는 **누르고 있는 동안만** 발행합니다 — 한 번 눌러 계속 가게
+  // 만들면 그 안전장치가 통째로 무력해집니다.
+
+  static const teleopTopic = '/cmd_vel_req';
+  static const _teleopType = 'geometry_msgs/Twist';
+
+  // 매핑 주행 상한. docs/cartographer_corridor_mapping.md 4절이 근거입니다 —
+  // "직진 0.3 m/s, 회전 0.4 rad/s 아래. 예측 탐색 창이 0.1 m 라 0.5 m/s 면
+  //  스캔 사이 이동이 10 cm 로 창 경계에 닿는다".
+  //
+  // Safety 의 상한(1.0 / 2.0)은 실주행 상한의 3.8~5배라 폭주만 막고 일상 제한은
+  // 못 합니다(nav2_backlog.md C8). 그래서 보내는 값 자체를 여기서 묶습니다.
+  static const teleopMaxLinear = 0.3;
+  static const teleopMaxAngular = 0.4;
+
+  // 20 Hz. Safety 의 0.5초 시한보다 10배 촘촘해 한두 장을 놓쳐도 끊기지 않습니다.
+  static const _teleopPeriod = Duration(milliseconds: 50);
+
+  Timer? _teleopTimer;
+  bool _teleopAdvertised = false;
+  double _teleopLinear = 0;
+  double _teleopAngular = 0;
+
+  bool get teleopActive => _teleopTimer != null;
+
+  /// 누르고 있는 동안 부릅니다. 값이 바뀌면 다시 부르면 됩니다.
+  void holdTeleop({required double linear, required double angular}) {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return;
+    }
+    _teleopLinear = linear.clamp(-teleopMaxLinear, teleopMaxLinear).toDouble();
+    _teleopAngular =
+        angular.clamp(-teleopMaxAngular, teleopMaxAngular).toDouble();
+
+    if (!_teleopAdvertised) {
+      client.advertise(topic: teleopTopic, type: _teleopType);
+      _teleopAdvertised = true;
+    }
+    _publishTeleop();
+    _teleopTimer ??= Timer.periodic(_teleopPeriod, (_) => _publishTeleop());
+    notifyListeners();
+  }
+
+  /// 손을 뗐을 때 부릅니다. 0을 한 번 보내고 발행을 멈춥니다.
+  ///
+  /// 0을 보내지 않아도 0.5초 뒤 watchdog 이 세우지만, 그동안 로봇이 굴러갑니다.
+  /// 명시적인 0이 즉시 세웁니다.
+  void releaseTeleop() {
+    _teleopTimer?.cancel();
+    _teleopTimer = null;
+    _teleopLinear = 0;
+    _teleopAngular = 0;
+    if (_teleopAdvertised) {
+      _publishTeleop();
+    }
+    notifyListeners();
+  }
+
+  void _publishTeleop() {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      // 연결이 끊겼으면 더 보낼 수도 없고 보낼 필요도 없습니다. watchdog 이 세웁니다.
+      _teleopTimer?.cancel();
+      _teleopTimer = null;
+      _teleopAdvertised = false;
+      return;
+    }
+    client.publishMessage(
+      topic: teleopTopic,
+      message: {
+        'linear': {'x': _teleopLinear, 'y': 0.0, 'z': 0.0},
+        'angular': {'x': 0.0, 'y': 0.0, 'z': _teleopAngular},
+      },
+    );
+  }
+
   Future<String> _sendMissionCommand(
     String service,
     String defaultSuccessMessage,
@@ -760,6 +938,39 @@ class SupervisorProvider extends ChangeNotifier {
   //
   // /robot_status.error_reason 경로는 다릅니다. 그쪽은 10 Hz로 상시 발행되므로
   // _logErrorReasonChange가 억제를 담당합니다. 두 경로의 억제 지점이 다릅니다.
+  void _handleMappingStatus(Map<String, Object?> message) {
+    final decoded = _decodeJsonString(message);
+    if (decoded == null) {
+      return;
+    }
+    _mappingStatus = MappingStatus.fromJson(decoded);
+    notifyListeners();
+  }
+
+  void _handleMapPreview(Map<String, Object?> message) {
+    final decoded = _decodeJsonString(message);
+    if (decoded == null) {
+      return;
+    }
+    _mapPreview = MapPreview.fromJson(decoded);
+    notifyListeners();
+  }
+
+  // 두 토픽 모두 std_msgs/String 의 data 에 JSON 을 담습니다. 파싱 실패는 조용히
+  // 버립니다 — 깨진 한 건 때문에 화면이 죽으면 안 됩니다.
+  Map<String, Object?>? _decodeJsonString(Map<String, Object?> message) {
+    final raw = message['data'];
+    if (raw is! String || raw.isEmpty) {
+      return null;
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is Map<String, Object?> ? decoded : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   void _handleRobotEvent(Map<String, Object?> message) {
     final event = RobotEvent.fromRosMsg(message, id: _uuid.v4());
 
@@ -797,6 +1008,14 @@ class SupervisorProvider extends ChangeNotifier {
   @visibleForTesting
   void handleMapListForTest(Map<String, Object?> message) =>
       _handleMapList(message);
+
+  @visibleForTesting
+  void handleMappingStatusForTest(Map<String, Object?> message) =>
+      _handleMappingStatus(message);
+
+  @visibleForTesting
+  void handleMapPreviewForTest(Map<String, Object?> message) =>
+      _handleMapPreview(message);
 
   /// rosapi 를 띄우지 않고 모드 선택 화면의 표시 규칙만 검증하기 위한 주입 지점입니다.
   @visibleForTesting
@@ -893,6 +1112,7 @@ class SupervisorProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _teleopTimer?.cancel();
     _reconnectTimer?.cancel();
     unawaited(_client?.close());
     super.dispose();

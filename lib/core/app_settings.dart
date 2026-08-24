@@ -21,6 +21,11 @@ class AppSettings {
     this.missionCancelService = '/vica/mission/cancel_destination',
     this.missionPauseService = '/vica/mission/pause_navigation',
     this.missionResumeService = '/vica/mission/resume_navigation',
+    this.mappingStatusTopic = '/vica/mapping_status',
+    this.mapPreviewTopic = '/vica/map_preview',
+    this.mappingStartService = '/vica/mapping/start',
+    this.mappingStopService = '/vica/mapping/stop',
+    this.mappingSaveService = '/vica/mapping/save',
     this.robotStatusTopic = '/robot_status',
     this.emergencyActivateService = '/app_estop_activate',
     this.emergencyResetService = '/app_estop_reset',
@@ -52,6 +57,12 @@ class AppSettings {
   final String locationListTopic;
   final String saveLocationTopic;
   final String deleteLocationRequestTopic;
+  // 매핑 세션 제어. mapping_supervisor_node 가 제공합니다.
+  final String mappingStatusTopic;
+  final String mapPreviewTopic;
+  final String mappingStartService;
+  final String mappingStopService;
+  final String mappingSaveService;
   final String missionRequestService;
   // 진행 중인 주행 제어. 모두 vica_interfaces/srv/MissionCommand를 씁니다.
   final String missionCancelService;
@@ -85,6 +96,11 @@ class AppSettings {
     String? locationListTopic,
     String? saveLocationTopic,
     String? deleteLocationRequestTopic,
+    String? mappingStatusTopic,
+    String? mapPreviewTopic,
+    String? mappingStartService,
+    String? mappingStopService,
+    String? mappingSaveService,
     String? missionRequestService,
     String? missionCancelService,
     String? missionPauseService,
@@ -119,6 +135,11 @@ class AppSettings {
       saveLocationTopic: saveLocationTopic ?? this.saveLocationTopic,
       deleteLocationRequestTopic:
           deleteLocationRequestTopic ?? this.deleteLocationRequestTopic,
+      mappingStatusTopic: mappingStatusTopic ?? this.mappingStatusTopic,
+      mapPreviewTopic: mapPreviewTopic ?? this.mapPreviewTopic,
+      mappingStartService: mappingStartService ?? this.mappingStartService,
+      mappingStopService: mappingStopService ?? this.mappingStopService,
+      mappingSaveService: mappingSaveService ?? this.mappingSaveService,
       missionRequestService:
           missionRequestService ?? this.missionRequestService,
       missionCancelService: missionCancelService ?? this.missionCancelService,
@@ -161,6 +182,11 @@ class AppSettings {
       'locationListTopic': locationListTopic,
       'saveLocationTopic': saveLocationTopic,
       'deleteLocationRequestTopic': deleteLocationRequestTopic,
+      'mappingStatusTopic': mappingStatusTopic,
+      'mapPreviewTopic': mapPreviewTopic,
+      'mappingStartService': mappingStartService,
+      'mappingStopService': mappingStopService,
+      'mappingSaveService': mappingSaveService,
       'missionRequestService': missionRequestService,
       'missionCancelService': missionCancelService,
       'missionPauseService': missionPauseService,
@@ -204,6 +230,16 @@ class AppSettings {
       deleteLocationRequestTopic:
           json['deleteLocationRequestTopic'] as String? ??
               defaults.deleteLocationRequestTopic,
+      mappingStatusTopic:
+          json['mappingStatusTopic'] as String? ?? defaults.mappingStatusTopic,
+      mapPreviewTopic:
+          json['mapPreviewTopic'] as String? ?? defaults.mapPreviewTopic,
+      mappingStartService: json['mappingStartService'] as String? ??
+          defaults.mappingStartService,
+      mappingStopService:
+          json['mappingStopService'] as String? ?? defaults.mappingStopService,
+      mappingSaveService:
+          json['mappingSaveService'] as String? ?? defaults.mappingSaveService,
       missionRequestService: json['missionRequestService'] as String? ??
           defaults.missionRequestService,
       missionCancelService: json['missionCancelService'] as String? ??

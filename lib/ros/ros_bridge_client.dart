@@ -95,6 +95,38 @@ class RosBridgeClient {
     });
   }
 
+  // rosbridge 에 발행할 토픽의 타입을 미리 알립니다.
+  //
+  // publish op 자체는 타입을 받지 않습니다. 그래프에 이미 같은 토픽의 발행자가
+  // 있으면 rosbridge 가 타입을 알아내지만, 매핑 중에는 /cmd_vel_req 를 아무도
+  // 발행하지 않으므로(Nav2 가 꺼져 있다) 미리 advertise 해야 합니다.
+  void advertise({required String topic, required String type}) {
+    _send({
+      'op': 'advertise',
+      'topic': topic,
+      'type': type,
+    });
+  }
+
+  void unadvertise(String topic) {
+    _send({
+      'op': 'unadvertise',
+      'topic': topic,
+    });
+  }
+
+  // 임의 타입 메시지를 발행합니다. advertise 를 먼저 해 두어야 합니다.
+  void publishMessage({
+    required String topic,
+    required Map<String, Object?> message,
+  }) {
+    _send({
+      'op': 'publish',
+      'topic': topic,
+      'msg': message,
+    });
+  }
+
   // std_msgs/String의 data 필드에 JSON 문자열을 넣어서 publish합니다.
   void publishJsonString({
     required String topic,
