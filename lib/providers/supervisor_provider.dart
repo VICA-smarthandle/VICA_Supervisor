@@ -605,6 +605,46 @@ class SupervisorProvider extends ChangeNotifier {
     return value.whereType<String>().toList(growable: false);
   }
 
+  /// 저장된 지도를 지웁니다. 되돌릴 수 없습니다.
+  ///
+  /// "지도 한 장은 사람이 로봇을 끌고 다닌 시간"이라(vica_map_save.sh 주석) 실제
+  /// 검사는 노드가 합니다 — 이름 규칙, 지금 쓰는 지도인지, 파일이 있는지.
+  /// 앱은 확인을 받고 결과를 보여줄 뿐입니다.
+  Future<String> deleteMap(
+    AppSettings settings,
+    String mapId, {
+    required bool deleteDestinations,
+  }) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return 'ROS Bridge에 연결되지 않았습니다.';
+    }
+    try {
+      final response = await client.callService(
+        service: settings.deleteMapService,
+        type: 'vica_interfaces/srv/DeleteMap',
+        args: {
+          'map_id': mapId,
+          'delete_destinations': deleteDestinations,
+        },
+      );
+      final message = response.message.isEmpty
+          ? (response.accepted ? '지도를 지웠습니다.' : '삭제가 거부되었습니다.')
+          : response.message;
+      _addLog(LogFilter.coordinateTransfer, message);
+      if (response.accepted && _selectedMapId == mapId) {
+        // 지운 지도를 계속 고른 채로 두면 없는 지도의 장소를 보여주게 됩니다.
+        _selectedMapId = null;
+        _selectedLocationId = null;
+      }
+      return message;
+    } catch (error) {
+      final message = '지도 삭제 요청 실패: $error';
+      _addLog(LogFilter.coordinateTransfer, message);
+      return message;
+    }
+  }
+
   // ---- 매핑 세션 제어 ---------------------------------------------------
   //
   // 앱은 프로세스를 직접 띄우지 않습니다. 젯슨에 상주하는 mapping_supervisor_node

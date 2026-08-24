@@ -21,6 +21,7 @@ class AppSettings {
     this.missionCancelService = '/vica/mission/cancel_destination',
     this.missionPauseService = '/vica/mission/pause_navigation',
     this.missionResumeService = '/vica/mission/resume_navigation',
+    this.deleteMapService = '/delete_map',
     this.mappingStatusTopic = '/vica/mapping_status',
     this.mapPreviewTopic = '/vica/map_preview',
     this.mappingStartService = '/vica/mapping/start',
@@ -57,6 +58,9 @@ class AppSettings {
   final String locationListTopic;
   final String saveLocationTopic;
   final String deleteLocationRequestTopic;
+  // 지도 삭제. map_list_node 가 제공합니다.
+  final String deleteMapService;
+
   // 매핑 세션 제어. mapping_supervisor_node 가 제공합니다.
   final String mappingStatusTopic;
   final String mapPreviewTopic;
@@ -96,6 +100,7 @@ class AppSettings {
     String? locationListTopic,
     String? saveLocationTopic,
     String? deleteLocationRequestTopic,
+    String? deleteMapService,
     String? mappingStatusTopic,
     String? mapPreviewTopic,
     String? mappingStartService,
@@ -135,6 +140,7 @@ class AppSettings {
       saveLocationTopic: saveLocationTopic ?? this.saveLocationTopic,
       deleteLocationRequestTopic:
           deleteLocationRequestTopic ?? this.deleteLocationRequestTopic,
+      deleteMapService: deleteMapService ?? this.deleteMapService,
       mappingStatusTopic: mappingStatusTopic ?? this.mappingStatusTopic,
       mapPreviewTopic: mapPreviewTopic ?? this.mapPreviewTopic,
       mappingStartService: mappingStartService ?? this.mappingStartService,
@@ -182,6 +188,7 @@ class AppSettings {
       'locationListTopic': locationListTopic,
       'saveLocationTopic': saveLocationTopic,
       'deleteLocationRequestTopic': deleteLocationRequestTopic,
+      'deleteMapService': deleteMapService,
       'mappingStatusTopic': mappingStatusTopic,
       'mapPreviewTopic': mapPreviewTopic,
       'mappingStartService': mappingStartService,
@@ -230,6 +237,8 @@ class AppSettings {
       deleteLocationRequestTopic:
           json['deleteLocationRequestTopic'] as String? ??
               defaults.deleteLocationRequestTopic,
+      deleteMapService:
+          json['deleteMapService'] as String? ?? defaults.deleteMapService,
       mappingStatusTopic:
           json['mappingStatusTopic'] as String? ?? defaults.mappingStatusTopic,
       mapPreviewTopic:
