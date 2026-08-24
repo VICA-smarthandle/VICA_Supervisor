@@ -1,5 +1,8 @@
 // 지도 삭제 UI 의 안전장치를 고정합니다.
 //
+// 카드는 장소 저장 화면 맨 아래에 있습니다. 위젯만 따로 띄워 규칙을 봅니다 —
+// 자리를 옮겨도 이 시험은 그대로 유효해야 합니다.
+//
 // 지운 지도는 되돌릴 수 없습니다 — "지도 한 장은 사람이 로봇을 끌고 다닌 시간"
 // (scripts/vica_map_save.sh). 그래서 "지워지는가"보다 "실수로 안 지워지는가"를 봅니다.
 import 'package:flutter/material.dart';
@@ -8,7 +11,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
-import 'package:vica_supervisor/screens/settings_screen.dart';
+import 'package:vica_supervisor/widgets/map_delete_card.dart';
 
 class _FakeSupervisor extends SupervisorProvider {
   final calls = <String>[];
@@ -53,7 +56,9 @@ void main() {
           ChangeNotifierProvider<SupervisorProvider>.value(value: supervisor),
           ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ],
-        child: const MaterialApp(home: Scaffold(body: SettingsScreen())),
+        child: const MaterialApp(
+          home: Scaffold(body: SingleChildScrollView(child: MapDeleteCard())),
+        ),
       ),
     );
     await tester.pump();

@@ -8,6 +8,7 @@ import '../models/location_point.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../widgets/map_canvas.dart';
+import '../widgets/map_delete_card.dart';
 import '../widgets/vica_ui.dart';
 
 class SaveLocationScreen extends StatefulWidget {
@@ -258,6 +259,9 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               ],
             ),
           ),
+          // 지도 삭제는 목록 맨 아래에 둡니다. 되돌릴 수 없는 일이라 지도를
+          // 고르는 자리(맨 위)에서 멀리 떼어 놓습니다.
+          const MapDeleteCard(),
         ],
       ],
     );
