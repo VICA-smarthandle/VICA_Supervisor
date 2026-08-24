@@ -79,6 +79,22 @@ void main() {
     expect(button.onPressed, isNull);
   });
 
+  testWidgets('체크박스를 켜지 않으면 지도를 골라도 눌리지 않는다', (tester) async {
+    // 선택지가 아니라 확인 절차다. 지도를 지우면 그 지도의 장소도 함께 사라진다는
+    // 사실을 알고 누르게 한다.
+    await pump(tester);
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('lobby_0821').last);
+    await tester.pumpAndSettle();
+
+    final button = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, '지도 삭제'),
+    );
+    expect(button.onPressed, isNull);
+  });
+
   testWidgets('되돌릴 수 없다는 것을 미리 알린다', (tester) async {
     await pump(tester);
     expect(find.textContaining('되돌릴 수 없습니다'), findsOneWidget);
@@ -91,6 +107,8 @@ void main() {
     await tester.tap(find.byType(DropdownButtonFormField<String>).first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('lobby_0821').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(Checkbox));
     await tester.pumpAndSettle();
 
     await tester.tap(find.widgetWithText(OutlinedButton, '지도 삭제'));
@@ -110,18 +128,20 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('hall_0820').last);
     await tester.pumpAndSettle();
+    await tester.tap(find.byType(Checkbox));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.widgetWithText(OutlinedButton, '지도 삭제'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, '지우기'));
     await tester.pumpAndSettle();
 
-    // 목적지 함께 삭제는 기본이 꺼져 있어야 한다 — 같은 이름으로 다시 그릴 때
-    // 장소를 다시 찍는 일이 더 번거롭다.
-    expect(supervisor.calls, ['hall_0820:false']);
+    // 장소는 항상 함께 지운다. 지도만 지우고 장소를 남기면 없는 지도를 가리키는
+    // 카탈로그가 되고, 그 상태는 조용히 틀린다.
+    expect(supervisor.calls, ['hall_0820:true']);
   });
 
-  testWidgets('장소도 함께 지우기를 켜면 그대로 전달된다', (tester) async {
+  testWidgets('확인 창이 장소도 함께 사라진다고 알린다', (tester) async {
     final supervisor = await pump(tester);
 
     await tester.tap(find.byType(DropdownButtonFormField<String>).first);
@@ -133,7 +153,8 @@ void main() {
 
     await tester.tap(find.widgetWithText(OutlinedButton, '지도 삭제'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('장소도 함께 사라집니다'), findsOneWidget);
+    expect(find.textContaining('저장한 장소를 지웁니다'), findsOneWidget);
+    expect(find.textContaining('되돌릴 수 없습니다'), findsWidgets);
     await tester.tap(find.widgetWithText(FilledButton, '지우기'));
     await tester.pumpAndSettle();
 

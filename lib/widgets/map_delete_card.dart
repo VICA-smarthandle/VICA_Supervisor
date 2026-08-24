@@ -28,8 +28,12 @@ class MapDeleteCard extends StatefulWidget {
 
 class _MapDeleteCardState extends State<MapDeleteCard> {
   String? _target;
-  // 기본값을 false 로 둡니다. 같은 이름으로 다시 그릴 생각이면 목적지 카탈로그는
-  // 남겨 두는 편이 낫습니다 — 장소를 다시 찍는 일이 더 번거롭습니다.
+  // 체크해야만 삭제 버튼이 열립니다(사용자 판정 2026-08-21). 선택지가 아니라
+  // **확인 절차**입니다 — 지도를 지우면 그 지도의 장소도 함께 사라진다는 사실을
+  // 사람이 알고 누르게 합니다.
+  //
+  // 지도만 지우고 장소를 남기는 길은 두지 않습니다. 남겨 두면 없는 지도를 가리키는
+  // 카탈로그가 되고, 그 상태는 조용히 틀립니다.
   bool _alsoDestinations = false;
   bool _busy = false;
 
@@ -91,13 +95,15 @@ class _MapDeleteCardState extends State<MapDeleteCard> {
                 style: TextStyle(fontSize: 13),
               ),
               subtitle: const Text(
-                '같은 이름으로 다시 그릴 생각이면 체크하지 마세요.',
+                '지도만 지우고 장소를 남길 수는 없습니다. 확인하셨으면 체크해 주세요.',
                 style: TextStyle(fontSize: 11, color: VicaColors.muted),
               ),
             ),
             const SizedBox(height: 6),
             OutlinedButton.icon(
-              onPressed: selected == null || _busy
+              // 체크 없이는 열리지 않습니다. 되돌릴 수 없는 일이라 확인을
+              // 한 번 더 받습니다.
+              onPressed: selected == null || _busy || !_alsoDestinations
                   ? null
                   : () => _confirmDelete(context, settings, selected),
               icon: const Icon(Icons.delete_forever_outlined),
@@ -122,8 +128,8 @@ class _MapDeleteCardState extends State<MapDeleteCard> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('지도를 지웁니다'),
         content: Text(
-          "'$mapId' 의 지도 파일을 지웁니다. 되돌릴 수 없습니다."
-          "${_alsoDestinations ? '\n\n이 지도에 저장한 장소도 함께 사라집니다.' : ''}",
+          "'$mapId' 의 지도 파일과 이 지도에 저장한 장소를 지웁니다.\n"
+          '되돌릴 수 없습니다.',
         ),
         actions: [
           TextButton(

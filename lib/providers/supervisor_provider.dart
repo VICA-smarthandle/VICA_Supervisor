@@ -113,6 +113,13 @@ class SupervisorProvider extends ChangeNotifier {
   bool get stackStatusLoading => _stackStatusLoading;
   String get stackStatusError => _stackStatusError;
 
+  /// 지금 연결에 실제로 쓴 rosbridge 주소. 연결한 적이 없으면 빈 문자열입니다.
+  ///
+  /// 설정의 주소와 다를 수 있습니다 — 주소를 바꿔 저장해도 이미 맺은 연결은
+  /// 그대로이기 때문입니다. 화면이 그 차이를 알려야 사람이 "연결됐다는데 왜
+  /// 안 되지"로 헤매지 않습니다.
+  String get connectedUrl => _lastSettings?.rosBridgeUrl ?? '';
+
   RosConnectionState get connectionState => _connectionState;
   String get connectionDetail => _connectionDetail;
   EmergencyStopState get emergencyStopState => _emergencyStopState;

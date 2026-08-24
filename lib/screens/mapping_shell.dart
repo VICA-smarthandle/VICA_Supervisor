@@ -18,6 +18,7 @@ import '../providers/app_mode_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
+import 'settings_screen.dart';
 import '../widgets/map_canvas.dart';
 import '../widgets/ros_connection_tile.dart';
 import '../widgets/teleop_pad.dart';
@@ -74,6 +75,13 @@ class _MappingShellState extends State<MappingShell> {
             onPressed: () => _changeMode(context, status),
             icon: const Icon(Icons.swap_horiz),
             label: const Text('모드 바꾸기'),
+          ),
+          IconButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
+            ),
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: '설정',
           ),
           IconButton(
             onPressed: () => context.read<AuthProvider>().logout(),

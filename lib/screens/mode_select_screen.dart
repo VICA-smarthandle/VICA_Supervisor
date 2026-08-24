@@ -16,6 +16,7 @@ import '../models/stack_status.dart';
 import '../providers/app_mode_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/supervisor_provider.dart';
+import 'settings_screen.dart';
 import '../ros/ros_bridge_client.dart';
 import '../widgets/ros_connection_tile.dart';
 import '../widgets/vica_ui.dart';
@@ -75,6 +76,13 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
             tooltip: '로봇 상태 다시 확인',
           ),
           IconButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
+            ),
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: '설정',
+          ),
+          IconButton(
             onPressed: () => context.read<AuthProvider>().logout(),
             icon: const Icon(Icons.logout),
             tooltip: '로그아웃',
@@ -85,7 +93,6 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
       body: SafeArea(
         child: VicaPage(
           title: '$username 님, 모드를 고르세요',
-          subtitle: '고른 뒤에도 위쪽 버튼으로 언제든 돌아올 수 있습니다.',
           children: [
             const VicaRosConnectionTile(),
             if (status != null && (status.duplicated || status.conflicting))

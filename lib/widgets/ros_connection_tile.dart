@@ -51,6 +51,12 @@ class VicaRosConnectionTile extends StatelessWidget {
     final connected = state == RosConnectionState.connected;
     final connecting = state == RosConnectionState.connecting;
 
+    // 주소를 바꿔 저장해도 이미 맺은 연결은 옛 주소 그대로입니다. 그대로 두면
+    // "연결됨"이라 적힌 채 새 주소가 보여 사람이 헷갈립니다.
+    final stale = connected &&
+        supervisor.connectedUrl.isNotEmpty &&
+        supervisor.connectedUrl != settings.rosBridgeUrl;
+
     final color = connected
         ? VicaColors.green
         : (connecting ? VicaColors.primary : VicaColors.muted);
@@ -92,6 +98,16 @@ class VicaRosConnectionTile extends StatelessWidget {
                         fontSize: 12,
                       ),
                     ),
+                    if (stale)
+                      Text(
+                        '주소가 바뀌었습니다. 지금 연결은 '
+                        '${supervisor.connectedUrl} 입니다 — 다시 연결하세요.',
+                        style: const TextStyle(
+                          color: VicaColors.red,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                   ],
                 ),
               ),

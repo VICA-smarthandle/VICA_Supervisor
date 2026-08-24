@@ -6,6 +6,27 @@ import '../core/app_settings.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/vica_ui.dart';
 
+/// 설정 화면을 독립된 페이지로 띄웁니다.
+///
+/// 주행 모드는 사이드 메뉴에 '설정'이 있지만, 모드 선택 화면과 지도 모드에는
+/// 그 메뉴가 없습니다. 그런데 rosbridge 주소가 틀리면 **그 두 화면에서 아무것도
+/// 할 수 없습니다** — 연결이 안 되니 스택 상태 점도, 매핑 시작도 안 됩니다.
+/// 주소를 고치려고 주행 모드까지 들어갔다 나오지 않아도 되게 합니다.
+///
+/// SettingsScreen 을 그대로 씁니다. 설정은 앱 전체에 하나뿐이라 화면마다 다른
+/// 편집기를 두면 어느 쪽이 진짜인지 헷갈립니다.
+class SettingsPage extends StatelessWidget {
+  const SettingsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('설정')),
+      body: const SafeArea(child: SettingsScreen()),
+    );
+  }
+}
+
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
