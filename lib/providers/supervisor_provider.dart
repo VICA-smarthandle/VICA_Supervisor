@@ -11,6 +11,7 @@ import '../models/location_point.dart';
 import '../models/robot_event.dart';
 import '../models/robot_health.dart';
 import '../models/map_preview.dart';
+import '../models/pose_check_result.dart';
 import '../models/mapping_status.dart';
 import '../models/robot_status.dart';
 import '../models/stack_status.dart';
@@ -220,6 +221,10 @@ class SupervisorProvider extends ChangeNotifier {
     // 매핑 상태와 미리보기도 현재 사실이 아닙니다.
     _mappingStatus = null;
     _mapPreview = null;
+    // 초기 위치 채점 결과는 그때 그 스캔으로 잰 값입니다. 끊긴 뒤에도 남겨 두면
+    // 오래된 %를 보고 확정을 누르게 됩니다.
+    _poseCheck = null;
+    _poseChecking = false;
     // 노드 목록도 현재 사실이 아닙니다. 남겨 두면 모드 선택 화면이 "아무것도 안
     // 떠 있다"고 잘못된 안심을 줄 수 있습니다 — 그래서 '확인 불가'로 되돌립니다.
     _stackStatus = null;
@@ -652,6 +657,118 @@ class SupervisorProvider extends ChangeNotifier {
     }
   }
 
+  // ---- Nav2 초기 위치 잡기 ----------------------------------------------
+  //
+  // 확인과 확정을 나눈 이유는 /initialpose 를 발행하는 순간 되돌릴 수 없기
+  // 때문입니다. 확인은 젯슨의 pose_bootstrap_node 가 점수만 계산하고 AMCL 을
+  // 건드리지 않습니다. 확정에서만 반영합니다.
+
+  PoseCheckResult? _poseCheck;
+  bool _poseChecking = false;
+
+  PoseCheckResult? get poseCheck => _poseCheck;
+  bool get poseChecking => _poseChecking;
+
+  void clearPoseCheck() {
+    if (_poseCheck == null && !_poseChecking) {
+      return;
+    }
+    _poseCheck = null;
+    _poseChecking = false;
+    notifyListeners();
+  }
+
+  /// 지도에서 짚은 자리를 채점합니다. AMCL 은 건드리지 않습니다.
+  ///
+  /// [yawHint] 는 사람이 4방향 버튼으로 고른 값입니다. 사람 손은 각도를 10~20도
+  /// 밖에 못 주므로 그대로 쓰지 않고 탐색 중심으로만 씁니다 — 정밀한 각도는 노드가
+  /// 1도 간격으로 찾습니다. 힌트가 있으면 후보가 8712 -> 2299 로 줄어 2.6배
+  /// 빨라지고, 대칭 복도에서 180도 뒤집힌 자세가 후보에 들어오지 않습니다.
+  Future<String> checkInitialPose(
+    AppSettings settings, {
+    required double x,
+    required double y,
+    double? yawHint,
+  }) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return 'ROS Bridge에 연결되지 않았습니다.';
+    }
+    _poseChecking = true;
+    notifyListeners();
+    try {
+      final response = await client.callService(
+        service: settings.poseCheckService,
+        type: 'vica_interfaces/srv/PoseCheck',
+        args: {
+          'x': x,
+          'y': y,
+          'has_yaw_hint': yawHint != null,
+          'yaw_hint': yawHint ?? 0.0,
+        },
+        // 개발 PC 실측 8~84 ms, 젯슨 추정 100~340 ms 입니다
+        // (docs/pose_bootstrap_bench.md). 10초는 노드가 없을 때를 위한 여유입니다.
+        timeout: const Duration(seconds: 10),
+      );
+      final result = PoseCheckResult.fromValues(response.values);
+      _poseCheck = result;
+      _addLog(
+        LogFilter.coordinateTransfer,
+        '초기 위치 확인 ${result.score.toStringAsFixed(0)}% · ${result.message}',
+      );
+      return result.message;
+    } catch (error) {
+      _poseCheck = null;
+      final message = '초기 위치 확인 실패: $error';
+      _addLog(LogFilter.coordinateTransfer, message);
+      return message;
+    } finally {
+      _poseChecking = false;
+      notifyListeners();
+    }
+  }
+
+  /// 확인이 끝난 자세를 AMCL 에 반영합니다.
+  ///
+  /// 노드가 /initialpose 를 내고, 0.5초 뒤 /request_nomotion_update 를 부르고,
+  /// 2초 뒤 AMCL 자세를 같은 잣대로 다시 채점해서 돌려줍니다. 그래서 응답이
+  /// 3초 가까이 걸립니다.
+  Future<String> commitInitialPose(
+    AppSettings settings, {
+    required double x,
+    required double y,
+    required double yaw,
+  }) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return 'ROS Bridge에 연결되지 않았습니다.';
+    }
+    try {
+      final response = await client.callService(
+        service: settings.poseCommitService,
+        type: 'vica_interfaces/srv/PoseCommit',
+        args: {'x': x, 'y': y, 'yaw': yaw},
+        // 노드가 안에서 0.5 + 2.0초를 기다립니다.
+        timeout: const Duration(seconds: 12),
+      );
+      final message = response.message.isEmpty
+          ? (response.accepted ? '초기 위치를 반영했습니다.' : '반영이 거부되었습니다.')
+          : response.message;
+      _addLog(LogFilter.coordinateTransfer, message);
+      if (response.accepted) {
+        // 반영이 끝나면 화면을 1단계로 되돌립니다. 남겨 두면 이미 반영한 값을
+        // 다시 확정할 수 있게 보입니다.
+        _poseCheck = null;
+        notifyListeners();
+      }
+      return message;
+    } catch (error) {
+      final message = '초기 위치 반영 실패: $error';
+      _addLog(LogFilter.coordinateTransfer, message);
+      return message;
+    }
+  }
+
   // ---- 매핑 세션 제어 ---------------------------------------------------
   //
   // 앱은 프로세스를 직접 띄우지 않습니다. 젯슨에 상주하는 mapping_supervisor_node
@@ -1067,6 +1184,14 @@ class SupervisorProvider extends ChangeNotifier {
   @visibleForTesting
   void handleMapPreviewForTest(Map<String, Object?> message) =>
       _handleMapPreview(message);
+
+  /// 젯슨 없이 초기 위치 화면의 표시 규칙만 검증하기 위한 주입 지점입니다.
+  @visibleForTesting
+  void setPoseCheckForTest(PoseCheckResult? result) {
+    _poseCheck = result;
+    _poseChecking = false;
+    notifyListeners();
+  }
 
   /// rosapi 를 띄우지 않고 모드 선택 화면의 표시 규칙만 검증하기 위한 주입 지점입니다.
   @visibleForTesting

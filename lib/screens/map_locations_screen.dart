@@ -7,11 +7,24 @@ import '../core/app_settings.dart';
 import '../models/location_point.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
+import '../widgets/initial_pose_card.dart';
 import '../widgets/map_canvas.dart';
 import '../widgets/vica_ui.dart';
 
-class MapLocationsScreen extends StatelessWidget {
+class MapLocationsScreen extends StatefulWidget {
   const MapLocationsScreen({super.key});
+
+  @override
+  State<MapLocationsScreen> createState() => _MapLocationsScreenState();
+}
+
+class _MapLocationsScreenState extends State<MapLocationsScreen> {
+  // 초기 위치 잡기 중인지. 켜져 있을 때만 지도 탭이 '자리 짚기'로 동작합니다.
+  // 평소에는 지도를 눌러도 아무 일이 없어야 합니다 -- 원격 주행 화면에서 실수로
+  // 자세를 바꾸는 일을 막습니다.
+  bool _picking = false;
+  Offset? _picked;
+  PoseDirection? _direction = PoseDirection.right;
 
   static const _compactDropdownDecoration = InputDecoration(
     labelText: '지도 선택',
@@ -92,10 +105,55 @@ class MapLocationsScreen extends StatelessWidget {
               locations: locations,
               selectedLocationId: supervisor.selectedLocationId,
               robot: supervisor.primaryRobot,
+              pickedLocation: _picking && _picked != null
+                  ? LocationPoint(
+                      locationId: '_initial_pose',
+                      mapId: map.mapId,
+                      name: '짚은 자리',
+                      x: _picked!.dx,
+                      y: _picked!.dy,
+                      yaw: 0,
+                    )
+                  : null,
+              poseArrow: _picking && supervisor.poseCheck != null
+                  ? MapPoseArrow(
+                      x: supervisor.poseCheck!.x,
+                      y: supervisor.poseCheck!.y,
+                      yawDegrees: supervisor.poseCheck!.yawDegrees,
+                      label: '찾아낸 자세',
+                    )
+                  : null,
+              onTapMap: _picking ? _onTapMap : null,
               onSelectLocation: (location) =>
                   supervisor.selectLocation(location.locationId),
             ),
           ),
+          const SizedBox(height: 20),
+          if (_picking)
+            InitialPoseCard(
+              picked: _picked,
+              direction: _direction,
+              result: supervisor.poseCheck,
+              busy: supervisor.poseChecking,
+              onDirection: (value) => setState(() {
+                _direction = value;
+                // 방향이 바뀌면 이전 점수는 다른 조건에서 잰 값입니다.
+                supervisor.clearPoseCheck();
+              }),
+              onCheck: () => _checkPose(supervisor),
+              onCommit: () => _commitPose(supervisor),
+              onReset: () => setState(() {
+                _picked = null;
+                supervisor.clearPoseCheck();
+              }),
+              onClose: () => setState(() {
+                _picking = false;
+                _picked = null;
+                supervisor.clearPoseCheck();
+              }),
+            )
+          else
+            _initialPoseEntry(context, supervisor, driving || paused),
           const SizedBox(height: 20),
           VicaCard(
             child: Column(
@@ -192,6 +250,124 @@ class MapLocationsScreen extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+
+  void _onTapMap(Offset ros) {
+    setState(() => _picked = ros);
+    // 자리를 새로 짚으면 이전 점수는 다른 자리의 값입니다. 남겨 두면 옛 %를 보고
+    // 확정을 누르게 됩니다.
+    context.read<SupervisorProvider>().clearPoseCheck();
+  }
+
+  Future<void> _checkPose(SupervisorProvider supervisor) async {
+    final spot = _picked;
+    if (spot == null) {
+      return;
+    }
+    final settings = context.read<SettingsProvider>().settings;
+    await supervisor.checkInitialPose(
+      settings,
+      x: spot.dx,
+      y: spot.dy,
+      yawHint: _direction?.yawFor(settings),
+    );
+  }
+
+  // 확정하면 AMCL 이 이 자세를 믿기 시작합니다. 되돌릴 수 없으므로 한 번 묻습니다.
+  Future<void> _commitPose(SupervisorProvider supervisor) async {
+    final result = supervisor.poseCheck;
+    if (result == null || !result.ok) {
+      return;
+    }
+    final settings = context.read<SettingsProvider>().settings;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('초기 위치 확정'),
+        content: Text(
+          '로봇이 여기 있다고 알려 줍니다.\n'
+          '(${result.x.toStringAsFixed(2)}, ${result.y.toStringAsFixed(2)}) '
+          '${result.yawDegrees.round()}° · 일치도 ${result.score.round()}%\n\n'
+          '잘못 잡으면 로봇이 엉뚱한 곳으로 갑니다. 지도 위 화살표가 실제 로봇 위치와 같은지 확인하세요.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('확정'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    final message = await supervisor.commitInitialPose(
+      settings,
+      x: result.x,
+      y: result.y,
+      yaw: result.yaw,
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _picking = false;
+      _picked = null;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  // 들어가는 문. 주행 중에는 못 들어갑니다 -- 달리는 중에 AMCL 자세를 바꾸면
+  // Nav2 가 지금 따라가던 경로를 엉뚱한 곳에서 이어가려 합니다.
+  Widget _initialPoseEntry(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    bool busyDriving,
+  ) {
+    final stack = supervisor.stackStatus;
+    final nav2Down = stack != null && !stack.nav2Running;
+    final blocked = busyDriving
+        ? '주행 중에는 초기 위치를 바꿀 수 없습니다. 먼저 주행을 멈추세요.'
+        : (nav2Down ? '주행(Nav2)이 꺼져 있습니다. 먼저 시작하세요.' : '');
+    return VicaCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.my_location,
+                  size: 20, color: VicaColors.primaryDark),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '초기 위치',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            blocked.isEmpty
+                ? 'Nav2 를 켠 직후에는 로봇이 자기 위치를 모릅니다. 지도에서 짚어 알려 주세요.'
+                : blocked,
+            style: const TextStyle(color: VicaColors.muted, fontSize: 13),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: blocked.isEmpty
+                ? () => setState(() => _picking = true)
+                : null,
+            icon: const Icon(Icons.add_location_alt_outlined),
+            label: const Text('초기 위치 잡기'),
+          ),
+        ],
+      ),
     );
   }
 

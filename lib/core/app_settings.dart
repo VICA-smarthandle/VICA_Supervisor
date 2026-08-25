@@ -27,6 +27,8 @@ class AppSettings {
     this.mappingStartService = '/vica/mapping/start',
     this.mappingStopService = '/vica/mapping/stop',
     this.mappingSaveService = '/vica/mapping/save',
+    this.poseCheckService = '/vica/pose_check',
+    this.poseCommitService = '/vica/pose_commit',
     this.robotStatusTopic = '/robot_status',
     this.emergencyActivateService = '/app_estop_activate',
     this.emergencyResetService = '/app_estop_reset',
@@ -67,6 +69,11 @@ class AppSettings {
   final String mappingStartService;
   final String mappingStopService;
   final String mappingSaveService;
+
+  // Nav2 초기 위치 잡기. pose_bootstrap_node 가 제공합니다.
+  // 확인은 AMCL 을 건드리지 않고 점수만 계산하고, 확정에서만 /initialpose 를 냅니다.
+  final String poseCheckService;
+  final String poseCommitService;
   final String missionRequestService;
   // 진행 중인 주행 제어. 모두 vica_interfaces/srv/MissionCommand를 씁니다.
   final String missionCancelService;
@@ -106,6 +113,8 @@ class AppSettings {
     String? mappingStartService,
     String? mappingStopService,
     String? mappingSaveService,
+    String? poseCheckService,
+    String? poseCommitService,
     String? missionRequestService,
     String? missionCancelService,
     String? missionPauseService,
@@ -146,6 +155,8 @@ class AppSettings {
       mappingStartService: mappingStartService ?? this.mappingStartService,
       mappingStopService: mappingStopService ?? this.mappingStopService,
       mappingSaveService: mappingSaveService ?? this.mappingSaveService,
+      poseCheckService: poseCheckService ?? this.poseCheckService,
+      poseCommitService: poseCommitService ?? this.poseCommitService,
       missionRequestService:
           missionRequestService ?? this.missionRequestService,
       missionCancelService: missionCancelService ?? this.missionCancelService,

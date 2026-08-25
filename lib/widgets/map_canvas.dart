@@ -6,6 +6,7 @@ import '../core/map_coordinate.dart';
 import '../models/location_point.dart';
 import '../models/robot_status.dart';
 import '../models/vica_map.dart';
+import 'vica_ui.dart';
 
 // 지도 위 점의 지름(px). 저장된 장소·임시 저장 장소·선택 위치가 같은 크기여야
 // 색만으로 구분되고 크기 차이가 의미로 오해되지 않습니다.
@@ -49,6 +50,25 @@ class ResponsiveMapFrame extends StatelessWidget {
   }
 }
 
+/// 지도 위에 그릴 자세 화살표입니다. 초기 위치 확인 결과를 보여줄 때 씁니다.
+///
+/// 로봇 화살표(_RobotMarker)와 따로 두는 이유는 둘이 동시에 보여야 하기
+/// 때문입니다. AMCL 이 아직 엉뚱한 곳을 가리키는 상태에서 "여기가 맞다"를
+/// 고르는 화면이라, 지금 믿고 있는 자리와 새로 고른 자리가 같이 보여야 합니다.
+class MapPoseArrow {
+  const MapPoseArrow({
+    required this.x,
+    required this.y,
+    required this.yawDegrees,
+    this.label = '',
+  });
+
+  final double x;
+  final double y;
+  final double yawDegrees;
+  final String label;
+}
+
 class MapCanvas extends StatelessWidget {
   const MapCanvas({
     super.key,
@@ -59,6 +79,7 @@ class MapCanvas extends StatelessWidget {
     this.robot,
     this.draftLocation,
     this.pickedLocation,
+    this.poseArrow,
     this.onTapMap,
     this.onSelectLocation,
   });
@@ -72,6 +93,9 @@ class MapCanvas extends StatelessWidget {
   // 지도를 눌러 좌표만 찍어 둔 점입니다. 정보 입력을 마친 draftLocation과 달리
   // 아직 아무 내용도 없으므로 속을 비운 원으로 그려 한눈에 구분되게 합니다.
   final LocationPoint? pickedLocation;
+  // 초기 위치 확인이 찾아낸 자세입니다. 사람이 짚은 점(pickedLocation)과 함께
+  // 그려져야 얼마나 옮겨졌는지가 눈에 보입니다.
+  final MapPoseArrow? poseArrow;
   final ValueChanged<Offset>? onTapMap;
   final ValueChanged<LocationPoint>? onSelectLocation;
 
@@ -178,6 +202,18 @@ class MapCanvas extends StatelessWidget {
                         color: Colors.deepOrange,
                         size: _markerSize,
                         filled: false,
+                      ),
+                    if (poseArrow != null)
+                      _PoseArrowMarker(
+                        offset: _scaledOffset(
+                          poseArrow!.x,
+                          poseArrow!.y,
+                          scale,
+                        ),
+                        yaw: 90 -
+                            poseArrow!.yawDegrees +
+                            settings.yawOffset,
+                        label: poseArrow!.label,
                       ),
                     if (robot != null && robot!.mapId == map.mapId)
                       _RobotMarker(
@@ -350,6 +386,42 @@ class _RobotMarker extends StatelessWidget {
             Icons.navigation,
             color: Colors.red,
             size: markerSize,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PoseArrowMarker extends StatelessWidget {
+  const _PoseArrowMarker({
+    required this.offset,
+    required this.yaw,
+    required this.label,
+  });
+
+  final Offset offset;
+  final double yaw;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    // 로봇 화살표(7)보다 크게 둡니다. 지금 고르고 있는 것이라 눈에 먼저 들어와야 합니다.
+    const markerSize = 18.0;
+    return Positioned(
+      left: offset.dx - markerSize / 2,
+      top: offset.dy - markerSize / 2,
+      child: IgnorePointer(
+        child: Tooltip(
+          message: label,
+          child: Transform.rotate(
+            // ROS yaw는 y축이 위인 좌표계라 화면에서는 회전 방향을 반대로 적용합니다.
+            angle: yaw * 3.1415926535 / 180.0,
+            child: const Icon(
+              Icons.navigation,
+              color: VicaColors.primaryDark,
+              size: markerSize,
+            ),
           ),
         ),
       ),
