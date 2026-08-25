@@ -11,6 +11,7 @@ void main() {
     double score = 82,
     double movedM = 0.12,
     double movedDeg = 8,
+    double margin = 24.0,
   }) =>
       {
         'ok': ok,
@@ -23,7 +24,7 @@ void main() {
         'used_beams': 168,
         'total_beams': 721,
         'runner_up_score': 58.0,
-        'margin': 24.0,
+        'margin': margin,
         'moved_m': movedM,
         'moved_deg': movedDeg,
       };
@@ -79,6 +80,23 @@ void main() {
       PoseCheckResult.fromValues(values(movedM: 0.2, movedDeg: -12))
           .movedSummary,
       '20 cm, 12° 옮겼습니다.',
+    );
+  });
+
+  test('2등 격차를 사람 말로 만든다', () {
+    // margin 이 지키는 것은 180도 뒤집힘입니다. 경계(10)는 문구 선택용이고
+    // 판정의 주인은 노드입니다.
+    expect(
+      PoseCheckResult.fromValues(values(margin: 24)).marginSummary,
+      '헷갈릴 방향 없음(차이 24점)',
+    );
+    expect(
+      PoseCheckResult.fromValues(values(margin: 9.9)).marginSummary,
+      '헷갈릴 방향 있음(차이 9점)',
+    );
+    expect(
+      PoseCheckResult.fromValues(values(margin: 10)).marginSummary,
+      '헷갈릴 방향 없음(차이 10점)',
     );
   });
 }

@@ -12,6 +12,10 @@ import 'dart:math' as math;
 const double kPoseScoreGood = 70.0;
 const double kPoseScoreWeak = 50.0;
 
+// '헷갈릴 방향' 문구를 가르는 경계입니다. 노드의 min_margin 과 같은 값이지만
+// 여기서도 판정하지는 않습니다 — 문구 선택 용도뿐입니다.
+const double kPoseMarginSafe = 10.0;
+
 enum PoseGrade {
   good, // 잘 맞습니다
   weak, // 확실하지 않습니다
@@ -91,5 +95,16 @@ class PoseCheckResult {
       return '$centimetres cm 옮겼습니다.';
     }
     return '$centimetres cm, $degrees° 옮겼습니다.';
+  }
+
+  // margin 은 "두 번째로 잘 맞는 방향 후보와의 점수 차"입니다. 이 숫자가 지키는
+  // 것은 180도 뒤집힘입니다 — 앞뒤가 같은 복도에서 차이가 작으면 반대 방향일 수
+  // 있습니다. '2등 차이 24 %p' 는 관리자가 못 알아듣는 말이라 뜻으로 풀어 씁니다.
+  String get marginSummary {
+    // 내림으로 맞춥니다. 반올림이면 9.9 가 "차이 10점인데 있음"으로 보입니다.
+    final points = margin.floor();
+    return margin >= kPoseMarginSafe
+        ? '헷갈릴 방향 없음(차이 $points점)'
+        : '헷갈릴 방향 있음(차이 $points점)';
   }
 }

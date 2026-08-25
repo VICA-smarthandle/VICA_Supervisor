@@ -266,12 +266,20 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
       return;
     }
     final settings = context.read<SettingsProvider>().settings;
-    await supervisor.checkInitialPose(
+    final message = await supervisor.checkInitialPose(
       settings,
       x: spot.dx,
       y: spot.dy,
       yawHint: _direction?.yawFor(settings),
     );
+    if (!mounted) {
+      return;
+    }
+    // 성공하면 점수 상자가 메시지를 보여준다. 실패(결과 없음)는 상자가 안 뜨니
+    // 여기서 알리지 않으면 관리자에게 아무것도 안 보인다.
+    if (supervisor.poseCheck == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   // 확정하면 AMCL 이 이 자세를 믿기 시작합니다. 되돌릴 수 없으므로 한 번 묻습니다.

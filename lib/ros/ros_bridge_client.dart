@@ -217,11 +217,21 @@ class RosBridgeClient {
       return;
     }
     final rawValues = decoded['values'];
+    // rosbridge 는 서비스가 없거나 죽으면 result:false 로 응답하고, values 에는
+    // 격자값 대신 오류 문자열이 실려 온다. 이걸 정상 완료로 넘기면 빈 값이
+    // 0점짜리 결과처럼 화면에 그려진다 -- 2026-08-25 실기에서 채점 노드가 안 떠
+    // 있는데 "어디를 찍어도 0%"로 보인 원인이다.
+    if (decoded['result'] != true) {
+      final detail =
+          rawValues is String && rawValues.isNotEmpty ? rawValues : '서비스 호출 실패';
+      completer.completeError(StateError(detail));
+      return;
+    }
     final values =
         rawValues is Map<String, Object?> ? rawValues : <String, Object?>{};
     completer.complete(
       RosServiceResponse(
-        result: decoded['result'] == true,
+        result: true,
         values: values,
       ),
     );

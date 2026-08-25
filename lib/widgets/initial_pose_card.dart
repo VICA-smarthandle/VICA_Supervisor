@@ -123,6 +123,11 @@ class InitialPoseCard extends StatelessWidget {
           // 4칸이면 충분합니다. 90도 단위 입력의 최대 오차 45도가 노드의 탐색
           // 창(+-45도)과 딱 맞물려 빈틈이 없습니다. 정밀한 각도는 노드가 1도
           // 간격으로 찾으므로 손가락으로 돌릴 필요가 없습니다.
+          //
+          // 자리(1단계)를 짚기 전에는 잠급니다. 방향부터 눌리면 순서가 없는
+          // 화면처럼 읽힙니다. showCheckmark 를 끄는 이유: 켜 두면 선택 표시
+          // 체크가 방향 아이콘 위에 겹쳐 그려집니다. 선택은 칩 배경색으로
+          // 충분히 보입니다.
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -130,16 +135,20 @@ class InitialPoseCard extends StatelessWidget {
               ...PoseDirection.values.map(
                 (value) => ChoiceChip(
                   selected: direction == value,
+                  showCheckmark: false,
                   avatar: Icon(value.icon, size: 18),
                   label: Text(value.label),
-                  onSelected: busy ? null : (_) => onDirection(value),
+                  onSelected:
+                      busy || spot == null ? null : (_) => onDirection(value),
                 ),
               ),
               ChoiceChip(
                 selected: direction == null,
+                showCheckmark: false,
                 avatar: const Icon(Icons.help_outline, size: 18),
                 label: const Text('모르겠음'),
-                onSelected: busy ? null : (_) => onDirection(null),
+                onSelected:
+                    busy || spot == null ? null : (_) => onDirection(null),
               ),
             ],
           ),
@@ -302,7 +311,7 @@ class _Score extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   '유효 빔 ${result.usedBeams} / ${result.totalBeams}'
-                  ' · 2등 차이 ${result.margin.round()} %p',
+                  ' · ${result.marginSummary}',
                   style: const TextStyle(fontSize: 12, color: VicaColors.muted),
                 ),
               ],

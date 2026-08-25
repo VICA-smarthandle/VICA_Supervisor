@@ -719,7 +719,10 @@ class SupervisorProvider extends ChangeNotifier {
       return result.message;
     } catch (error) {
       _poseCheck = null;
-      final message = '초기 위치 확인 실패: $error';
+      // 가장 흔한 실패는 젯슨에서 채점 노드를 안 띄운 것이다. 원인 문자열만
+      // 던지면 관리자가 다음에 할 일을 모른다.
+      final message =
+          '확인 실패 — 채점 노드(pose_bootstrap_node)가 젯슨에서 켜져 있는지 확인하세요. ($error)';
       _addLog(LogFilter.coordinateTransfer, message);
       return message;
     } finally {

@@ -123,7 +123,24 @@ void main() {
     await pump(tester, picked: const Offset(1, 2), checked: result());
     expect(find.text('82%'), findsOneWidget);
     expect(find.text('12 cm, 8° 옮겼습니다.'), findsOneWidget);
-    expect(find.text('유효 빔 168 / 721 · 2등 차이 24 %p'), findsOneWidget);
+    expect(find.text('유효 빔 168 / 721 · 헷갈릴 방향 없음(차이 24점)'), findsOneWidget);
+  });
+
+  testWidgets('자리를 짚기 전에는 방향 버튼도 잠긴다', (tester) async {
+    // 순서가 지도 짚기 -> 방향입니다. 방향부터 눌리면 순서 없는 화면처럼 읽혀
+    // 관리자가 헷갈립니다 (2026-08-25 실기 피드백).
+    await pump(tester, picked: null);
+    final chip = tester.widget<ChoiceChip>(
+      find.widgetWithText(ChoiceChip, '왼쪽'),
+    );
+    expect(chip.onSelected, isNull);
+  });
+
+  testWidgets('자리를 짚으면 방향 버튼이 열린다', (tester) async {
+    final calls = <String>[];
+    await pump(tester, picked: const Offset(1, 2), calls: calls);
+    await tester.tap(find.widgetWithText(ChoiceChip, '왼쪽'));
+    expect(calls, contains('direction:left'));
   });
 
   testWidgets('방향을 모르겠음으로 두면 대가를 알려준다', (tester) async {
