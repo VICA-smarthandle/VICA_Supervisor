@@ -38,6 +38,11 @@ class _MappingShellState extends State<MappingShell> {
   // 화면이 대신 체크해 주지 않습니다.
   bool _estopConfirmed = false;
   String _savedMapId = '';
+  // '다 그렸습니다'를 눌렀는가. 감독 노드는 mapping 상태 그대로이므로(저장을
+  // 불러야 saving 이 된다) ③ 저장 단계로 넘어가는 것은 화면만의 상태다.
+  // 2026-08-25 실기: 이 상태가 없어서 버튼이 빈 setState 로 남았고, ③으로
+  // 넘어갈 방법이 화면에 존재하지 않았다.
+  bool _readyToSave = false;
 
   @override
   void dispose() {
@@ -52,8 +57,9 @@ class _MappingShellState extends State<MappingShell> {
     switch (status?.state) {
       case MappingState.saving:
         return 2;
-      case MappingState.starting:
       case MappingState.mapping:
+        return _readyToSave ? 2 : 1;
+      case MappingState.starting:
         return 1;
       default:
         return 0;
@@ -117,7 +123,7 @@ class _MappingShellState extends State<MappingShell> {
               child: _MappingStep(
                 settings: settings,
                 onStop: () => _stop(context, settings),
-                onGoSave: () => setState(() {}),
+                onGoSave: () => setState(() => _readyToSave = true),
               ),
             ),
             _Step(
@@ -150,6 +156,9 @@ class _MappingShellState extends State<MappingShell> {
   // -- 동작 ---------------------------------------------------------------
 
   Future<void> _start(BuildContext context, AppSettings settings) async {
+    // 새 회차다. 지난 회차의 '다 그렸습니다' 상태가 남아 있으면 시작하자마자
+    // 저장 단계로 건너뛴 것처럼 보인다.
+    setState(() => _readyToSave = false);
     final message =
         await context.read<SupervisorProvider>().startMapping(settings);
     if (context.mounted) {
@@ -172,6 +181,7 @@ class _MappingShellState extends State<MappingShell> {
       setState(() {
         _savedMapId = '';
         _estopConfirmed = false;
+        _readyToSave = false;
         _nameController.clear();
       });
     }
