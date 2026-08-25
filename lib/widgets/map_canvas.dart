@@ -406,8 +406,10 @@ class _PoseArrowMarker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 로봇 화살표(7)보다 크게 둡니다. 지금 고르고 있는 것이라 눈에 먼저 들어와야 합니다.
-    const markerSize = 18.0;
+    // 로봇 화살표(7)보다 조금만 크게 둡니다. 지금 고르는 것이라 구분은 되어야
+    // 하지만, 18 이었을 때 로봇 화살표와 균형이 안 맞아 보기 싫다는 실기
+    // 피드백(2026-08-26)으로 줄였습니다.
+    const markerSize = 10.0;
     return Positioned(
       left: offset.dx - markerSize / 2,
       top: offset.dy - markerSize / 2,
