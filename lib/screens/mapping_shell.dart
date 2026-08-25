@@ -378,12 +378,11 @@ class _EmergencyResetCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            // 순서를 거꾸로 안내하면 안 된다. 해제는 motor 가 떠 있어야 되고,
-            // motor 는 '매핑 시작'이 띄운다 — 2026-08-25 실기에서 이 문구가
-            // "해제부터 하라"로 읽혀 관리자가 순환 잠금에 빠진 줄 알았다.
+            // 특정 모드의 절차를 지시하지 않는다 — 비상정지는 모드와 무관한
+            // 안전 장치라, 여기서는 그 사실만 말한다 (2026-08-25 실기 피드백).
             supervisor.emergencyStopMessage.isEmpty
-                ? '걸린 채로 두고 먼저 아래에서 매핑을 시작하세요. 모터가 떠야 '
-                    '해제할 수 있고, 해제 전에는 바퀴가 돌지 않아 안전합니다.'
+                ? '풀기 전에는 로봇이 움직이지 않습니다. 해제하려면 safety 와 '
+                    'motor 가 먼저 떠 있어야 합니다.'
                 : supervisor.emergencyStopMessage,
             style: const TextStyle(fontSize: 12),
           ),
