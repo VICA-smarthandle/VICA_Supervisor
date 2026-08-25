@@ -1125,10 +1125,18 @@ class SupervisorProvider extends ChangeNotifier {
 
   // 두 토픽 모두 std_msgs/String 의 data 에 JSON 을 담습니다. 파싱 실패는 조용히
   // 버립니다 — 깨진 한 건 때문에 화면이 죽으면 안 됩니다.
+  //
+  // [중요] RosBridgeClient 는 data 가 String 인 메시지를 **이미 풀어서** 내용물
+  // JSON 만 handler 에 넘깁니다. 그 경우 여기 오는 message 에는 'data' 키가
+  // 없습니다 — 그걸 다시 찾으면 전부 버려집니다. 2026-08-25 매핑 실기에서
+  // "로봇 상태를 아직 받지 못했습니다"가 영영 안 풀린 원인이 정확히 이것입니다
+  // (발행 1 Hz·rosbridge 구독까지 전부 정상인데 앱만 못 받음).
   Map<String, Object?>? _decodeJsonString(Map<String, Object?> message) {
     final raw = message['data'];
     if (raw is! String || raw.isEmpty) {
-      return null;
+      // 이미 풀린 내용물이다. 그대로 쓴다. (mapping_status·map_preview 의 JSON
+      // 에는 'data' 키가 없어 두 경우가 섞일 일이 없다.)
+      return message.isEmpty ? null : message;
     }
     try {
       final decoded = jsonDecode(raw);
