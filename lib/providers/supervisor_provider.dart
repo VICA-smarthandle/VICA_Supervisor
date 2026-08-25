@@ -712,10 +712,10 @@ class SupervisorProvider extends ChangeNotifier {
       );
       final result = PoseCheckResult.fromValues(response.values);
       _poseCheck = result;
-      _addLog(
-        LogFilter.coordinateTransfer,
-        '초기 위치 확인 ${result.score.toStringAsFixed(0)}% · ${result.message}',
-      );
+      // 확인은 로그에 남기지 않는다. 결과는 화면 점수 상자에 바로 보이는 탐색
+      // 행위이고, 한 번 잡을 때 수십 번 눌러 목록을 채웠다(2026-08-25 실기).
+      // 로그에는 되돌릴 수 없는 일만 남긴다 — 확정 성공·거부, 그리고 확인
+      // '실패'(채점 노드 무응답)는 시스템 이상이므로 아래 catch 에서 남긴다.
       return result.message;
     } catch (error) {
       _poseCheck = null;
