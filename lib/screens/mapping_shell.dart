@@ -502,8 +502,10 @@ class _PrepareStep extends StatelessWidget {
             ],
           ),
         const SizedBox(height: 6),
-        // 사람만 할 수 있는 확인입니다. AGENTS.md 5절이 요구합니다 —
-        // "물리 E-stop과 즉시 전원 차단 수단을 확인한 경우에만".
+        // 사람만 할 수 있는 확인입니다. AGENTS.md 5절의 확인 요구가 근거이고,
+        // 문구는 2026-08-25 실기 피드백으로 짧게 다듬었습니다. motor 를 여기서
+        // 띄운다던 부제는 소유권이 터미네이터로 고정되며 사실이 아니게 되어
+        // 뺐습니다.
         CheckboxListTile(
           value: estopConfirmed,
           onChanged: onEstopChanged,
@@ -511,12 +513,8 @@ class _PrepareStep extends StatelessWidget {
           controlAffinity: ListTileControlAffinity.leading,
           dense: true,
           title: const Text(
-            '물리 비상정지 버튼과 전원 차단 수단을 확인했습니다',
+            '비상시를 대비한 비상정지 버튼을 확인했습니다',
             style: TextStyle(fontSize: 13),
-          ),
-          subtitle: const Text(
-            '이 단계에서 바퀴가 도는 노드(motor)가 함께 뜹니다.',
-            style: TextStyle(fontSize: 11, color: VicaColors.muted),
           ),
         ),
         const SizedBox(height: 6),
