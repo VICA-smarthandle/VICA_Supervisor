@@ -330,6 +330,26 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  // 문을 여는 순간 Nav2 생사를 새로 확인합니다. 화면의 stackStatus 는 지난번
+  // 조회의 스냅샷이라, 그 사이 Nav2 가 죽으면 모릅니다 -- 2026-08-25 실기에서
+  // Nav2 를 끄고 나갔다 들어와도 버튼이 열려 있었습니다. 조회가 아예 안 되면
+  // (rosapi 불통) 막지 않습니다 -- "확인해보니 없다"와 "확인을 못 한다"를 섞지
+  // 않는 기존 원칙 그대로이고, 그 경우는 노드의 확정 거부가 마지막 방벽입니다.
+  Future<void> _enterPosePicking(SupervisorProvider supervisor) async {
+    await supervisor.refreshStackStatus();
+    if (!mounted) {
+      return;
+    }
+    final fresh = supervisor.stackStatus;
+    if (fresh != null && !fresh.nav2Running) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('주행(Nav2)이 꺼져 있습니다. 먼저 시작하세요.')),
+      );
+      return;
+    }
+    setState(() => _picking = true);
+  }
+
   // 들어가는 문. 주행 중에는 못 들어갑니다 -- 달리는 중에 AMCL 자세를 바꾸면
   // Nav2 가 지금 따라가던 경로를 엉뚱한 곳에서 이어가려 합니다.
   Widget _initialPoseEntry(
@@ -369,7 +389,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
           const SizedBox(height: 12),
           OutlinedButton.icon(
             onPressed: blocked.isEmpty
-                ? () => setState(() => _picking = true)
+                ? () => _enterPosePicking(supervisor)
                 : null,
             icon: const Icon(Icons.add_location_alt_outlined),
             label: const Text('초기 위치 잡기'),
