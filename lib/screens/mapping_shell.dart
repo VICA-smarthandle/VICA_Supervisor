@@ -71,7 +71,14 @@ class _MappingShellState extends State<MappingShell> {
     final settings = context.watch<SettingsProvider>().settings;
     final supervisor = context.watch<SupervisorProvider>();
     final status = supervisor.mappingStatus;
-    final step = _stepIndex(status);
+    // 저장은 젯슨에서 비동기로 돈다. 서비스 응답 직후에는 아직 '저장 중'이라
+    // _save 의 일회성 검사로는 완료를 못 본다 (2026-08-25 실기: 저장은 됐는데
+    // 화면이 ③에 갇힘). 그래서 상태가 갱신될 때마다 여기서 완료를 판정한다 —
+    // 감독 노드가 저장을 마치면 detail 에 '저장 완료'와 map_id 를 실어 보낸다.
+    final savedMapId = _savedMapId.isNotEmpty
+        ? _savedMapId
+        : ((status?.detail.contains('저장 완료') ?? false) ? status!.mapId : '');
+    final step = savedMapId.isNotEmpty ? 3 : _stepIndex(status);
 
     return Scaffold(
       appBar: AppBar(
@@ -142,7 +149,7 @@ class _MappingShellState extends State<MappingShell> {
               title: '완료',
               isLast: true,
               child: _DoneStep(
-                mapId: _savedMapId,
+                mapId: savedMapId,
                 onRefreshMaps: () => supervisor.requestMapList(settings),
                 onFinish: () => _stop(context, settings, thenIdle: true),
               ),
