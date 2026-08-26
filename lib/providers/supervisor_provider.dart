@@ -7,6 +7,8 @@ import 'package:uuid/uuid.dart';
 
 import '../core/app_settings.dart';
 import '../core/log_filter.dart';
+import '../models/goal_event.dart';
+import '../models/home_position.dart';
 import '../models/location_point.dart';
 import '../models/robot_event.dart';
 import '../models/robot_health.dart';
@@ -53,6 +55,9 @@ class SupervisorProvider extends ChangeNotifier {
     'not_navigate': '주행 요청으로 처리되지 않았습니다.',
     'not_navigating': '지금은 주행 중이 아닙니다.',
     'not_paused': '다시 출발할 주행이 없습니다.',
+    'no_home': '홈 위치가 지정되지 않았습니다. 장소 저장 화면에서 먼저 지정하세요.',
+    'already_home_bound': '이미 홈으로 돌아가는 중입니다.',
+    'busy_approaching': '사람에게 다가가는 중이라 지금은 홈으로 부를 수 없습니다.',
   };
 
   final _uuid = const Uuid();
@@ -191,6 +196,9 @@ class SupervisorProvider extends ChangeNotifier {
     if (settings.autoRequestLocationList && mapId != null) {
       requestLocationList(settings, mapId);
     }
+    if (mapId != null) {
+      unawaited(refreshHome(settings, mapId));
+    }
   }
 
   Future<void> disconnect() async {
@@ -286,6 +294,12 @@ class SupervisorProvider extends ChangeNotifier {
         topic: settings.robotEventsTopic,
         handler: _handleRobotEvent,
         type: 'vica_interfaces/msg/RobotEvent',
+      )
+      // goal 생명주기. 실패·취소 사유가 여기에만 실려 있습니다 —
+      // /robot_status 는 목적지 이름만 비우고 reason 을 버립니다.
+      ..subscribe(
+        topic: settings.goalEventTopic,
+        handler: _handleGoalEvent,
       );
   }
 
@@ -439,9 +453,16 @@ class SupervisorProvider extends ChangeNotifier {
     }
     _selectedMapId = mapId;
     _selectedLocationId = null;
+    // 지도가 바뀌면 홈도 다른 것입니다. 이전 지도의 홈을 그대로 보여주면
+    // 관리자가 엉뚱한 좌표를 현재 홈으로 믿습니다.
+    _home = null;
+    _homeMapId = '';
     notifyListeners();
     if (mapId != null && settings.autoRequestLocationList) {
       requestLocationList(settings, mapId);
+    }
+    if (mapId != null) {
+      unawaited(refreshHome(settings, mapId));
     }
   }
 
@@ -656,6 +677,228 @@ class SupervisorProvider extends ChangeNotifier {
       return message;
     }
   }
+
+  // ---- 홈 위치 ------------------------------------------------------------
+  //
+  // 홈은 목적지가 아니라 **로봇의 설정값**입니다. 안내가 끝나면 로봇이 스스로
+  // 돌아가는 자리이고, 사용자가 고르는 장소가 아닙니다. 그래서 장소 목록과
+  // 별도 경로를 쓰며, 홈으로 보내는 것도 관리자 전용 서비스입니다.
+
+  HomePosition? _home;
+  bool _homeBusy = false;
+  String _homeMapId = '';
+
+  HomePosition? get home => _home;
+  bool get homeBusy => _homeBusy;
+
+  /// 지금 들고 있는 홈이 [mapId] 의 것인가.
+  ///
+  /// 지도를 바꾸면 홈도 다른 것이라 이전 지도의 홈을 계속 보여주면 안 됩니다.
+  bool homeBelongsTo(String? mapId) => mapId != null && _homeMapId == mapId;
+
+  /// 젯슨에서 홈을 읽어옵니다. 없으면 [home] 이 null 이 되며 오류가 아닙니다.
+  Future<void> refreshHome(AppSettings settings, String mapId) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return;
+    }
+    _homeBusy = true;
+    notifyListeners();
+    try {
+      final response = await client.callService(
+        service: settings.homeGetService,
+        type: 'vica_interfaces/srv/GetHome',
+        args: {'map_id': mapId},
+      );
+      _homeMapId = mapId;
+      _home = response.values['exists'] == true
+          ? HomePosition.fromValues(response.values)
+          : null;
+    } catch (error) {
+      // 조회 실패와 "홈이 없다"는 다른 사실입니다. 실패했을 때 null 로 두면
+      // 관리자가 홈이 지워진 줄 압니다. 이전 값을 그대로 두고 로그만 남깁니다.
+      _addLog(LogFilter.coordinateTransfer, '홈 위치를 읽지 못했습니다: $error');
+    } finally {
+      _homeBusy = false;
+      notifyListeners();
+    }
+  }
+
+  /// 홈을 저장합니다. 저장 직후 [HomePosition.visitedOk] 는 항상 false 입니다.
+  ///
+  /// 좌표를 정한 것과 그 자리에 실제로 갈 수 있는 것은 다른 사실이고, 후자는
+  /// 한 번 가 봐야만 압니다. 로봇을 세워놓고 잡았어도 마찬가지입니다.
+  Future<String> saveHome(
+    AppSettings settings, {
+    required String mapId,
+    required double x,
+    required double y,
+    required double yawDeg,
+    required HomeSource source,
+    double score = 0,
+    String label = '',
+  }) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return 'ROS Bridge에 연결되지 않았습니다.';
+    }
+    _homeBusy = true;
+    notifyListeners();
+    try {
+      final response = await client.callService(
+        service: settings.homeSaveService,
+        type: 'vica_interfaces/srv/SaveHome',
+        args: {
+          'map_id': mapId,
+          'x': x,
+          'y': y,
+          'yaw': yawDeg,
+          'source': source.wire,
+          'score': score,
+          'label': label,
+        },
+      );
+      final message = response.message.isEmpty
+          ? (response.accepted ? '홈을 저장했습니다.' : '홈을 저장하지 못했습니다.')
+          : response.message;
+      _addLog(LogFilter.coordinateTransfer, message);
+      if (response.accepted) {
+        _homeMapId = mapId;
+        _home = HomePosition(
+          x: x,
+          y: y,
+          yaw: yawDeg,
+          source: source,
+          score: score,
+          label: label,
+          visitedOk: false,
+          savedAt: DateTime.now().toIso8601String(),
+        );
+      }
+      return message;
+    } catch (error) {
+      final message = '홈 저장 실패: $error';
+      _addLog(LogFilter.coordinateTransfer, message);
+      return message;
+    } finally {
+      _homeBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<String> deleteHome(AppSettings settings, String mapId) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return 'ROS Bridge에 연결되지 않았습니다.';
+    }
+    _homeBusy = true;
+    notifyListeners();
+    try {
+      final response = await client.callService(
+        service: settings.homeDeleteService,
+        type: 'vica_interfaces/srv/DeleteHome',
+        args: {'map_id': mapId},
+      );
+      final message = response.message.isEmpty
+          ? (response.accepted ? '홈을 지웠습니다.' : '홈을 지우지 못했습니다.')
+          : response.message;
+      _addLog(LogFilter.coordinateTransfer, message);
+      if (response.accepted) {
+        _home = null;
+      }
+      return message;
+    } catch (error) {
+      final message = '홈 삭제 실패: $error';
+      _addLog(LogFilter.coordinateTransfer, message);
+      return message;
+    } finally {
+      _homeBusy = false;
+      notifyListeners();
+    }
+  }
+
+  /// 로봇을 홈으로 보냅니다. **관리자만 부를 수 있는 경로입니다.**
+  ///
+  /// 장소 저장 화면의 '홈으로 가보기'와 원격 주행 화면의 '홈으로 복귀'가 같은
+  /// 서비스를 부릅니다. 하는 일이 같기 때문이고, 다른 것은 관리자가 그 결과를
+  /// 무엇으로 쓰느냐뿐입니다 — 지정 확인이냐 운영 호출이냐.
+  ///
+  /// 허용 여부는 Mission Manager 가 판정합니다. 안내 주행 중이면 거부되는데,
+  /// 사용자가 핸들을 잡고 따라 걷는 중에 로봇이 방향을 틀면 **사용자는 자기가
+  /// 어디로 끌려가는지 모르기** 때문입니다.
+  Future<String> returnHome(AppSettings settings) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return 'ROS Bridge에 연결되지 않았습니다.';
+    }
+    try {
+      final response = await client.callService(
+        service: settings.missionReturnHomeService,
+        type: 'vica_interfaces/srv/MissionCommand',
+        args: {'request_id': _uuid.v4()},
+      );
+      final message = response.message.isEmpty
+          ? (response.accepted ? '홈으로 복귀합니다.' : '홈 복귀 요청이 거부되었습니다.')
+          : _localizeGateReason(response.message);
+      _addLog(LogFilter.coordinateTransfer, message);
+      return message;
+    } catch (error) {
+      final message = '홈 복귀 요청 실패: $error';
+      _addLog(LogFilter.coordinateTransfer, message);
+      return message;
+    }
+  }
+
+  // ---- goal 생명주기 알림 --------------------------------------------------
+  //
+  // 실패·취소를 관리자에게 알리는 경로입니다. 종전에는 /robot_status 를 거치며
+  // 사유가 버려져 **주행이 조용히 사라진 것처럼** 보였습니다.
+
+  GoalEvent? _pendingGoalAlert;
+
+  /// 아직 관리자에게 보여주지 않은 알림. 화면이 팝업을 띄우고 [consumeGoalAlert]
+  /// 를 불러 비웁니다.
+  GoalEvent? get pendingGoalAlert => _pendingGoalAlert;
+
+  void consumeGoalAlert() {
+    if (_pendingGoalAlert == null) {
+      return;
+    }
+    _pendingGoalAlert = null;
+    notifyListeners();
+  }
+
+  void _handleGoalEvent(Map<String, Object?> message) {
+    final event = GoalEvent.fromJson(message, id: _uuid.v4());
+
+    // 홈 복귀가 성공하면 그 홈은 '가 본 자리'가 됩니다. 젯슨이 home.yaml 에
+    // 이미 기록했지만, 앱 화면의 경고를 바로 내리기 위해 여기서도 반영합니다.
+    if (event.kind == GoalEventKind.returnHomeSucceeded && _home != null) {
+      _home = _home!.copyWith(visitedOk: true);
+    } else if (event.kind == GoalEventKind.returnHomeFailed && _home != null) {
+      _home = _home!.copyWith(visitedOk: false);
+    }
+
+    if (event.needsPopup) {
+      _pendingGoalAlert = event;
+      // 팝업과 별개로 알림 목록에도 남깁니다. 팝업은 그 자리에서 닫히지만
+      // 목록은 나중에 되짚을 수 있어야 합니다.
+      final where =
+          event.destinationName.isEmpty ? '' : '${event.destinationName}: ';
+      final detail = event.reason.isEmpty ? '' : ' (${event.reason})';
+      _addLog(
+        event.isFailure
+            ? LogFilter.emergencyStop
+            : LogFilter.coordinateTransfer,
+        '$where${event.title}$detail',
+      );
+    }
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  void handleGoalEventForTest(Map<String, Object?> message) =>
+      _handleGoalEvent(message);
 
   // ---- Nav2 초기 위치 잡기 ----------------------------------------------
   //

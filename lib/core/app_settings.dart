@@ -29,6 +29,11 @@ class AppSettings {
     this.mappingSaveService = '/vica/mapping/save',
     this.poseCheckService = '/vica/pose_check',
     this.poseCommitService = '/vica/pose_commit',
+    this.homeGetService = '/vica/home/get',
+    this.homeSaveService = '/vica/home/save',
+    this.homeDeleteService = '/vica/home/delete',
+    this.missionReturnHomeService = '/vica/mission/return_home',
+    this.goalEventTopic = '/vica_goal_event',
     this.robotStatusTopic = '/robot_status',
     this.emergencyActivateService = '/app_estop_activate',
     this.emergencyResetService = '/app_estop_reset',
@@ -74,6 +79,28 @@ class AppSettings {
   // 확인은 AMCL 을 건드리지 않고 점수만 계산하고, 확정에서만 /initialpose 를 냅니다.
   final String poseCheckService;
   final String poseCommitService;
+
+  // 지도별 홈 위치. mission_manager_node 가 제공합니다.
+  // 홈은 목적지가 아니라 로봇의 설정값이라 장소 목록과 별도 경로를 씁니다.
+  final String homeGetService;
+  final String homeSaveService;
+  final String homeDeleteService;
+
+  // 홈 복귀. **관리자 전용 경로입니다.**
+  //
+  // 목적지 요청은 UUID 로 지목하는데 홈에는 UUID 가 없고, 음성 LLM 은 토픽만
+  // 발행할 뿐 서비스 클라이언트가 없습니다. 즉 권한을 검사해서 막는 것이
+  // 아니라 사용자 쪽에 문이 없습니다.
+  final String missionReturnHomeService;
+
+  // Mission Manager 가 내는 goal 생명주기 이벤트입니다.
+  //
+  // 앱이 직접 구독합니다. /robot_status 를 거치면 실패 '사유'가 사라집니다 —
+  // 그 노드는 목적지 이름만 비우고 reason 을 버리기 때문에, 관리자 눈에는
+  // 주행이 조용히 사라진 것처럼 보였습니다. /robot/health 를 직접 구독하는
+  // 것과 같은 이유이며 /robot_status 스키마는 그대로 둡니다.
+  final String goalEventTopic;
+
   final String missionRequestService;
   // 진행 중인 주행 제어. 모두 vica_interfaces/srv/MissionCommand를 씁니다.
   final String missionCancelService;
@@ -115,6 +142,11 @@ class AppSettings {
     String? mappingSaveService,
     String? poseCheckService,
     String? poseCommitService,
+    String? homeGetService,
+    String? homeSaveService,
+    String? homeDeleteService,
+    String? missionReturnHomeService,
+    String? goalEventTopic,
     String? missionRequestService,
     String? missionCancelService,
     String? missionPauseService,
@@ -157,6 +189,12 @@ class AppSettings {
       mappingSaveService: mappingSaveService ?? this.mappingSaveService,
       poseCheckService: poseCheckService ?? this.poseCheckService,
       poseCommitService: poseCommitService ?? this.poseCommitService,
+      homeGetService: homeGetService ?? this.homeGetService,
+      homeSaveService: homeSaveService ?? this.homeSaveService,
+      homeDeleteService: homeDeleteService ?? this.homeDeleteService,
+      missionReturnHomeService:
+          missionReturnHomeService ?? this.missionReturnHomeService,
+      goalEventTopic: goalEventTopic ?? this.goalEventTopic,
       missionRequestService:
           missionRequestService ?? this.missionRequestService,
       missionCancelService: missionCancelService ?? this.missionCancelService,

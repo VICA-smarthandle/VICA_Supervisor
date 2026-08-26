@@ -3,10 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../core/app_settings.dart';
 import '../core/destination_categories.dart';
+import '../models/home_position.dart';
 import '../models/location_point.dart';
+import '../models/pose_check_result.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
+import '../widgets/home_position_card.dart';
+import '../widgets/initial_pose_card.dart' show PoseDirection;
 import '../widgets/map_canvas.dart';
 import '../widgets/map_delete_card.dart';
 import '../widgets/vica_ui.dart';
@@ -41,6 +46,16 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
 
   Offset? _pickedRos;
   String? _deleteTargetId;
+
+  // ---- 홈 위치 ----------------------------------------------------------
+  //
+  // 홈 지정 중에는 지도 탭이 '장소 찍기'가 아니라 '홈 찍기'로 동작합니다.
+  // 한 화면에서 두 가지를 찍으므로 지금 무엇을 찍는 중인지가 상태로 필요합니다.
+  HomeCardMode _homeMode = HomeCardMode.idle;
+  Offset? _homePicked;
+  PoseDirection? _homeDirection;
+  PoseCheckResult? _homeStanding;
+  bool _homeSending = false;
   // 임시 저장 장소를 수정하는 중이면 그 id를 들고 있습니다. 새로 저장할 때 id가
   // 바뀌면 같은 장소가 둘로 늘어나므로, 수정 중에는 기존 id를 그대로 씁니다.
   String? _editingLocationId;
@@ -133,6 +148,12 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               // 사라져 처음부터 다시 해야 했습니다. 이제 누르는 것은 '점 옮기기'
               // 뿐이고, 시트는 아래 '장소 정보 입력' 버튼이 엽니다.
               onTapMap: (ros) {
+                // 홈을 찍는 중이면 장소가 아니라 홈 좌표가 됩니다. 한 지도에서
+                // 두 가지를 찍으므로 지금 무엇을 찍는 중인지로 갈라야 합니다.
+                if (_homeMode == HomeCardMode.picking) {
+                  setState(() => _homePicked = ros);
+                  return;
+                }
                 // 임시 저장 장소를 버리는 것은 의도한 동작입니다. 최종 저장 전에
                 // 다른 자리를 새로 찍었다면 그 장소가 더 이상 필요 없어진 것으로
                 // 봅니다(사용자 판정 2026-08-21).
@@ -259,11 +280,295 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               ],
             ),
           ),
+          const SizedBox(height: 12),
+          // 홈 지정은 장소 저장과 성질이 같은 일입니다 — 지도 좌표를 다루고,
+          // 한 번 정하면 계속 쓰며, 가끔 고칩니다. 홈으로 '보내는' 일은
+          // 로봇이 실제로 움직이므로 원격 주행 화면에 있습니다.
+          HomePositionCard(
+            home: supervisor.homeBelongsTo(map.mapId) ? supervisor.home : null,
+            mode: _homeMode,
+            busy: supervisor.homeBusy || _homeSending,
+            picked: _homePicked,
+            direction: _homeDirection,
+            standingResult: _homeStanding,
+            canSendRobot: _canSendRobot(supervisor),
+            blockedReason: _blockedReason(supervisor),
+            onStartPicking: () => setState(() {
+              _homeMode = HomeCardMode.picking;
+              _homePicked = null;
+              _homeDirection = null;
+              _homeStanding = null;
+            }),
+            onStartStanding: () => setState(() {
+              _homeMode = HomeCardMode.standing;
+              _homePicked = null;
+              _homeDirection = null;
+              _homeStanding = null;
+            }),
+            onDirection: (value) => setState(() => _homeDirection = value),
+            onCheckStanding: () => _checkStandingHome(context, supervisor),
+            onSave: () => _saveHome(context, supervisor, map.mapId, settings),
+            onCancel: () => setState(() {
+              _homeMode = HomeCardMode.idle;
+              _homePicked = null;
+              _homeDirection = null;
+              _homeStanding = null;
+            }),
+            onGoHome: () => _goHome(context, supervisor),
+            onDelete: () => _confirmDeleteHome(context, supervisor, map.mapId),
+          ),
+          const SizedBox(height: 12),
           // 지도 삭제는 목록 맨 아래에 둡니다. 되돌릴 수 없는 일이라 지도를
           // 고르는 자리(맨 위)에서 멀리 떼어 놓습니다.
           const MapDeleteCard(),
         ],
       ],
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // 홈 위치
+  // ------------------------------------------------------------------
+
+  /// 로봇을 움직여도 되는 상황인가.
+  ///
+  /// 최종 판정은 Mission Manager 가 합니다. 여기서 미리 잠그는 것은 못 할
+  /// 상황에서 버튼을 눌러 거부 메시지를 받는 대신 **이유를 먼저 보여주기**
+  /// 위해서입니다.
+  bool _canSendRobot(SupervisorProvider supervisor) {
+    final robot = supervisor.primaryRobot;
+    if (robot == null) {
+      return false;
+    }
+    if (supervisor.emergencyOverlayVisible) {
+      return false;
+    }
+    final driving = robot.currentGoal.trim().isNotEmpty;
+    return !driving;
+  }
+
+  String _blockedReason(SupervisorProvider supervisor) {
+    if (supervisor.primaryRobot == null) {
+      return '로봇 상태를 받지 못했습니다. 연결을 확인하세요.';
+    }
+    if (supervisor.emergencyOverlayVisible) {
+      return '비상정지 상태에서는 로봇을 움직일 수 없습니다.';
+    }
+    if (supervisor.primaryRobot!.currentGoal.trim().isNotEmpty) {
+      return '안내 주행 중에는 홈을 다룰 수 없습니다. '
+          '사용자가 핸들을 잡고 따라 걷는 중이라 방향을 바꾸면 위험합니다. '
+          '먼저 주행을 취소하세요.';
+    }
+    return '';
+  }
+
+  Future<void> _checkStandingHome(
+    BuildContext context,
+    SupervisorProvider supervisor,
+  ) async {
+    final settings = context.read<SettingsProvider>().settings;
+    final robot = supervisor.primaryRobot;
+    if (robot == null) {
+      _toast('로봇 위치를 받지 못했습니다.');
+      return;
+    }
+    setState(() => _homeSending = true);
+    // 지금 AMCL 이 믿는 자리를 중심으로 채점합니다. 로봇이 실제로 그 방향을
+    // 보고 있으므로 방향 힌트도 함께 줍니다 — 힌트가 있으면 후보가 크게 줄고
+    // 대칭 복도에서 180도 뒤집힌 자세가 후보에 들어오지 않습니다.
+    final message = await supervisor.checkInitialPose(
+      settings,
+      x: robot.x,
+      y: robot.y,
+      yawHint: robot.yaw * 3.1415926535 / 180.0,
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _homeStanding = supervisor.poseCheck;
+      _homeSending = false;
+    });
+    if (supervisor.poseCheck == null) {
+      _toast(message);
+    }
+  }
+
+  Future<void> _saveHome(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    String mapId,
+    AppSettings settings,
+  ) async {
+    double x;
+    double y;
+    double yawDeg;
+    HomeSource source;
+    double score = 0;
+
+    if (_homeMode == HomeCardMode.picking) {
+      final spot = _homePicked;
+      final direction = _homeDirection;
+      if (spot == null || direction == null) {
+        return;
+      }
+      x = spot.dx;
+      y = spot.dy;
+      yawDeg = direction.yawFor(settings) * 180.0 / 3.1415926535;
+      source = HomeSource.mapPick;
+    } else {
+      final result = _homeStanding;
+      if (result == null || !result.ok) {
+        return;
+      }
+      // 저장하는 값은 로봇이 선 자리가 아니라 **채점이 바로잡은 자세**입니다.
+      x = result.x;
+      y = result.y;
+      yawDeg = result.yaw * 180.0 / 3.1415926535;
+      source = HomeSource.robotStanding;
+      score = result.score;
+    }
+
+    final label = await _askHomeLabel(context);
+    if (!mounted) {
+      return;
+    }
+
+    final message = await supervisor.saveHome(
+      settings,
+      mapId: mapId,
+      x: x,
+      y: y,
+      yawDeg: yawDeg,
+      source: source,
+      score: score,
+      label: label ?? '',
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _homeMode = HomeCardMode.idle;
+      _homePicked = null;
+      _homeDirection = null;
+      _homeStanding = null;
+    });
+    supervisor.clearPoseCheck();
+    _toast(message);
+  }
+
+  /// 홈에 붙일 이름을 묻습니다. 비워도 됩니다 — 로봇은 쓰지 않습니다.
+  Future<String?> _askHomeLabel(BuildContext context) async {
+    final controller = TextEditingController();
+    final value = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('홈 이름'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: '예: 충전 스테이션 앞',
+            helperText: '앱에서만 보이는 이름입니다. 비워도 됩니다.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(''),
+            child: const Text('이름 없이 저장'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+            child: const Text('저장'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return value;
+  }
+
+  Future<void> _goHome(
+    BuildContext context,
+    SupervisorProvider supervisor,
+  ) async {
+    final settings = context.read<SettingsProvider>().settings;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('홈으로 가보기'),
+        content: const Text(
+          '로봇이 홈 위치로 이동합니다.\n'
+          '경로에 사람과 장애물이 없는지 확인하세요.\n\n'
+          '제대로 도착하면 이 홈은 "가 본 자리"로 기록됩니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('이동 시작'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) {
+      return;
+    }
+    final message = await supervisor.returnHome(settings);
+    if (context.mounted) {
+      _toast(message);
+    }
+  }
+
+  Future<void> _confirmDeleteHome(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    String mapId,
+  ) async {
+    final settings = context.read<SettingsProvider>().settings;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('홈 지우기'),
+        content: const Text(
+          '홈을 지우면 안내가 끝난 뒤 로봇이 자동으로 돌아가지 않습니다.\n'
+          '안내 기능 자체는 그대로 동작합니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('그대로 두기'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('지우기'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) {
+      return;
+    }
+    final message = await supervisor.deleteHome(settings, mapId);
+    if (context.mounted) {
+      _toast(message);
+    }
+  }
+
+  /// 결과 문구를 띄웁니다.
+  ///
+  /// context 를 인자로 받지 않는 것은 이 함수가 대부분 await 뒤에 불리기
+  /// 때문입니다. 그 사이에 화면이 사라졌을 수 있으므로 State 의 mounted 를
+  /// 직접 보고 State 의 context 를 씁니다.
+  void _toast(String message) {
+    if (!mounted || message.trim().isEmpty) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
     );
   }
 
