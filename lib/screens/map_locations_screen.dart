@@ -36,6 +36,42 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>().settings;
     final supervisor = context.watch<SupervisorProvider>();
+
+    // 주행이 실패하거나 취소되면 관리자에게 팝업으로 알립니다.
+    //
+    // 종전에는 이 화면에 아무것도 뜨지 않아 **주행이 조용히 사라진 것처럼**
+    // 보였습니다. /vica_goal_event 의 실패 사유가 /robot_status 를 거치며
+    // 버려졌기 때문입니다. 이제 앱이 그 토픽을 직접 봅니다.
+    //
+    // build 안에서 바로 띄우면 프레임을 그리는 도중에 화면을 바꾸는 것이라
+    // 예외가 납니다. 한 프레임 뒤로 미룹니다.
+    final alert = supervisor.pendingGoalAlert;
+    if (alert != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        supervisor.consumeGoalAlert();
+        showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            icon: Icon(
+              alert.isFailure ? Icons.error_outline : Icons.info_outline,
+              color: alert.isFailure ? VicaColors.red : VicaColors.primaryDark,
+            ),
+            title: Text(alert.title),
+            content: Text(alert.description),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('확인'),
+              ),
+            ],
+          ),
+        );
+      });
+    }
+
     final map = supervisor.selectedMap;
     final locations = supervisor.locationsFor(map?.mapId);
     final selected = _selectedLocation(
@@ -245,6 +281,31 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                     ],
                   ),
                 ],
+                // 홈 복귀는 **관리자 전용**입니다. 사용자(음성)에게는 이 문이
+                // 아예 없습니다 — 홈은 목적지 목록에 없어서 지목할 대상 자체가
+                // 없습니다. 안내 주행 중에는 잠급니다. 사용자가 핸들을 잡고
+                // 따라 걷는 중에 방향을 틀면 어디로 끌려가는지 모릅니다.
+                if (supervisor.homeBelongsTo(map.mapId) &&
+                    supervisor.home != null) ...[
+                  const SizedBox(height: 10),
+                  const Divider(height: 20),
+                  OutlinedButton.icon(
+                    onPressed: driving || paused
+                        ? null
+                        : () => _confirmReturnHome(context, supervisor),
+                    icon: const Icon(Icons.home_outlined),
+                    label: Text(
+                      driving || paused ? '주행 중에는 홈으로 부를 수 없습니다' : '홈으로 복귀',
+                    ),
+                  ),
+                  if (!supervisor.home!.visitedOk) ...[
+                    const SizedBox(height: 6),
+                    const Text(
+                      '홈에 아직 가 본 적이 없습니다. 장소 저장 화면에서 먼저 확인하세요.',
+                      style: TextStyle(color: VicaColors.muted, fontSize: 12),
+                    ),
+                  ],
+                ],
               ],
             ),
           ),
@@ -278,7 +339,8 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     // 성공하면 점수 상자가 메시지를 보여준다. 실패(결과 없음)는 상자가 안 뜨니
     // 여기서 알리지 않으면 관리자에게 아무것도 안 보인다.
     if (supervisor.poseCheck == null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -327,7 +389,8 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
       _picking = false;
       _picked = null;
     });
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   // 문을 여는 순간 Nav2 생사를 새로 확인합니다. 화면의 stackStatus 는 지난번
@@ -388,9 +451,8 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
-            onPressed: blocked.isEmpty
-                ? () => _enterPosePicking(supervisor)
-                : null,
+            onPressed:
+                blocked.isEmpty ? () => _enterPosePicking(supervisor) : null,
             icon: const Icon(Icons.add_location_alt_outlined),
             label: const Text('초기 위치 잡기'),
           ),
@@ -442,6 +504,45 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
   }
 
   // 실제 로봇이 움직이므로 요청 전에 한 번 확인합니다.
+  /// 로봇을 홈으로 부릅니다. **관리자 전용 경로입니다.**
+  ///
+  /// 실제 로봇이 사람 없이 달리므로 원격 주행 요청과 같은 문턱을 둡니다.
+  static Future<void> _confirmReturnHome(
+    BuildContext context,
+    SupervisorProvider supervisor,
+  ) async {
+    final settings = context.read<SettingsProvider>().settings;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('홈으로 복귀'),
+        content: const Text(
+          '로봇이 홈 위치로 이동합니다.\n'
+          '경로에 사람과 장애물이 없는지 확인하세요.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('복귀 시작'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) {
+      return;
+    }
+    final message = await supervisor.returnHome(settings);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    }
+  }
+
   static Future<void> _requestDrive(
     BuildContext context,
     SupervisorProvider supervisor,
