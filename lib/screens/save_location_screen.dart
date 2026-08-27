@@ -1,4 +1,6 @@
 // 지도에서 목적지 좌표를 선택하고 destinations.yaml 스키마에 맞는 정보를 입력합니다.
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
@@ -142,7 +144,14 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               settings: settings,
               locations: locations,
               draftLocation: draft,
-              pickedLocation: pickedLocation,
+              // 홈을 찍는 중이면 그 점을 보여준다. 장소 찍기와 같은 주황 원이라
+              // 관리자가 배울 것이 없다.
+              pickedLocation: _homeMode == HomeCardMode.picking
+                  ? _homePickedMarker(map.mapId)
+                  : pickedLocation,
+              // 방향을 고르면 화살표로 미리 보여준다. 어느 쪽을 보고 서게 될지
+              // 글자('위')보다 그림이 빠르다.
+              poseArrow: _homeArrow(settings),
               // 여기서 정보 입력 시트를 띄우지 않습니다. 누르자마자 시트가 덮으면
               // 점이 원하는 자리에 찍혔는지 볼 수가 없고, 시트를 닫으면 점까지
               // 사라져 처음부터 다시 해야 했습니다. 이제 누르는 것은 '점 옮기기'
@@ -330,6 +339,61 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   // 홈 위치
   // ------------------------------------------------------------------
 
+  /// 홈을 찍는 중일 때 지도에 보여줄 점.
+  ///
+  /// 장소 찍기와 같은 `pickedLocation` 자리를 씁니다 — 한 화면에서 둘을 동시에
+  /// 찍는 일은 없고(홈 모드에서는 지도 탭이 홈으로만 갑니다), 같은 모양으로
+  /// 보여야 관리자가 새로 배울 것이 없습니다.
+  LocationPoint? _homePickedMarker(String mapId) {
+    final spot = _homePicked;
+    if (spot == null) {
+      return null;
+    }
+    return LocationPoint(
+      locationId: '_home_pick',
+      mapId: mapId,
+      name: '홈 후보',
+      x: spot.dx,
+      y: spot.dy,
+      yaw: 0,
+    );
+  }
+
+  /// 지도에 겹쳐 보여줄 방향 화살표.
+  ///
+  /// 두 경우에 나옵니다.
+  ///   - 홈을 찍는 중: 고른 방향을 미리 보여준다
+  ///   - 선 자리를 확인한 뒤: 채점이 바로잡은 자세를 보여준다
+  ///     (사람이 세운 자리와 다를 수 있어 "12 cm 옮겼습니다"가 눈으로 보인다)
+  MapPoseArrow? _homeArrow(AppSettings settings) {
+    if (_homeMode == HomeCardMode.picking) {
+      final spot = _homePicked;
+      final direction = _homeDirection;
+      if (spot == null || direction == null) {
+        return null;
+      }
+      return MapPoseArrow(
+        x: spot.dx,
+        y: spot.dy,
+        yawDegrees: direction.yawFor(settings) * 180.0 / math.pi,
+        label: '홈 방향',
+      );
+    }
+    if (_homeMode == HomeCardMode.standing) {
+      final result = _homeStanding;
+      if (result == null) {
+        return null;
+      }
+      return MapPoseArrow(
+        x: result.x,
+        y: result.y,
+        yawDegrees: result.yawDegrees,
+        label: '찾아낸 자세',
+      );
+    }
+    return null;
+  }
+
   /// 로봇을 움직여도 되는 상황인가.
   ///
   /// 최종 판정은 Mission Manager 가 합니다. 여기서 미리 잠그는 것은 못 할
@@ -380,7 +444,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       settings,
       x: robot.x,
       y: robot.y,
-      yawHint: robot.yaw * 3.1415926535 / 180.0,
+      yawHint: robot.yaw * math.pi / 180.0,
     );
     if (!mounted) {
       return;
@@ -414,7 +478,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       }
       x = spot.dx;
       y = spot.dy;
-      yawDeg = direction.yawFor(settings) * 180.0 / 3.1415926535;
+      yawDeg = direction.yawFor(settings) * 180.0 / math.pi;
       source = HomeSource.mapPick;
     } else {
       final result = _homeStanding;
@@ -424,7 +488,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       // 저장하는 값은 로봇이 선 자리가 아니라 **채점이 바로잡은 자세**입니다.
       x = result.x;
       y = result.y;
-      yawDeg = result.yaw * 180.0 / 3.1415926535;
+      yawDeg = result.yawDegrees;
       source = HomeSource.robotStanding;
       score = result.score;
     }

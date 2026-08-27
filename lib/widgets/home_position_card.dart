@@ -445,14 +445,12 @@ class _DirectionButtons extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: PoseDirection.values.map((direction) {
-        final isSelected = selected == direction;
         return ChoiceChip(
-          selected: isSelected,
-          avatar: Icon(
-            direction.icon,
-            size: 16,
-            color: isSelected ? VicaColors.text : VicaColors.primaryDark,
-          ),
+          selected: selected == direction,
+          // 체크표시를 끄지 않으면 화살표 아이콘과 겹쳐 둘 다 못 읽는다.
+          // 선택 여부는 칩 배경색으로 이미 드러난다. 초기 위치 카드와 같은 방식.
+          showCheckmark: false,
+          avatar: Icon(direction.icon, size: 18),
           label: Text(direction.label),
           onSelected: enabled ? (_) => onSelected(direction) : null,
         );
