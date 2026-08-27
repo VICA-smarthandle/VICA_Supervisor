@@ -83,7 +83,12 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     final robot = supervisor.primaryRobot;
     final drivingGoal = robot?.currentGoal.trim() ?? '';
     // 일시정지는 목적지를 기억한 채 멈춘 상태라 current_goal이 남아 있습니다.
-    final paused = robot?.waitingReason.trim() == '일시정지';
+    //
+    // 판정은 provider 가 합니다. 화면에서 waiting_reason 문자열을 직접 비교하면
+    // **재개 버튼이 아예 안 떴습니다** — 그 문자열은 오류·Nav2 미실행·odom 지연을
+    // 먼저 검사하고 그중 하나라도 걸리면 '일시정지'를 덮어쓰기 때문입니다.
+    // provider 는 goal 이벤트를 정본으로 쓰고 문자열은 보조로만 봅니다.
+    final paused = supervisor.navigationPaused;
     final driving = drivingGoal.isNotEmpty && !paused;
 
     return VicaPage(

@@ -221,6 +221,10 @@ class SupervisorProvider extends ChangeNotifier {
     // 연결이 끊기면 진단도 현재 상태가 아닙니다. 이벤트 이력은 지나간 기록이므로
     // 남겨둡니다 — 관리자가 왜 끊겼는지 되짚을 수 있어야 합니다.
     _health = null;
+    // 일시정지 표시도 현재 사실이 아닙니다. 끊긴 사이에 누군가 재개했을 수
+    // 있으므로 이벤트로 켠 값을 비웁니다. 다시 붙으면 1 Hz 상태 문자열이
+    // 진짜 일시정지를 곧바로 복원합니다.
+    _pausedByEvent = false;
     // 연결이 끊기면 teleop 반복도 멈춥니다. 로봇은 0.5초 watchdog 으로 서지만,
     // 앱이 계속 보내려 시도하며 로그를 채울 이유가 없습니다.
     _teleopTimer?.cancel();
@@ -868,8 +872,50 @@ class SupervisorProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- 일시정지 판정 -------------------------------------------------------
+  //
+  // 종전에는 화면이 /robot_status 의 waiting_reason 문자열이 정확히 '일시정지'
+  // 인지로만 판정했다. 그것 하나에 기대면 **재개 버튼이 아예 안 뜬다** —
+  // waiting_reason 은 오류·Nav2 미실행·odom 지연을 먼저 검사하고 그중 하나라도
+  // 걸리면 일시정지를 덮어쓰기 때문이다(vica_status_app_node._waiting_reason).
+  // 문구를 한 글자만 바꿔도 깨지는 것은 덤이다.
+  //
+  // 그래서 goal 이벤트를 정본으로 삼고, 문자열은 보조로만 쓴다. 둘 중 하나라도
+  // 일시정지라고 하면 일시정지다 — 재개 버튼이 안 뜨는 쪽이 잘못 뜨는 쪽보다
+  // 훨씬 나쁘다. 잘못 떠도 Mission Manager 가 게이트에서 거부할 뿐이다.
+  bool _pausedByEvent = false;
+
+  /// 지금 일시정지 상태인가. 화면은 이 값으로 버튼을 고른다.
+  bool get navigationPaused {
+    if (_pausedByEvent) {
+      return true;
+    }
+    // 앱이 일시정지 중에 새로 접속하면 그 사이의 이벤트를 못 받는다.
+    // 1 Hz 로 계속 오는 상태 문자열이 그 구멍을 메운다.
+    final robot = primaryRobot;
+    return robot != null && robot.waitingReason.trim() == '일시정지';
+  }
+
   void _handleGoalEvent(Map<String, Object?> message) {
     final event = GoalEvent.fromJson(message, id: _uuid.v4());
+
+    // 일시정지 표시를 여기서 켜고 끕니다. 새 goal 이 나가거나 주행이 어떤
+    // 식으로든 끝나면 일시정지가 아닙니다 — 재개·취소·도착·실패가 모두
+    // 여기 걸립니다.
+    switch (event.kind) {
+      case GoalEventKind.paused:
+        _pausedByEvent = true;
+      case GoalEventKind.sent:
+      case GoalEventKind.accepted:
+      case GoalEventKind.succeeded:
+      case GoalEventKind.failed:
+      case GoalEventKind.rejected:
+      case GoalEventKind.canceled:
+      case GoalEventKind.emergencyStopped:
+        _pausedByEvent = false;
+      default:
+        break;
+    }
 
     // 홈 복귀가 성공하면 그 홈은 '가 본 자리'가 됩니다. 젯슨이 home.yaml 에
     // 이미 기록했지만, 앱 화면의 경고를 바로 내리기 위해 여기서도 반영합니다.
