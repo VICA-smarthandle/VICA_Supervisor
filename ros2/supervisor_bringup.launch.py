@@ -23,6 +23,7 @@ WORKSPACE_ROOT = SUPERVISOR_ROOT.parent.parent
 MAP_LIST_NODE = SUPERVISOR_ROOT / "map_list_node.py"
 STATUS_NODE = SUPERVISOR_ROOT / "vica_status_app_node.py"
 KEEPOUT_NODE = SUPERVISOR_ROOT / "keepout_map_node.py"
+MAP_HTTP_SERVER = SUPERVISOR_ROOT / "map_http_server.py"
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -72,16 +73,21 @@ def generate_launch_description() -> LaunchDescription:
                     "default_call_service_timeout": "5.0",
                 }.items(),
             ),
+            # 지도 이미지 서버. python -m http.server 를 쓰다가 전용 스크립트로
+            # 바꿨습니다(2026-08-31). 이유는 Access-Control-Allow-Origin 헤더
+            # 한 줄입니다 — 그것이 없어서 브라우저로 띄운 앱에서 지도 그림만
+            # 안 보였습니다. 자세한 사정은 map_http_server.py 맨 위에 있습니다.
             ExecuteProcess(
                 cmd=[
                     sys.executable,
-                    "-m",
-                    "http.server",
+                    str(MAP_HTTP_SERVER),
+                    "--port",
                     "8000",
                     "--bind",
                     "0.0.0.0",
+                    "--directory",
+                    str(WORKSPACE_ROOT / "vica_ros2_ws"),
                 ],
-                cwd=str(WORKSPACE_ROOT / "vica_ros2_ws"),
                 output="screen",
             ),
             IncludeLaunchDescription(
