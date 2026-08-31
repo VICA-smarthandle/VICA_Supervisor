@@ -22,6 +22,7 @@ SUPERVISOR_ROOT = Path(__file__).resolve().parent
 WORKSPACE_ROOT = SUPERVISOR_ROOT.parent.parent
 MAP_LIST_NODE = SUPERVISOR_ROOT / "map_list_node.py"
 STATUS_NODE = SUPERVISOR_ROOT / "vica_status_app_node.py"
+KEEPOUT_NODE = SUPERVISOR_ROOT / "keepout_map_node.py"
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -88,6 +89,13 @@ def generate_launch_description() -> LaunchDescription:
             ),
             ExecuteProcess(
                 cmd=[sys.executable, str(MAP_LIST_NODE)],
+                output="screen",
+            ),
+            # 금지구역 저장·적용. map_list_node 옆에 두는 이유는 역할이 같기
+            # 때문입니다 — 앱과 maps/ 폴더 사이의 다리입니다. Nav2 쪽 배선
+            # (마스크 서버 두 대)은 vica_nav2 의 launch 가 담당합니다.
+            ExecuteProcess(
+                cmd=[sys.executable, str(KEEPOUT_NODE)],
                 output="screen",
             ),
             ExecuteProcess(

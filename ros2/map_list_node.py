@@ -29,7 +29,20 @@ from std_msgs.msg import String
 MAP_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 # 한 지도에 딸린 파일들. pbstream 은 없을 수도 있다.
-MAP_SUFFIXES = (".pgm", ".png", ".yaml", ".pbstream")
+#
+# _keepout 세 개도 여기 있어야 한다(2026-08-31). 빼먹으면 지도를 지워도 금지구역
+# 파일이 남고, 같은 이름으로 지도를 다시 만들었을 때 **옛 금지구역이 되살아난다.**
+# 그 상태는 화면에 아무 표시도 남기지 않으므로 조용히 틀린다.
+# 이름 규칙의 정본은 keepout_mask.KEEPOUT_SUFFIXES 다.
+MAP_SUFFIXES = (
+    ".pgm",
+    ".png",
+    ".yaml",
+    ".pbstream",
+    "_keepout.pgm",
+    "_keepout.yaml",
+    "_keepout.json",
+)
 
 
 class MapListNode(Node):
