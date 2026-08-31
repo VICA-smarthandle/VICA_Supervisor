@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vica_supervisor/models/pose_check_result.dart';
 
 void main() {
+  _scanHitTests();
   Map<String, Object?> values({
     bool ok = true,
     double score = 82,
@@ -54,18 +55,22 @@ void main() {
 
   test('점수 구간이 색을 가른다', () {
     expect(PoseCheckResult.fromValues(values(score: 70)).grade, PoseGrade.good);
-    expect(PoseCheckResult.fromValues(values(score: 69.9)).grade, PoseGrade.weak);
+    expect(
+        PoseCheckResult.fromValues(values(score: 69.9)).grade, PoseGrade.weak);
     expect(PoseCheckResult.fromValues(values(score: 50)).grade, PoseGrade.weak);
-    expect(PoseCheckResult.fromValues(values(score: 49.9)).grade, PoseGrade.bad);
+    expect(
+        PoseCheckResult.fromValues(values(score: 49.9)).grade, PoseGrade.bad);
   });
 
   test('얼마나 옮겼는지를 사람 말로 만든다', () {
     expect(
-      PoseCheckResult.fromValues(values(movedM: 0.12, movedDeg: 8)).movedSummary,
+      PoseCheckResult.fromValues(values(movedM: 0.12, movedDeg: 8))
+          .movedSummary,
       '12 cm, 8° 옮겼습니다.',
     );
     expect(
-      PoseCheckResult.fromValues(values(movedM: 0.07, movedDeg: 0)).movedSummary,
+      PoseCheckResult.fromValues(values(movedM: 0.07, movedDeg: 0))
+          .movedSummary,
       '7 cm 옮겼습니다.',
     );
     expect(
@@ -98,5 +103,60 @@ void main() {
       PoseCheckResult.fromValues(values(margin: 10)).marginSummary,
       '헷갈릴 방향 없음(차이 10점)',
     );
+  });
+}
+
+// --- 라이다 점 (2026-08-31) --------------------------------------------------
+//
+// RViz 는 초기 위치를 잡고 나면 그 자세 기준으로 라이다 점을 지도에 겹쳐
+// 보여준다. 앱에도 같은 그림을 주려고 서버가 채점에 쓴 좌표를 함께 보낸다.
+// **실시간 구독이 아니다** — 확인 버튼을 누른 그 순간의 스캔 한 장이다.
+
+void _scanHitTests() {
+  group('라이다 점', () {
+    test('hit_x·hit_y 를 좌표로 묶는다', () {
+      final result = PoseCheckResult.fromValues(const {
+        'hit_x': [1.0, 2.0, 3.0],
+        'hit_y': [4.0, 5.0, 6.0],
+      });
+
+      expect(result.scanHits.length, 3);
+      expect(result.scanHits.first.dx, 1.0);
+      expect(result.scanHits.first.dy, 4.0);
+    });
+
+    test('점이 없으면 빈 목록이다', () {
+      expect(PoseCheckResult.fromValues(const {}).scanHits, isEmpty);
+    });
+
+    test('한쪽만 잘려 와도 예외를 던지지 않는다', () {
+      // 짧은 쪽에 맞춘다. 덜 그리는 편이 화면이 죽는 것보다 낫다.
+      final result = PoseCheckResult.fromValues(const {
+        'hit_x': [1.0, 2.0, 3.0],
+        'hit_y': [4.0],
+      });
+
+      expect(result.scanHits.length, 1);
+    });
+
+    test('배열이 아닌 값이 와도 버티다', () {
+      final result = PoseCheckResult.fromValues(const {
+        'hit_x': 'not a list',
+        'hit_y': 5,
+      });
+
+      expect(result.scanHits, isEmpty);
+    });
+
+    test('확정 응답도 같은 파서로 읽는다', () {
+      // PoseCommit 이 같은 필드 이름을 써서 provider 가 직접 부른다.
+      final hits = PoseCheckResult.hitsFrom(const {
+        'hit_x': [7.0],
+        'hit_y': [8.0],
+      });
+
+      expect(hits.single.dx, 7.0);
+      expect(hits.single.dy, 8.0);
+    });
   });
 }

@@ -986,12 +986,23 @@ class SupervisorProvider extends ChangeNotifier {
   PoseCheckResult? get poseCheck => _poseCheck;
   bool get poseChecking => _poseChecking;
 
+  /// 확정 뒤 AMCL 자세에서 본 라이다 점입니다.
+  ///
+  /// 확인 단계의 점은 [poseCheck] 안에 있고, 이것은 **반영이 끝난 뒤** 것입니다.
+  /// 둘을 나눠 두는 이유는 확정하면 poseCheck 를 비우기 때문입니다 — 그때 점도
+  /// 함께 사라지면 "제대로 반영됐나"를 볼 그림이 없습니다.
+  List<Offset> get committedScanHits => _committedScanHits;
+  List<Offset> _committedScanHits = const [];
+
   void clearPoseCheck() {
-    if (_poseCheck == null && !_poseChecking) {
+    if (_poseCheck == null && !_poseChecking && _committedScanHits.isEmpty) {
       return;
     }
     _poseCheck = null;
     _poseChecking = false;
+    // 확정 뒤 남겨 둔 점도 함께 지웁니다. 새로 잡기 시작했는데 지난 회차의
+    // 점이 지도에 남아 있으면 방금 확인한 것으로 오해합니다.
+    _committedScanHits = const [];
     notifyListeners();
   }
 
@@ -1079,6 +1090,10 @@ class SupervisorProvider extends ChangeNotifier {
         // 반영이 끝나면 화면을 1단계로 되돌립니다. 남겨 두면 이미 반영한 값을
         // 다시 확정할 수 있게 보입니다.
         _poseCheck = null;
+        // 다만 라이다 점은 남깁니다. **반영 뒤 AMCL 이 믿는 자세**에서 본
+        // 것이라, 확정이 제대로 됐는지 눈으로 확인할 수 있는 마지막 그림입니다.
+        // 지도를 바꾸거나 초기 위치 잡기를 다시 열면 지워집니다.
+        _committedScanHits = PoseCheckResult.hitsFrom(response.values);
         notifyListeners();
       }
       return message;

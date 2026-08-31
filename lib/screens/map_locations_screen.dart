@@ -164,6 +164,11 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                       label: '찾아낸 자세',
                     )
                   : null,
+              // 확인한 자세에서 본 라이다 점. 확정 뒤에는 AMCL 자세의 점으로
+              // 바뀝니다 — 반영이 제대로 됐는지 눈으로 볼 마지막 그림입니다.
+              scanHits: supervisor.poseCheck?.scanHits.isNotEmpty == true
+                  ? supervisor.poseCheck!.scanHits
+                  : supervisor.committedScanHits,
               onTapMap: _picking ? _onTapMap : null,
               onSelectLocation: (location) =>
                   supervisor.selectLocation(location.locationId),

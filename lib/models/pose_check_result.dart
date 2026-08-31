@@ -5,6 +5,7 @@
 // 지도 PNG 그림만 있고 원본 격자값이 없다는 것입니다. 그림에서 회색 픽셀을 세는
 // 것은 정확한 계산이 아닙니다. 앱은 숫자 셋을 보내고 % 하나를 받습니다.
 import 'dart:math' as math;
+import 'dart:ui' show Offset;
 
 // 색과 버튼 잠금에 쓰는 경계입니다. **판정의 주인은 노드입니다** — 확정 가능
 // 여부는 노드가 보낸 ok 를 그대로 씁니다. 여기 값은 화면 색을 고르는 용도라
@@ -37,6 +38,7 @@ class PoseCheckResult {
     required this.margin,
     required this.movedM,
     required this.movedDeg,
+    this.scanHits = const [],
   });
 
   final bool ok;
@@ -52,6 +54,14 @@ class PoseCheckResult {
   final double margin;
   final double movedM;
   final double movedDeg;
+
+  /// 찾아낸 자세에서 본 라이다 점(ROS 좌표). 지도에 겹쳐 그립니다.
+  ///
+  /// **확인한 그 순간의 스캔 한 장입니다.** 실시간 구독이 아니며, 서버가
+  /// 채점하면서 이미 만든 좌표를 그대로 받습니다. 점이 벽 위에 놓이면 자세가
+  /// 맞은 것이고 밀려 있으면 틀린 것입니다 — RViz 가 초기 위치를 잡은 뒤
+  /// 보여주는 그림과 같습니다.
+  final List<Offset> scanHits;
 
   factory PoseCheckResult.fromValues(Map<String, Object?> values) {
     double number(String key) => (values[key] as num?)?.toDouble() ?? 0;
@@ -69,6 +79,30 @@ class PoseCheckResult {
       margin: number('margin'),
       movedM: number('moved_m'),
       movedDeg: number('moved_deg'),
+      scanHits: hitsFrom(values),
+    );
+  }
+
+  /// hit_x·hit_y 를 좌표 목록으로 묶습니다.
+  ///
+  /// PoseCommit 응답도 같은 필드 이름을 쓰므로 provider 가 직접 부릅니다.
+  ///
+  /// 길이가 다르면 짧은 쪽에 맞춥니다 — 한쪽만 잘려 온 응답으로 화면이
+  /// 예외를 내는 것보다 덜 그리는 편이 낫습니다.
+  static List<Offset> hitsFrom(Map<String, Object?> values) {
+    final xs = values['hit_x'];
+    final ys = values['hit_y'];
+    if (xs is! List || ys is! List) {
+      return const [];
+    }
+    final count = xs.length < ys.length ? xs.length : ys.length;
+    return List<Offset>.generate(
+      count,
+      (i) => Offset(
+        (xs[i] as num?)?.toDouble() ?? 0,
+        (ys[i] as num?)?.toDouble() ?? 0,
+      ),
+      growable: false,
     );
   }
 

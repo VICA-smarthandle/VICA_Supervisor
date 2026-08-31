@@ -81,6 +81,7 @@ class MapCanvas extends StatelessWidget {
     this.draftLocation,
     this.pickedLocation,
     this.poseArrow,
+    this.scanHits = const [],
     this.onTapMap,
     this.onSelectLocation,
     this.keepoutZones = const [],
@@ -105,6 +106,18 @@ class MapCanvas extends StatelessWidget {
   // 초기 위치 확인이 찾아낸 자세입니다. 사람이 짚은 점(pickedLocation)과 함께
   // 그려져야 얼마나 옮겨졌는지가 눈에 보입니다.
   final MapPoseArrow? poseArrow;
+
+  /// 초기 위치를 확인한 뒤 그 자세에서 본 라이다 점입니다(ROS 좌표).
+  ///
+  /// **실시간이 아닙니다.** 확인 버튼을 누른 그 순간의 스캔 한 장이며, 서버가
+  /// 채점하면서 이미 만든 좌표를 그대로 받습니다. RViz 도 초기 위치를 잡기
+  /// 전에는 아무것도 보여주지 않고, 잡고 나면 그 자세 기준으로 점을 겹쳐
+  /// 그립니다 — 같은 방식입니다.
+  ///
+  /// 이 점들이 지도의 벽 위에 놓이면 자세가 맞은 것이고, 벽에서 밀려 있으면
+  /// 틀린 것입니다. 숫자 하나(82%)보다 눈으로 보는 편이 빠릅니다.
+  final List<Offset> scanHits;
+
   final ValueChanged<Offset>? onTapMap;
   final ValueChanged<LocationPoint>? onSelectLocation;
 
@@ -211,6 +224,21 @@ class MapCanvas extends StatelessWidget {
                       _KeepoutRect(
                         rect: _zoneRect(draftKeepoutZone!, scale),
                         draft: true,
+                      ),
+                    // 라이다 점은 마커보다 **아래**입니다. 점 180개가 장소
+                    // 마커와 로봇 화살표를 덮으면 정작 봐야 할 것이 가립니다.
+                    if (scanHits.isNotEmpty)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: CustomPaint(
+                            painter: _ScanHitPainter(
+                              points: scanHits
+                                  .map((hit) =>
+                                      _scaledOffset(hit.dx, hit.dy, scale))
+                                  .toList(growable: false),
+                            ),
+                          ),
+                        ),
                       ),
                     ...locations.map(
                       (location) => selectedLocationId == location.locationId
@@ -640,4 +668,37 @@ class _KeepoutPainter extends CustomPainter {
   @override
   bool shouldRepaint(_KeepoutPainter old) =>
       old.selected != selected || old.draft != draft;
+}
+
+/// 라이다 점을 지도 위에 찍습니다.
+///
+/// 위젯 180개 대신 CustomPainter 하나를 씁니다. Positioned 를 그만큼 만들면
+/// 확대·이동할 때마다 레이아웃이 다시 계산돼 화면이 버벅입니다. 여기서는
+/// 점 하나가 원 하나라 그리는 비용이 거의 없습니다.
+class _ScanHitPainter extends CustomPainter {
+  const _ScanHitPainter({required this.points});
+
+  final List<Offset> points;
+
+  /// 산호빛 붉은색.
+  ///
+  /// 지도는 흰 바탕에 검은 벽이라 **둘 다에서 보여야** 합니다. 완전 빨강
+  /// (#FF0000)은 눈이 아프고 앱의 위험색(VicaColors.red)과 헷갈립니다.
+  /// 이 색은 흰 배경에서 또렷하고 검은 벽 위에서도 남습니다.
+  static const Color _coral = Color(0xFFE06055);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = _coral.withValues(alpha: 0.85)
+      ..style = PaintingStyle.fill;
+    // 점 하나가 너무 크면 벽을 덮어 "맞았는지"를 못 본다. 확대해서 볼 수
+    // 있으므로 작게 둔다.
+    for (final point in points) {
+      canvas.drawCircle(point, 1.6, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ScanHitPainter old) => old.points != points;
 }
