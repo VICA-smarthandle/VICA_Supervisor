@@ -151,7 +151,7 @@ void main() {
         s.injectHealth(healthMsg(faults: [faultMsg(latched: true)]));
         return const SystemDiagnosticsScreen();
       },
-      '장소 저장': (s) {
+      '지도 설정': (s) {
         s
           ..injectMaps()
           ..injectLocations();

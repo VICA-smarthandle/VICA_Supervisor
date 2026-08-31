@@ -1,6 +1,7 @@
 // 이 파일은 ROS2 연결, 지도/장소/로봇 상태, 알림 로그를 앱 전체 상태로 관리합니다.
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' show Offset;
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
@@ -9,6 +10,7 @@ import '../core/app_settings.dart';
 import '../core/log_filter.dart';
 import '../models/goal_event.dart';
 import '../models/home_position.dart';
+import '../models/keepout_zone.dart';
 import '../models/location_point.dart';
 import '../models/robot_event.dart';
 import '../models/robot_health.dart';
@@ -28,6 +30,16 @@ enum EmergencyStopState {
   releasing,
   activationFailed,
   releaseFailed,
+}
+
+/// 금지구역 화면의 상태입니다. 버튼 문구와 잠금이 이 값 하나로 정해집니다.
+enum KeepoutSaveState {
+  idle,
+  loading,
+  editing,
+  saving,
+  succeeded,
+  failed,
 }
 
 class SupervisorProvider extends ChangeNotifier {
@@ -55,7 +67,7 @@ class SupervisorProvider extends ChangeNotifier {
     'not_navigate': '주행 요청으로 처리되지 않았습니다.',
     'not_navigating': '지금은 주행 중이 아닙니다.',
     'not_paused': '다시 출발할 주행이 없습니다.',
-    'no_home': '홈 위치가 지정되지 않았습니다. 장소 저장 화면에서 먼저 지정하세요.',
+    'no_home': '홈 위치가 지정되지 않았습니다. 지도 설정 화면에서 먼저 지정하세요.',
     'already_home_bound': '이미 홈으로 돌아가는 중입니다.',
     'busy_approaching': '사람에게 다가가는 중이라 지금은 홈으로 부를 수 없습니다.',
   };
@@ -198,6 +210,7 @@ class SupervisorProvider extends ChangeNotifier {
     }
     if (mapId != null) {
       unawaited(refreshHome(settings, mapId));
+      unawaited(requestKeepoutList(settings, mapId));
     }
   }
 
@@ -304,6 +317,11 @@ class SupervisorProvider extends ChangeNotifier {
       ..subscribe(
         topic: settings.goalEventTopic,
         handler: _handleGoalEvent,
+      )
+      // 요청 없이 생긴 금지구역 변화만 옵니다(주행이 끝나 미뤄 둔 적용이 된 경우).
+      ..subscribe(
+        topic: settings.keepoutStateTopic,
+        handler: _handleKeepoutState,
       );
   }
 
@@ -461,12 +479,22 @@ class SupervisorProvider extends ChangeNotifier {
     // 관리자가 엉뚱한 좌표를 현재 홈으로 믿습니다.
     _home = null;
     _homeMapId = '';
+    // 금지구역도 지도마다 다릅니다. 편집 중이었다면 그 편집은 이전 지도의
+    // 것이므로 여기서 끝냅니다(화면이 지도 변경 전에 저장 여부를 먼저 묻습니다).
+    _keepoutEditing = false;
+    _keepoutDragStart = null;
+    _keepoutDragCurrent = null;
+    _selectedKeepoutZoneId = null;
+    _keepoutState = KeepoutSaveState.idle;
+    _keepoutMessage = '';
+    _keepoutMaskApplied = false;
     notifyListeners();
     if (mapId != null && settings.autoRequestLocationList) {
       requestLocationList(settings, mapId);
     }
     if (mapId != null) {
       unawaited(refreshHome(settings, mapId));
+      unawaited(requestKeepoutList(settings, mapId));
     }
   }
 
@@ -823,7 +851,7 @@ class SupervisorProvider extends ChangeNotifier {
 
   /// 로봇을 홈으로 보냅니다. **관리자만 부를 수 있는 경로입니다.**
   ///
-  /// 장소 저장 화면의 '홈으로 가보기'와 원격 주행 화면의 '홈으로 복귀'가 같은
+  /// 지도 설정 화면의 '홈으로 가보기'와 원격 주행 화면의 '홈으로 복귀'가 같은
   /// 서비스를 부릅니다. 하는 일이 같기 때문이고, 다른 것은 관리자가 그 결과를
   /// 무엇으로 쓰느냐뿐입니다 — 지정 확인이냐 운영 호출이냐.
   ///
@@ -1059,6 +1087,243 @@ class SupervisorProvider extends ChangeNotifier {
       _addLog(LogFilter.coordinateTransfer, message);
       return message;
     }
+  }
+
+  // ---- 금지구역 ----------------------------------------------------------
+  //
+  // 앱이 그린 사각형은 로봇이 들어가지 않을 자리입니다. Nav2 는 이것을 원본
+  // 지도와 별도인 마스크 파일로 읽으므로, 앱은 원본 지도를 건드리지 않습니다.
+  //
+  // **저장과 적용은 다른 일입니다.** 저장은 파일을 쓰는 것이고, 적용은 지금
+  // 도는 Nav2 에 반영하는 것입니다. 주행 중에는 적용을 미룹니다 — 로봇이 새
+  // 금지구역 안에 서 있으면 planner 가 "Starting point in lethal space" 로
+  // 실패합니다. 그래서 화면에 '저장됨'과 '적용됨'을 따로 보여줘야 합니다.
+
+  final Map<String, List<KeepoutZone>> _keepoutsByMap = {};
+  bool _keepoutEditing = false;
+  Offset? _keepoutDragStart;
+  Offset? _keepoutDragCurrent;
+  String? _selectedKeepoutZoneId;
+  KeepoutSaveState _keepoutState = KeepoutSaveState.idle;
+  String _keepoutMessage = '';
+  bool _keepoutMaskApplied = false;
+  int _keepoutZoneSeq = 0;
+  // 편집을 시작할 때의 목록입니다. '취소'가 되돌릴 자리를 알아야 합니다.
+  List<KeepoutZone> _keepoutBackup = const [];
+
+  List<KeepoutZone> keepoutZonesFor(String? mapId) =>
+      mapId == null ? const [] : (_keepoutsByMap[mapId] ?? const []);
+  bool get keepoutEditing => _keepoutEditing;
+  String? get selectedKeepoutZoneId => _selectedKeepoutZoneId;
+  KeepoutSaveState get keepoutState => _keepoutState;
+  String get keepoutMessage => _keepoutMessage;
+  bool get keepoutMaskApplied => _keepoutMaskApplied;
+
+  /// 드래그하는 동안 보여줄 임시 사각형입니다. 확정 전이라 목록에 없습니다.
+  KeepoutZone? get draftKeepoutZone {
+    final start = _keepoutDragStart;
+    final current = _keepoutDragCurrent;
+    if (start == null || current == null) {
+      return null;
+    }
+    return KeepoutZone.fromDrag(zoneId: '_draft', start: start, end: current);
+  }
+
+  /// 젯슨에서 저장된 금지구역을 읽어옵니다. 저장된 적이 없으면 빈 목록입니다.
+  Future<void> requestKeepoutList(AppSettings settings, String mapId) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return;
+    }
+    _keepoutState = KeepoutSaveState.loading;
+    notifyListeners();
+    try {
+      final response = await client.callService(
+        service: settings.keepoutGetService,
+        type: 'vica_interfaces/srv/GetKeepout',
+        args: {'map_id': mapId},
+      );
+      final zones = _decodeZones(response.values['zones_json']);
+      _keepoutsByMap[mapId] = zones;
+      _keepoutMaskApplied = response.values['mask_exists'] == true;
+      _keepoutState = KeepoutSaveState.idle;
+      _keepoutMessage = '';
+      _addLog(LogFilter.coordinateTransfer, '$mapId 금지구역 ${zones.length}개 조회');
+    } catch (error) {
+      _keepoutState = KeepoutSaveState.failed;
+      _keepoutMessage = '금지구역을 불러오지 못했습니다: $error';
+      _addLog(LogFilter.coordinateTransfer, _keepoutMessage);
+    }
+    notifyListeners();
+  }
+
+  void enterKeepoutEdit(String mapId) {
+    _keepoutEditing = true;
+    _keepoutBackup = List.of(keepoutZonesFor(mapId));
+    _selectedKeepoutZoneId = null;
+    _keepoutState = KeepoutSaveState.editing;
+    _keepoutMessage = '';
+    notifyListeners();
+  }
+
+  /// 편집을 버리고 시작 시점으로 되돌립니다.
+  void cancelKeepoutEdit(String mapId) {
+    _keepoutsByMap[mapId] = List.of(_keepoutBackup);
+    _keepoutEditing = false;
+    _keepoutDragStart = null;
+    _keepoutDragCurrent = null;
+    _selectedKeepoutZoneId = null;
+    _keepoutState = KeepoutSaveState.idle;
+    _keepoutMessage = '';
+    notifyListeners();
+  }
+
+  void startKeepoutDrag(Offset ros) {
+    if (!_keepoutEditing) {
+      return;
+    }
+    _keepoutDragStart = ros;
+    _keepoutDragCurrent = ros;
+    notifyListeners();
+  }
+
+  void updateKeepoutDrag(Offset ros) {
+    if (!_keepoutEditing || _keepoutDragStart == null) {
+      return;
+    }
+    _keepoutDragCurrent = ros;
+    notifyListeners();
+  }
+
+  /// 손을 뗀 자리에서 사각형을 확정합니다.
+  ///
+  /// 너무 작으면 버립니다. 젯슨도 같은 기준으로 거절하는데(0.1 m), 거기까지
+  /// 갔다 와서 거절당하면 왜 안 됐는지가 화면에 늦게 나타납니다.
+  String? finishKeepoutDrag(String mapId) {
+    final draft = draftKeepoutZone;
+    _keepoutDragStart = null;
+    _keepoutDragCurrent = null;
+    if (draft == null) {
+      notifyListeners();
+      return null;
+    }
+    if (draft.width < 0.1 || draft.height < 0.1) {
+      notifyListeners();
+      return '구역이 너무 작습니다. 조금 더 크게 그려 주세요.';
+    }
+    _keepoutZoneSeq += 1;
+    final zone = draft.copyWith(
+        zoneId: 'kz_${_keepoutZoneSeq}_${_uuid.v4().substring(0, 4)}');
+    _keepoutsByMap[mapId] = [...keepoutZonesFor(mapId), zone];
+    _selectedKeepoutZoneId = zone.zoneId;
+    notifyListeners();
+    return null;
+  }
+
+  void selectKeepoutZone(String? zoneId) {
+    _selectedKeepoutZoneId = _selectedKeepoutZoneId == zoneId ? null : zoneId;
+    notifyListeners();
+  }
+
+  void deleteSelectedKeepoutZone(String mapId) {
+    final zoneId = _selectedKeepoutZoneId;
+    if (zoneId == null) {
+      return;
+    }
+    _keepoutsByMap[mapId] =
+        keepoutZonesFor(mapId).where((zone) => zone.zoneId != zoneId).toList();
+    _selectedKeepoutZoneId = null;
+    notifyListeners();
+  }
+
+  void clearKeepoutZones(String mapId) {
+    _keepoutsByMap[mapId] = const [];
+    _selectedKeepoutZoneId = null;
+    notifyListeners();
+  }
+
+  /// 사각형 전체 목록을 젯슨에 저장하고, 가능하면 Nav2 에 바로 반영합니다.
+  ///
+  /// 실패해도 그린 사각형은 지우지 않습니다. 다시 시도할 수 있어야 합니다.
+  Future<String> saveKeepoutZones(AppSettings settings, String mapId) async {
+    if (_keepoutState == KeepoutSaveState.saving) {
+      return '이미 저장하고 있습니다.';
+    }
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      _keepoutState = KeepoutSaveState.failed;
+      _keepoutMessage = 'ROS Bridge에 연결되지 않았습니다.';
+      notifyListeners();
+      return _keepoutMessage;
+    }
+
+    final zones = keepoutZonesFor(mapId);
+    _keepoutState = KeepoutSaveState.saving;
+    _keepoutMessage = '금지구역 ${zones.length}개를 저장하고 있습니다.';
+    notifyListeners();
+
+    try {
+      final response = await client.callService(
+        service: settings.keepoutSaveService,
+        type: 'vica_interfaces/srv/SaveKeepout',
+        args: {
+          'map_id': mapId,
+          'zones_json': jsonEncode(zones.map((zone) => zone.toJson()).toList()),
+          'apply_now': true,
+        },
+        // 젯슨이 마스크를 쓰고 Nav2 응답까지 기다립니다(노드 내부 3초).
+        timeout: const Duration(seconds: 8),
+      );
+      _keepoutMessage = response.message;
+      if (response.accepted) {
+        _keepoutState = KeepoutSaveState.succeeded;
+        _keepoutEditing = false;
+        _keepoutMaskApplied = response.values['applied'] == true;
+        _selectedKeepoutZoneId = null;
+        _keepoutBackup = List.of(zones);
+      } else {
+        _keepoutState = KeepoutSaveState.failed;
+      }
+      _addLog(LogFilter.coordinateTransfer, '금지구역 저장: $_keepoutMessage');
+    } catch (error) {
+      _keepoutState = KeepoutSaveState.failed;
+      _keepoutMessage = '금지구역 저장 실패: $error';
+      _addLog(LogFilter.coordinateTransfer, _keepoutMessage);
+    }
+    notifyListeners();
+    return _keepoutMessage;
+  }
+
+  List<KeepoutZone> _decodeZones(Object? rawJson) {
+    if (rawJson is! String || rawJson.isEmpty) {
+      return const [];
+    }
+    final decoded = jsonDecode(rawJson);
+    if (decoded is! List) {
+      return const [];
+    }
+    return decoded
+        .whereType<Map<String, Object?>>()
+        .map(KeepoutZone.fromJson)
+        .toList();
+  }
+
+  /// 요청 없이 도착한 금지구역 소식입니다.
+  ///
+  /// 지금은 하나뿐입니다 — 주행 중이라 미뤄 뒀던 적용이 주행이 끝나 이뤄진 경우.
+  /// 요청의 결과는 service 응답으로 오므로 여기서 다시 알리지 않습니다.
+  void _handleKeepoutState(Map<String, Object?> message) {
+    final mapId = message['map_id'] as String? ?? '';
+    final applied = message['applied'] == true;
+    final text = message['message'] as String? ?? '';
+    if (mapId.isNotEmpty && mapId == _selectedMapId) {
+      _keepoutMaskApplied = applied;
+    }
+    _keepoutMessage = text;
+    _keepoutState =
+        applied ? KeepoutSaveState.succeeded : KeepoutSaveState.failed;
+    _addLog(LogFilter.coordinateTransfer, '금지구역 상태: $text');
+    notifyListeners();
   }
 
   // ---- 매핑 세션 제어 ---------------------------------------------------

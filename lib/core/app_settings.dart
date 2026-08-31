@@ -32,6 +32,9 @@ class AppSettings {
     this.homeGetService = '/vica/home/get',
     this.homeSaveService = '/vica/home/save',
     this.homeDeleteService = '/vica/home/delete',
+    this.keepoutGetService = '/vica/keepout/get',
+    this.keepoutSaveService = '/vica/keepout/save',
+    this.keepoutStateTopic = '/vica/keepout/state',
     this.missionReturnHomeService = '/vica/mission/return_home',
     this.goalEventTopic = '/vica_goal_event',
     this.robotStatusTopic = '/robot_status',
@@ -85,6 +88,15 @@ class AppSettings {
   final String homeGetService;
   final String homeSaveService;
   final String homeDeleteService;
+
+  // 지도별 금지구역. keepout_map_node 가 제공합니다.
+  //
+  // 저장·조회는 service 입니다 — "됐다/안 됐다"가 있는 일이라 응답을 그 자리에서
+  // 받아야 합니다. state topic 은 요청 없이 생긴 변화(주행이 끝나 미뤄 둔 적용이
+  // 이뤄진 경우)만 알립니다. 두 경로가 겹치면 같은 일을 두 번 알리게 됩니다.
+  final String keepoutGetService;
+  final String keepoutSaveService;
+  final String keepoutStateTopic;
 
   // 홈 복귀. **관리자 전용 경로입니다.**
   //
@@ -145,6 +157,9 @@ class AppSettings {
     String? homeGetService,
     String? homeSaveService,
     String? homeDeleteService,
+    String? keepoutGetService,
+    String? keepoutSaveService,
+    String? keepoutStateTopic,
     String? missionReturnHomeService,
     String? goalEventTopic,
     String? missionRequestService,
@@ -192,6 +207,9 @@ class AppSettings {
       homeGetService: homeGetService ?? this.homeGetService,
       homeSaveService: homeSaveService ?? this.homeSaveService,
       homeDeleteService: homeDeleteService ?? this.homeDeleteService,
+      keepoutGetService: keepoutGetService ?? this.keepoutGetService,
+      keepoutSaveService: keepoutSaveService ?? this.keepoutSaveService,
+      keepoutStateTopic: keepoutStateTopic ?? this.keepoutStateTopic,
       missionReturnHomeService:
           missionReturnHomeService ?? this.missionReturnHomeService,
       goalEventTopic: goalEventTopic ?? this.goalEventTopic,

@@ -57,6 +57,7 @@ class HomePositionCard extends StatelessWidget {
     required this.onCancel,
     required this.onGoHome,
     required this.onDelete,
+    this.framed = true,
   });
 
   /// 저장된 홈. 아직 지정하지 않았으면 null 이며 오류가 아닙니다.
@@ -92,12 +93,20 @@ class HomePositionCard extends StatelessWidget {
   final VoidCallback onGoHome;
   final VoidCallback onDelete;
 
+  /// 스스로 카드 테두리와 제목을 그릴지 여부입니다.
+  ///
+  /// 접히는 칸(VicaExpandPanel) 안에 넣을 때는 false 로 둡니다. 테두리 안에
+  /// 테두리가 또 생기고 제목이 두 번 보입니다.
+  final bool framed;
+
   @override
   Widget build(BuildContext context) {
-    return VicaCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 접히는 칸 안에 들어갈 때는 제목을 그리지 않습니다. 칸 머리에 이미
+        // '홈 위치'가 적혀 있어 같은 말이 두 번 보입니다.
+        if (framed) ...[
           Row(
             children: [
               const Icon(Icons.home_outlined,
@@ -117,15 +126,16 @@ class HomePositionCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
-          const Text(
-            '안내가 끝나면 로봇이 이 자리로 돌아옵니다. 지도마다 하나만 정할 수 있습니다.',
-            style: TextStyle(color: VicaColors.muted, fontSize: 13),
-          ),
-          const SizedBox(height: 14),
-          ..._body(context),
         ],
-      ),
+        const Text(
+          '안내가 끝나면 로봇이 이 자리로 돌아옵니다. 지도마다 하나만 정할 수 있습니다.',
+          style: TextStyle(color: VicaColors.muted, fontSize: 13),
+        ),
+        const SizedBox(height: 14),
+        ..._body(context),
+      ],
     );
+    return framed ? VicaCard(child: body) : body;
   }
 
   List<Widget> _body(BuildContext context) {

@@ -306,7 +306,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                   if (!supervisor.home!.visitedOk) ...[
                     const SizedBox(height: 6),
                     const Text(
-                      '홈에 아직 가 본 적이 없습니다. 장소 저장 화면에서 먼저 확인하세요.',
+                      '홈에 아직 가 본 적이 없습니다. 지도 설정 화면에서 먼저 확인하세요.',
                       style: TextStyle(color: VicaColors.muted, fontSize: 12),
                     ),
                   ],

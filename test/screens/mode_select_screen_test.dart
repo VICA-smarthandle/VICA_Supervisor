@@ -73,7 +73,7 @@ void main() {
     await pump(tester, _FakeSupervisor());
 
     expect(find.text('주행'), findsOneWidget);
-    expect(find.text('장소 저장·원격 주행 등 관리'), findsOneWidget);
+    expect(find.text('지도 설정·원격 주행 등 관리'), findsOneWidget);
     expect(find.text('지도'), findsOneWidget);
     expect(find.text('새 지도 그리기'), findsOneWidget);
   });

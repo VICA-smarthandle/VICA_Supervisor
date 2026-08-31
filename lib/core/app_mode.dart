@@ -12,7 +12,7 @@ import 'package:flutter/material.dart';
 enum AppMode {
   drive(
     title: '주행',
-    subtitle: '장소 저장·원격 주행 등 관리',
+    subtitle: '지도 설정·원격 주행 등 관리',
     // '원격 주행' 화면이 Icons.navigation 을 쓰므로 겹치지 않는 것으로 고릅니다.
     // 카드를 눌렀더니 같은 아이콘이 또 나오면 이동한 느낌이 들지 않습니다.
     icon: Icons.assistant_direction,

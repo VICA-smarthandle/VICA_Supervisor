@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../core/app_settings.dart';
 import '../core/map_coordinate.dart';
+import '../models/keepout_zone.dart';
 import '../models/location_point.dart';
 import '../models/robot_status.dart';
 import '../models/vica_map.dart';
@@ -82,6 +83,14 @@ class MapCanvas extends StatelessWidget {
     this.poseArrow,
     this.onTapMap,
     this.onSelectLocation,
+    this.keepoutZones = const [],
+    this.draftKeepoutZone,
+    this.selectedKeepoutZoneId,
+    this.keepoutEditMode = false,
+    this.onKeepoutPanStart,
+    this.onKeepoutPanUpdate,
+    this.onKeepoutPanEnd,
+    this.onSelectKeepoutZone,
   });
 
   final VicaMap map;
@@ -98,6 +107,19 @@ class MapCanvas extends StatelessWidget {
   final MapPoseArrow? poseArrow;
   final ValueChanged<Offset>? onTapMap;
   final ValueChanged<LocationPoint>? onSelectLocation;
+
+  // 저장된 금지구역입니다. 편집 중이 아니어도 항상 보입니다 — 장소를 찍을 때
+  // 로봇이 못 가는 자리를 알고 찍어야 하기 때문입니다.
+  final List<KeepoutZone> keepoutZones;
+  // 손가락을 끄는 동안의 미리보기입니다. 아직 목록에 없습니다.
+  final KeepoutZone? draftKeepoutZone;
+  final String? selectedKeepoutZoneId;
+  // true 면 지도 이동·확대를 잠그고 드래그를 사각형 그리기에 씁니다.
+  final bool keepoutEditMode;
+  final ValueChanged<Offset>? onKeepoutPanStart;
+  final ValueChanged<Offset>? onKeepoutPanUpdate;
+  final VoidCallback? onKeepoutPanEnd;
+  final ValueChanged<String?>? onSelectKeepoutZone;
 
   String get _imageUrl {
     if (map.imageUrl.startsWith('http://') ||
@@ -126,22 +148,37 @@ class MapCanvas extends StatelessWidget {
             minScale: 0.5,
             maxScale: 6,
             boundaryMargin: const EdgeInsets.all(80),
+            // 금지구역을 그리는 동안에는 확대·이동을 잠급니다. 켜 두면 손가락을
+            // 끌 때 지도가 같이 움직여서, 사각형을 그리는 중인지 지도를 미는
+            // 중인지 Flutter 가 갈라낼 수 없습니다.
+            panEnabled: !keepoutEditMode,
+            scaleEnabled: !keepoutEditMode,
             child: GestureDetector(
-              onTapUp: onTapMap == null
-                  ? null
-                  : (details) {
-                      final local = details.localPosition;
-                      final pixel = Offset(local.dx / scale, local.dy / scale);
-                      final ros = MapCoordinate.pixelToRos(
-                        map: map,
-                        pixel: pixel,
-                        flipY: settings.flipMapY,
-                        xOffset: settings.xOffset,
-                        yOffset: settings.yOffset,
-                        scale: settings.mapScale,
-                      );
-                      onTapMap!(ros);
-                    },
+              // 이 GestureDetector 는 InteractiveViewer 의 **자식 안쪽**에
+              // 있습니다. 그래서 details.localPosition 은 확대·이동이 이미
+              // 되돌려진 '지도 그림 위의 좌표'입니다. TransformationController 로
+              // 한 번 더 되돌리면 두 번 되돌려서 어긋납니다.
+              onTapUp: (details) {
+                final ros = _rosFromLocal(details.localPosition, scale);
+                if (keepoutEditMode) {
+                  // 편집 중에는 탭이 '사각형 고르기'입니다. 빈 곳을 누르면
+                  // 선택이 풀립니다.
+                  onSelectKeepoutZone?.call(_zoneAt(ros)?.zoneId);
+                  return;
+                }
+                onTapMap?.call(ros);
+              },
+              onPanStart: keepoutEditMode
+                  ? (details) => onKeepoutPanStart?.call(
+                        _rosFromLocal(details.localPosition, scale),
+                      )
+                  : null,
+              onPanUpdate: keepoutEditMode
+                  ? (details) => onKeepoutPanUpdate?.call(
+                        _rosFromLocal(details.localPosition, scale),
+                      )
+                  : null,
+              onPanEnd: keepoutEditMode ? (_) => onKeepoutPanEnd?.call() : null,
               child: SizedBox(
                 width: displaySize.width,
                 height: displaySize.height,
@@ -162,6 +199,19 @@ class MapCanvas extends StatelessWidget {
                         },
                       ),
                     ),
+                    // 금지구역은 마커보다 **아래** 레이어입니다. 장소 마커와
+                    // 로봇 화살표가 사각형에 가려지면 안 됩니다.
+                    ...keepoutZones.map(
+                      (zone) => _KeepoutRect(
+                        rect: _zoneRect(zone, scale),
+                        selected: zone.zoneId == selectedKeepoutZoneId,
+                      ),
+                    ),
+                    if (draftKeepoutZone != null)
+                      _KeepoutRect(
+                        rect: _zoneRect(draftKeepoutZone!, scale),
+                        draft: true,
+                      ),
                     ...locations.map(
                       (location) => selectedLocationId == location.locationId
                           ? _SelectedLocationMarker(
@@ -210,9 +260,7 @@ class MapCanvas extends StatelessWidget {
                           poseArrow!.y,
                           scale,
                         ),
-                        yaw: 90 -
-                            poseArrow!.yawDegrees +
-                            settings.yawOffset,
+                        yaw: 90 - poseArrow!.yawDegrees + settings.yawOffset,
                         label: poseArrow!.label,
                       ),
                     if (robot != null && robot!.mapId == map.mapId)
@@ -240,6 +288,46 @@ class MapCanvas extends StatelessWidget {
     final widthScale = maxWidth / width;
     final heightScale = maxHeight / height;
     return widthScale < heightScale ? widthScale : heightScale;
+  }
+
+  // 화면에서 짚은 자리를 ROS map 좌표로 옮깁니다. 장소 찍기와 사각형 그리기가
+  // 같은 경로를 씁니다 — 둘이 다른 경로를 쓰면 어긋났을 때 어느 쪽이 맞는지
+  // 알 수 없게 됩니다.
+  Offset _rosFromLocal(Offset local, double displayScale) {
+    return MapCoordinate.pixelToRos(
+      map: map,
+      pixel: Offset(local.dx / displayScale, local.dy / displayScale),
+      flipY: settings.flipMapY,
+      xOffset: settings.xOffset,
+      yOffset: settings.yOffset,
+      scale: settings.mapScale,
+    );
+  }
+
+  /// 짚은 자리에 있는 금지구역. 겹쳐 있으면 작은 것을 고릅니다.
+  KeepoutZone? _zoneAt(Offset ros) {
+    KeepoutZone? found;
+    for (final zone in keepoutZones) {
+      if (!zone.contains(ros)) {
+        continue;
+      }
+      if (found == null ||
+          zone.width * zone.height < found.width * found.height) {
+        found = zone;
+      }
+    }
+    return found;
+  }
+
+  /// ROS 사각형을 화면 사각형으로 옮깁니다.
+  ///
+  /// flipY 때문에 y 의 위아래가 뒤집히므로 min/max 를 그대로 left/top 으로
+  /// 쓰면 안 됩니다. Rect.fromPoints 가 두 점의 순서를 정리해 줍니다.
+  Rect _zoneRect(KeepoutZone zone, double displayScale) {
+    return Rect.fromPoints(
+      _scaledOffset(zone.xMin, zone.yMin, displayScale),
+      _scaledOffset(zone.xMax, zone.yMax, displayScale),
+    );
   }
 
   Offset _scaledOffset(double x, double y, double displayScale) {
@@ -429,4 +517,127 @@ class _PoseArrowMarker extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 지도 위의 금지구역 사각형 하나입니다.
+///
+/// 세 가지 모습이 있습니다.
+///   그리는 중  점선 테두리 + 모서리 점 4개. **속은 채우지 않습니다** —
+///              채우면 그 아래 지도가 가려져 어디까지 덮는지 모르고 그리게 됩니다.
+///   저장된 것  옅은 빨강으로 채우고 실선 테두리.
+///   고른 것    테두리를 굵게 하고 모서리에 점을 찍습니다.
+class _KeepoutRect extends StatelessWidget {
+  const _KeepoutRect({
+    required this.rect,
+    this.selected = false,
+    this.draft = false,
+  });
+
+  final Rect rect;
+  final bool selected;
+  final bool draft;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+      // 어느 사각형을 눌렀는지는 MapCanvas 가 좌표로 판정합니다. 이 위젯이
+      // 탭을 가로채면 사각형 안에 있는 장소 마커를 누를 수 없게 됩니다.
+      child: IgnorePointer(
+        child: CustomPaint(
+          painter: _KeepoutPainter(selected: selected, draft: draft),
+        ),
+      ),
+    );
+  }
+}
+
+class _KeepoutPainter extends CustomPainter {
+  const _KeepoutPainter({required this.selected, required this.draft});
+
+  final bool selected;
+  final bool draft;
+
+  static const _color = VicaColors.red;
+  // 점선 한 칸과 사이 간격(px). 확대해도 사람이 점선으로 알아볼 크기입니다.
+  static const _dash = 6.0;
+  static const _gap = 4.0;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    if (!draft) {
+      canvas.drawRect(
+        rect,
+        Paint()..color = _color.withValues(alpha: 0.14),
+      );
+    }
+    final border = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = selected ? 2.4 : 1.4
+      ..color = _color;
+    if (draft) {
+      _paintDashed(canvas, rect, border);
+    } else {
+      canvas.drawRect(rect, border);
+    }
+    if (draft || selected) {
+      _paintCorners(canvas, rect);
+    }
+  }
+
+  void _paintDashed(Canvas canvas, Rect rect, Paint paint) {
+    final corners = [
+      rect.topLeft,
+      rect.topRight,
+      rect.bottomRight,
+      rect.bottomLeft,
+    ];
+    for (var index = 0; index < corners.length; index++) {
+      _paintDashedLine(
+        canvas,
+        corners[index],
+        corners[(index + 1) % corners.length],
+        paint,
+      );
+    }
+  }
+
+  void _paintDashedLine(Canvas canvas, Offset from, Offset to, Paint paint) {
+    final total = (to - from).distance;
+    if (total <= 0) {
+      return;
+    }
+    final step = (to - from) / total;
+    var walked = 0.0;
+    while (walked < total) {
+      final end = (walked + _dash).clamp(0.0, total).toDouble();
+      canvas.drawLine(from + step * walked, from + step * end, paint);
+      walked = end + _gap;
+    }
+  }
+
+  void _paintCorners(Canvas canvas, Rect rect) {
+    final fill = Paint()..color = _color;
+    final ring = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..color = Colors.white;
+    for (final corner in [
+      rect.topLeft,
+      rect.topRight,
+      rect.bottomRight,
+      rect.bottomLeft,
+    ]) {
+      canvas.drawCircle(corner, 3.2, fill);
+      canvas.drawCircle(corner, 3.2, ring);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_KeepoutPainter old) =>
+      old.selected != selected || old.draft != draft;
 }

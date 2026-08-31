@@ -149,7 +149,7 @@ class GoalEvent {
       case GoalEventKind.returnHomeFailed:
         return '홈으로 돌아가지 못했습니다. 경로가 막혔거나 홈 좌표가 '
             '갈 수 없는 자리일 수 있습니다.\n'
-            '장소 저장 화면에서 홈 위치를 다시 지정해 보세요.$detail';
+            '지도 설정 화면에서 홈 위치를 다시 지정해 보세요.$detail';
       case GoalEventKind.returnHomeCanceled:
         return '홈 복귀가 취소되었습니다.$detail';
       default:

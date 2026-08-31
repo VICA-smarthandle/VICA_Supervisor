@@ -80,6 +80,134 @@ class VicaPage extends StatelessWidget {
   }
 }
 
+/// 제목 줄을 누르면 펼쳐지는 칸입니다. 한 화면에서 여러 작업을 할 때 씁니다.
+///
+/// 왜 접는가. 지도 설정 화면에는 장소·홈·금지구역 세 가지가 들어갑니다. 셋을
+/// 모두 펼쳐 두면 지도가 화면 위쪽으로 밀려 손톱만 해지는데, 세 작업 모두
+/// **지도를 보면서** 하는 일입니다. 접어 두면 지도가 넓게 보입니다.
+///
+/// 접는 것이 보기 편해서만은 아닙니다. 세 작업은 지도 터치를 서로 다르게
+/// 씁니다 — 장소 찍기·홈 찍기·사각형 끌기. 펼친 칸이 지도 조작권을 가지므로
+/// '지금 무엇을 찍는 중인지'가 화면에 늘 드러납니다.
+class VicaExpandPanel extends StatelessWidget {
+  const VicaExpandPanel({
+    super.key,
+    required this.title,
+    required this.expanded,
+    required this.onTap,
+    required this.child,
+    this.icon,
+    this.summary = '',
+    this.summaryColor,
+    this.enabled = true,
+  });
+
+  final String title;
+  final bool expanded;
+  final VoidCallback onTap;
+  final Widget child;
+  final IconData? icon;
+
+  /// 접혀 있을 때 오른쪽에 보이는 한 줄 요약입니다. '3개', '적용됨'처럼
+  /// 펼치지 않고도 상태를 알 수 있는 값만 넣습니다.
+  final String summary;
+  final Color? summaryColor;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: VicaColors.card,
+        border: Border.all(
+          color: expanded ? VicaColors.primary : VicaColors.border,
+          width: expanded ? 1.4 : 1,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.025),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Material 로 한 번 감쌉니다. InkWell 의 물결은 '가장 가까운 Material'
+          // 위에 그려지는데, 그것이 이 칸 뒤의 Scaffold 면 물결이 흰 배경에
+          // 가려 보이지 않습니다. 눌러도 아무 반응이 없는 것처럼 보입니다.
+          Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              onTap: enabled ? onTap : null,
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                child: Row(
+                  children: [
+                    if (icon != null) ...[
+                      Icon(
+                        icon,
+                        size: 20,
+                        color: enabled
+                            ? (expanded ? VicaColors.primary : VicaColors.muted)
+                            : VicaColors.border,
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(
+                              color:
+                                  enabled ? VicaColors.text : VicaColors.muted,
+                            ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (summary.isNotEmpty) ...[
+                      Text(
+                        summary,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: summaryColor ?? VicaColors.muted,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    Icon(
+                      expanded ? Icons.expand_less : Icons.expand_more,
+                      size: 22,
+                      color: VicaColors.muted,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (expanded) ...[
+            const Divider(height: 1, color: VicaColors.border),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+              child: child,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class VicaCard extends StatelessWidget {
   const VicaCard({
     super.key,

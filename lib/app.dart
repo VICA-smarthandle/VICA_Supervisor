@@ -176,13 +176,13 @@ class _SupervisorShellState extends State<SupervisorShell> {
   // 하나(로봇 관리)를 지우면서 그 약속이 실제로 깨질 뻔했습니다. 손으로 맞추는
   // 약속은 언젠가 어긋납니다 — 찾게 하면 어긋날 수가 없습니다.
   static int get _dashboardIndex => _titles.indexOf('대시보드');
-  static int get _saveLocationIndex => _titles.indexOf('장소 저장');
+  static int get _saveLocationIndex => _titles.indexOf('지도 설정');
   static int get _systemDiagnosticsIndex => _titles.indexOf('시스템 진단');
   static int get _settingsIndex => _titles.indexOf('설정');
 
   static const _titles = [
     '대시보드',
-    '장소 저장',
+    '지도 설정',
     '원격 주행',
     '현재 위치',
     '시스템 진단',
@@ -224,12 +224,12 @@ class _SupervisorShellState extends State<SupervisorShell> {
                       icon: const Icon(Icons.swap_horiz),
                       tooltip: '모드 바꾸기',
                     ),
-                    // 어느 화면에서든 장소 저장으로 한 번에 이동합니다.
+                    // 어느 화면에서든 지도 설정으로 한 번에 이동합니다.
                     IconButton(
                       onPressed: () =>
                           setState(() => _index = _saveLocationIndex),
                       icon: const Icon(Icons.add_location_alt_outlined),
-                      tooltip: '장소 저장',
+                      tooltip: '지도 설정',
                     ),
                     // 비상정지는 라벨 없이 빨간 원형으로 두어 한눈에 구분되게 합니다.
                     // 라벨이 없으므로 Tooltip과 semanticLabel로 의미를 전달합니다.
@@ -700,7 +700,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
     ),
     NavigationDrawerDestination(
       icon: Icon(Icons.add_location),
-      label: Text('장소 저장'),
+      label: Text('지도 설정'),
     ),
     NavigationDrawerDestination(
       icon: Icon(Icons.navigation),
@@ -733,7 +733,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
     _SidebarNavigationItem(
       icon: Icons.add_location_outlined,
       selectedIcon: Icons.add_location,
-      label: '장소 저장',
+      label: '지도 설정',
     ),
     _SidebarNavigationItem(
       icon: Icons.navigation_outlined,
