@@ -89,6 +89,7 @@ class SupervisorProvider extends ChangeNotifier {
   Timer? _reconnectTimer;
   EmergencyStopState _emergencyStopState = EmergencyStopState.inactive;
   String _emergencyStopMessage = '';
+  List<String> _emergencyStopSources = const [];
   bool _nav2UnavailableNotified = false;
   bool _nav2AvailableNotified = false;
   bool _nav2WasUnavailable = false;
@@ -142,6 +143,25 @@ class SupervisorProvider extends ChangeNotifier {
   String get connectionDetail => _connectionDetail;
   EmergencyStopState get emergencyStopState => _emergencyStopState;
   String get emergencyStopMessage => _emergencyStopMessage;
+
+  /// 이번 비상정지가 **사람의 현장 조작**으로 걸렸는가.
+  ///
+  /// 물리 버튼(`physical_f1`)이나 음성(`voice`)이면 참입니다. 그때만 로봇이
+  /// 이용자에게 관리자를 부른다고 안내하므로, 화면도 같은 사실을 알려야
+  /// 합니다. 관리자가 앱에서 직접 누른 경우(`app`)는 부르는 사람과 받는 사람이
+  /// 같으니 그 문구가 필요 없습니다.
+  ///
+  /// 통신 원인(`motor_can`·`*_stale`)만으로 걸린 래치도 참이 아닙니다. 그쪽은
+  /// 정지 중이면 자동 복구를 밟는 별개 경로입니다(CLAUDE.md).
+  bool get emergencyCalledAdmin {
+    if (_emergencyStopState != EmergencyStopState.active) {
+      return false;
+    }
+    return _emergencyStopSources.any(
+      (source) => source == 'physical_f1' || source == 'voice',
+    );
+  }
+
   bool get emergencyOverlayVisible =>
       _emergencyStopState != EmergencyStopState.inactive;
   List<VicaMap> get maps => _maps;
@@ -954,7 +974,22 @@ class SupervisorProvider extends ChangeNotifier {
     }
 
     if (event.needsPopup) {
-      _pendingGoalAlert = event;
+      // 비상정지가 걸려 있는 동안의 '취소'는 팝업으로 띄우지 않습니다.
+      //
+      // 주행 중에 물리 버튼을 누르면 두 가지가 함께 일어납니다 — 비상정지가
+      // 걸리고, 가던 목적지가 취소됩니다. 그러면 전체화면 비상정지 알림 위에
+      // "주행이 취소되었습니다"가 한 번 더 겹칩니다. 같은 사건을 두 번 알리는
+      // 것이고, 그렇게 쌓인 팝업은 관리자가 읽지 않고 닫는 습관을 만듭니다
+      // (성공을 팝업으로 알리지 않는 것과 같은 이유입니다).
+      //
+      // **실패는 막지 않습니다.** 주행 실패는 아무도 누르지 않았는데 로봇이
+      // 스스로 포기한 별개의 사건이라 비상정지와 겹칠 일이 없습니다.
+      // 취소 사실은 아래 알림 목록에 그대로 남습니다.
+      final hiddenByEmergency = event.kind == GoalEventKind.canceled &&
+          _emergencyStopState == EmergencyStopState.active;
+      if (!hiddenByEmergency) {
+        _pendingGoalAlert = event;
+      }
       // 팝업과 별개로 알림 목록에도 남깁니다. 팝업은 그 자리에서 닫히지만
       // 목록은 나중에 되짚을 수 있어야 합니다.
       final where =
@@ -1794,6 +1829,18 @@ class SupervisorProvider extends ChangeNotifier {
   void _handleEmergencyStopState(Map<String, Object?> message) {
     final active = message['active'] == true;
     final stateMessage = message['message'] as String? ?? '';
+
+    // 무엇이 비상정지를 걸었는가. app_emergency_node 가 같은 메시지에 실어
+    // 보냅니다(2026-08-31). 이 값이 있어야 "관리자가 앱에서 누른 것"과
+    // "물리 버튼·음성으로 걸린 것"을 가릴 수 있습니다 — 앞의 것은 누른 사람이
+    // 관리자 본인이라 확인을 요청할 일이 아닙니다.
+    //
+    // 이 필드를 안 보내는 옛 노드와도 붙습니다. 그때는 빈 목록이 되고, 화면은
+    // 원인을 모르는 것으로 보아 관리자 호출 문구를 붙이지 않습니다.
+    final rawSources = message['sources'];
+    _emergencyStopSources = rawSources is List
+        ? rawSources.map((value) => value.toString()).toList()
+        : const [];
 
     // 서비스 호출이 진행 중일 때는 그 응답이 상태를 결정하므로 브로드캐스트는 무시합니다.
     if (_emergencyStopState == EmergencyStopState.activating ||

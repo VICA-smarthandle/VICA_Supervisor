@@ -852,6 +852,35 @@ class _EmergencyStopOverlay extends StatelessWidget {
                         supervisor.emergencyStopMessage,
                         textAlign: TextAlign.center,
                       ),
+                      // 물리 버튼이나 음성으로 걸린 비상정지에만 붙입니다.
+                      // 그때 로봇이 이용자에게 "관리자를 부르겠다"고 말하므로,
+                      // 관리자 화면도 같은 사실을 알아야 현장으로 갑니다.
+                      // 관리자가 앱에서 직접 누른 경우에는 붙지 않습니다 —
+                      // 부른 사람과 받는 사람이 같습니다.
+                      if (supervisor.emergencyCalledAdmin) ...[
+                        const SizedBox(height: 14),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: VicaColors.softBlue,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text(
+                            '주행 중 비상정지로 비카가 관리자를 호출했습니다. '
+                            '확인이 필요합니다.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 14,
+                              height: 1.5,
+                              fontWeight: FontWeight.w800,
+                              color: VicaColors.primaryDark,
+                            ),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 24),
                       if (isBusy)
                         const CircularProgressIndicator()

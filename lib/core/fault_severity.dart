@@ -165,7 +165,10 @@ String componentLabel(String component) {
     'localization': '위치 추정',
     'navigation': '자율 주행',
     'lidar': 'LiDAR',
-    'perception': '3D 인식',
+    // nvblox 를 쓰지 않게 되면서 감시 대상이 카메라 점군으로 바뀌었습니다
+    // (2026-08-31). 컴포넌트 키는 그대로 perception 입니다 — RobotHealth.msg 의
+    // perception_readiness 필드 이름이라 바꾸면 세 저장소 계약이 흔들립니다.
+    'perception': '카메라 인식',
     'guidance': '안내 장치',
     'voice': '음성',
     'app': '앱 연결',
