@@ -39,14 +39,14 @@ from typing import Any
 import rclpy
 import yaml
 from diagnostic_msgs.msg import DiagnosticArray
+from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry
 from rcl_interfaces.msg import ParameterType
 from rcl_interfaces.srv import GetParameters
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
-from rclpy.time import Time
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
-from tf2_ros import Buffer, TransformException, TransformListener
 
 
 # error_reason의 원천. error_source 파라미터가 고릅니다.
@@ -76,8 +76,11 @@ class VicaStatusAppNode(Node):
             "destination_storage_root",
             str(Path.home() / "vica_data" / "destinations"),
         )
-        # 위치를 매끄럽게 보여주기 위해 기본 10Hz로 발행합니다.
-        self.declare_parameter("publish_period_sec", 0.1)
+        # 0.1(10Hz) -> 0.5(2Hz) (2026-09-01). 10Hz는 태블릿 마커의 사치였고
+        # 이 노드 CPU와 rosbridge 번역량의 주범이었다. 소비자 전수조사 결과
+        # (앱 마커·주행 버튼 판정·keepout 유예) 주기에 민감한 곳이 없고,
+        # 위치미확보 판정 임계(nav2_data_timeout_sec 3.0)와도 여유 6배다.
+        self.declare_parameter("publish_period_sec", 0.5)
         self.declare_parameter("nav2_data_timeout_sec", 3.0)
         # 구독 입력별 만료 시간. 발행이 끊긴 값을 현재 상태로 쓰지 않기 위한 기준입니다.
         self.declare_parameter("odom_timeout_sec", 3.0)
@@ -158,9 +161,13 @@ class VicaStatusAppNode(Node):
         self.latest_odom: Odometry | None = None
         self.last_odom_time: float | None = None
 
-        # TF에서 읽은 map frame 기준 현재 pose (x, y, yaw_deg).
-        self.tf_pose: tuple[float, float, float] | None = None
-        self.last_tf_time: float | None = None
+        # AMCL이 마지막으로 알려준 map frame 기준 pose (x, y, yaw_deg).
+        # 종전에는 TF 청취기로 매 주기 조회했는데, 청취기는 /tf 방송 전체
+        # (EKF 30Hz+)를 상시 수신·보관해 이 노드 CPU의 최대 고정비였다.
+        # /amcl_pose 구독으로 바꿨다(2026-09-01) — mission_manager가 같은
+        # 이유로 먼저 쓰던 방식이고, 2Hz 상황판에는 이 신선도면 충분하다.
+        self.map_pose: tuple[float, float, float] | None = None
+        self.last_map_pose_time: float | None = None
 
         # diagnostics는 오류/대기 사유 문자열을 만들 때만 사용합니다.
         # /diagnostics는 여러 노드가 함께 쓰는 공용 topic이고 각 메시지는 그 발행자의
@@ -191,9 +198,17 @@ class VicaStatusAppNode(Node):
         self._loc_cache_map_id = ""
         self._loc_cache_time = 0.0
 
-        # TF 조회 준비.
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
+        # 지도 위치는 /amcl_pose 로 받는다. AMCL 은 transient_local(보관) +
+        # 이동 시에만 발행하므로, 일반(volatile) 구독은 이 노드가 나중에 켜지면
+        # 보관본을 못 받는다 — mission_manager 의 같은 구독과 동일한 함정 대응.
+        amcl_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.create_subscription(
+            PoseWithCovarianceStamped, "/amcl_pose", self.handle_amcl_pose, amcl_qos
+        )
 
         # map_server 파라미터 조회 클라이언트.
         map_server_node = str(self.get_parameter("map_server_node").value).rstrip("/")
@@ -234,7 +249,7 @@ class VicaStatusAppNode(Node):
             self.map_poll_timer = self.create_timer(poll_period, self._poll_map_yaml)
 
         self.get_logger().info(
-            f"vica_status_app_node ready: TF {self.map_frame}->{self.base_frame}, "
+            f"vica_status_app_node ready: pose=/amcl_pose ({self.map_frame} 기준), "
             f"publish {1.0 / period:.0f}Hz, map auto-detect via {map_server_node}, "
             f"error_source={self.error_source}"
         )
@@ -347,33 +362,23 @@ class VicaStatusAppNode(Node):
     # ------------------------------------------------------------------
     # TF 위치 조회
     # ------------------------------------------------------------------
-    def _update_tf_pose(self) -> None:
-        """map->base_frame TF를 조회해 현재 pose를 갱신합니다.
-
-        조회에 실패하면(TF 미확보) 이전 값을 유지하고, 만료 여부는 last_tf_time
-        나이로 판단합니다.
-        """
-        try:
-            transform = self.tf_buffer.lookup_transform(
-                self.map_frame, self.base_frame, Time()
-            )
-        except TransformException:
-            return
-        translation = transform.transform.translation
-        rotation = transform.transform.rotation
+    def handle_amcl_pose(self, msg: PoseWithCovarianceStamped) -> None:
+        """AMCL이 알려주는 map 기준 pose를 저장합니다. 이동 중에만 옵니다."""
+        pose = msg.pose.pose
         yaw = self._quaternion_to_yaw_degrees(
-            rotation.x, rotation.y, rotation.z, rotation.w
+            pose.orientation.x,
+            pose.orientation.y,
+            pose.orientation.z,
+            pose.orientation.w,
         )
-        self.tf_pose = (float(translation.x), float(translation.y), yaw)
-        self.last_tf_time = time.monotonic()
+        self.map_pose = (float(pose.position.x), float(pose.position.y), yaw)
+        self.last_map_pose_time = time.monotonic()
 
     # ------------------------------------------------------------------
     # 상태 발행
     # ------------------------------------------------------------------
     def publish_status(self) -> None:
         """최신 정보를 앱용 /robot_status JSON으로 발행합니다(타이머 주기 실행)."""
-        self._update_tf_pose()
-
         map_id = self._current_map_id()
         x, y, yaw, linear_x, angular_z = self._read_pose_values()
         nav2_pose_available = self._nav2_pose_available()
@@ -419,8 +424,8 @@ class VicaStatusAppNode(Node):
     def _read_pose_values(self) -> tuple[float, float, float, float, float]:
         """(x, y, yaw_degree, linear_x, angular_z)를 돌려줍니다.
 
-        위치는 TF(map frame)를 우선하고, 아직 없으면 /odom pose를 fallback으로 씁니다.
-        속도는 항상 /odom.twist에서 읽습니다.
+        위치는 AMCL(map frame)을 우선하고, 아직 없으면 /odom pose를 fallback으로
+        씁니다. 속도는 항상 /odom.twist에서 읽습니다.
         """
         # 발행이 끊긴 /odom의 마지막 속도를 계속 쓰면 로봇이 멈춘 뒤에도 moving으로
         # 남을 수 있어, 만료된 odom은 아예 없는 것으로 취급합니다.
@@ -432,8 +437,8 @@ class VicaStatusAppNode(Node):
             linear_x = float(twist.linear.x)
             angular_z = float(twist.angular.z)
 
-        if self._nav2_pose_available() and self.tf_pose is not None:
-            x, y, yaw = self.tf_pose
+        if self._nav2_pose_available() and self.map_pose is not None:
+            x, y, yaw = self.map_pose
             return x, y, yaw, linear_x, angular_z
 
         if not odom_fresh or self.latest_odom is None:
@@ -455,11 +460,31 @@ class VicaStatusAppNode(Node):
         )
 
     def _nav2_pose_available(self) -> bool:
-        """map->base TF가 최근에 확보됐는지로 Nav2 위치 추정 활성 여부를 판단합니다."""
-        if self.tf_pose is None or self.last_tf_time is None:
+        """AMCL pose를 확보했는지로 Nav2 위치 추정 활성 여부를 판단합니다.
+
+        AMCL은 이동 중에만 발행하므로 **정지 중에는 나이로 실효시키지 않는다** —
+        마지막 값이 그대로 유효하다. 움직이는 중인데 갱신이 끊겼을 때만
+        (AMCL 사망·위치 상실) 미확보로 본다. 초기위치를 아직 안 잡은 Nav2
+        재시작 감지는 앱의 초기위치 입구 생사 확인이 맡는다(2026-08-31 수리).
+        """
+        if self.map_pose is None or self.last_map_pose_time is None:
             return False
+        if not self._robot_moving():
+            return True
         timeout_sec = float(self.get_parameter("nav2_data_timeout_sec").value)
-        return (time.monotonic() - self.last_tf_time) <= timeout_sec
+        return (time.monotonic() - self.last_map_pose_time) <= timeout_sec
+
+    def _robot_moving(self) -> bool:
+        """odom 속도로 '지금 움직이는 중'을 판단합니다(_status와 같은 임계값)."""
+        if not self._odom_fresh() or self.latest_odom is None:
+            return False
+        twist = self.latest_odom.twist.twist
+        linear = abs(float(twist.linear.x))
+        angular = abs(float(twist.angular.z))
+        return (
+            linear >= float(self.get_parameter("moving_linear_threshold").value)
+            or angular >= float(self.get_parameter("moving_angular_threshold").value)
+        )
 
     def _odom_fresh(self) -> bool:
         """/odom이 만료 시간 안에 갱신되고 있는지 확인합니다."""
