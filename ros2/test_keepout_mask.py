@@ -301,6 +301,43 @@ def test_png_헤더도_읽는다(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+# -- 반영 유예 판정 (2026-09-01) -------------------------------------------
+#
+# status == "moving" 하나로 보던 판정이 일시정지·주행 중 오류·순단을 놓쳐,
+# 목적지를 쥔 로봇 밑에 마스크가 꽂히던 결함의 회귀 시험입니다.
+
+
+def test_hold_while_moving():
+    assert km.hold_apply("moving", "탕비실") is True
+
+
+def test_hold_while_paused_with_goal():
+    """일시정지: status는 waiting이지만 목적지가 남아 있다 — 미뤄야 한다."""
+    assert km.hold_apply("waiting", "탕비실") is True
+
+
+def test_hold_while_error_with_goal():
+    """주행 중 진단 오류: status가 error로 덮여도 목적지는 살아 있다."""
+    assert km.hold_apply("error", "탕비실") is True
+
+
+def test_no_hold_when_idle():
+    assert km.hold_apply("waiting", "") is False
+
+
+def test_no_hold_when_goal_is_whitespace():
+    assert km.hold_apply("waiting", "   ") is False
+
+
+def test_moving_alone_still_holds():
+    """혹시 목적지 없이 움직이는 경우의 보조 조건입니다."""
+    assert km.hold_apply("moving", "") is True
+
+
+def test_none_inputs_do_not_crash():
+    assert km.hold_apply(None, None) is False
+
+
 def main() -> int:
     import shutil
     import tempfile

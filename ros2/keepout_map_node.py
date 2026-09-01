@@ -52,7 +52,9 @@ class KeepoutMapNode(Node):
                               겹치면 앱이 같은 일을 두 번 알립니다.
 
     구독 topic:
-        /robot_status : 주행 중인지 봅니다. status == "moving" 이면 반영을 미룹니다.
+        /robot_status : 반영을 미뤄야 하는지 봅니다. 목적지가 살아 있으면
+                        (주행·일시정지·주행 중 오류) 미룹니다 —
+                        keepout_mask.hold_apply 참고.
     """
 
     def __init__(self) -> None:
@@ -78,7 +80,9 @@ class KeepoutMapNode(Node):
         self.declare_parameter("create_empty_mask_on_get", True)
 
         self._callbacks = ReentrantCallbackGroup()
-        self._driving = False
+        # 반영을 미뤄야 하는 상태인가(주행·일시정지·주행 중 오류 — 목적지가
+        # 살아 있는 동안 전부). 판정은 keepout_mask.hold_apply 가 합니다.
+        self._hold_apply = False
         # 주행이 끝나면 적용해야 할 지도입니다. 하나만 들고 있습니다 — 여러 지도의
         # 금지구역을 동시에 미뤄 둘 상황이 없고, 있다면 마지막 것이 맞습니다.
         self._pending_apply: str = ""
@@ -160,17 +164,25 @@ class KeepoutMapNode(Node):
     # ------------------------------------------------------------------
 
     def _on_robot_status(self, msg: String) -> None:
-        """주행 중인지만 봅니다. 상태 문자열은 vica_status_app_node가 정합니다."""
+        """반영을 미뤄야 하는 상태인지 봅니다. 판정 기준은 keepout_mask.hold_apply.
+
+        status == "moving" 만 보면 일시정지·주행 중 오류·순단을 놓칩니다 —
+        셋 다 로봇이 목적지를 쥔 채입니다(hold_apply docstring 참고).
+        """
         try:
             payload = json.loads(msg.data)
         except (json.JSONDecodeError, TypeError):
             return
-        driving = str(payload.get("status", "")) == "moving"
-        if driving == self._driving:
+        hold = km.hold_apply(
+            str(payload.get("status", "")),
+            str(payload.get("current_goal", "")),
+        )
+        if hold == self._hold_apply:
             return
-        self._driving = driving
-        if not driving and self._pending_apply:
-            # 주행이 막 끝났습니다. 미뤄 둔 반영을 한 번만 시도합니다.
+        self._hold_apply = hold
+        if not hold and self._pending_apply:
+            # 목적지가 막 정리됐습니다(성공·실패·취소). 미뤄 둔 반영을 한 번만
+            # 시도합니다.
             map_id = self._pending_apply
             self._pending_apply = ""
             applied, reason, message = self._apply(map_id)
@@ -267,14 +279,15 @@ class KeepoutMapNode(Node):
             response.message = f"금지구역 {zone_count}개를 저장했습니다."
             return response
 
-        if self._driving:
-            # 지금 반영하면 로봇이 금지구역 안에 갇힐 수 있습니다. 저장은 이미
-            # 끝났으므로 실패가 아닙니다 — 미뤘다는 사실만 정확히 알립니다.
+        if self._hold_apply:
+            # 지금 반영하면 로봇이 금지구역 안에 갇힐 수 있습니다(일시정지 재개
+            # 포함). 저장은 이미 끝났으므로 실패가 아닙니다 — 미뤘다는 사실만
+            # 정확히 알립니다. reason 값은 앱 계약이라 바꾸지 않습니다.
             self._pending_apply = map_id
             response.reason = "busy_driving"
             response.message = (
-                f"금지구역 {zone_count}개를 저장했습니다. 주행 중이라 "
-                "주행이 끝나면 적용합니다."
+                f"금지구역 {zone_count}개를 저장했습니다. 로봇에 목적지가 "
+                "남아 있어 주행이 끝나면 적용합니다."
             )
             return response
 

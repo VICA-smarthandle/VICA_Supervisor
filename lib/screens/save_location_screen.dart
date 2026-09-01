@@ -292,6 +292,12 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               zones: supervisor.keepoutZonesFor(map.mapId),
               selectedZoneId: supervisor.selectedKeepoutZoneId,
               editing: supervisor.keepoutEditing,
+              // 목적지가 살아 있으면(주행·일시정지 — current_goal은 일시정지에도
+              // 남습니다) 편집 시작을 잠급니다. 젯슨 쪽 유예 판정(hold_apply)과
+              // 같은 기준이라 화면과 로봇이 같은 말을 합니다.
+              drivingHold:
+                  (supervisor.primaryRobot?.currentGoal.trim() ?? '')
+                      .isNotEmpty,
               state: supervisor.keepoutState,
               message: supervisor.keepoutMessage,
               maskApplied: supervisor.keepoutMaskApplied,

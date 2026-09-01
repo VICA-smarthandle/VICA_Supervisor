@@ -465,3 +465,26 @@ def ensure_mask(maps_root: Path, map_id: str, updated_at: str) -> bool:
         return False
     save_zones(maps_root, map_id, load_zones(maps_root, map_id), updated_at)
     return True
+
+
+def hold_apply(status: str, current_goal: str) -> bool:
+    """마스크 반영을 미뤄야 하는가 — '목적지가 살아 있는가'로 판정합니다.
+
+    종전에는 status == "moving" 하나로 봤는데, 그 문자열은 오류>위치미확보>
+    목표주행>속도 순으로 정해져서(vica_status_app_node._status) 세 경우를
+    놓쳤습니다.
+
+      일시정지        status="waiting"  목적지를 기억한 채 멈춰 있다
+      주행 중 오류    status="error"    error_reason이 주행을 덮어쓴다
+      주행 중 순단    status="waiting"  AMCL/tf가 잠깐 끊겼다
+
+    셋 다 로봇이 목적지를 쥔 채라, 이때 마스크를 꽂으면 로봇이 새 금지구역
+    안에서 재개하다 "Starting point in lethal space"로 실패합니다 — 유예가
+    막으려던 바로 그 사고입니다. current_goal은 goal 이벤트가 정본이라
+    일시정지에도 남고 성공·실패·취소에만 비워지므로(앱 '다시 출발' 수리와
+    같은 원칙), 이 하나로 세 경우가 전부 덮입니다. status == "moving"은
+    혹시 모를 보조 조건으로 남겨 둡니다.
+    """
+    if str(current_goal or "").strip():
+        return True
+    return str(status or "") == "moving"

@@ -18,6 +18,7 @@ class KeepoutCard extends StatelessWidget {
     required this.message,
     required this.maskApplied,
     required this.connected,
+    required this.drivingHold,
     required this.onStartEdit,
     required this.onCancel,
     required this.onSave,
@@ -38,6 +39,13 @@ class KeepoutCard extends StatelessWidget {
   final bool maskApplied;
   final bool connected;
 
+  /// 로봇이 목적지를 쥐고 있는가(주행·일시정지). true면 편집 **시작**만
+  /// 잠급니다 — 시작해 봐야 적용이 미뤄질 것을 버튼 자리에서 미리 알리는
+  /// 안내장치입니다. 이미 편집 중이면 계속하게 둡니다: 그리는 도중 음성으로
+  /// 주행이 시작될 수 있고, 그때는 저장 응답(busy_driving)과 젯슨 쪽 유예
+  /// 판정(keepout_mask.hold_apply)이 안전을 맡습니다.
+  final bool drivingHold;
+
   final VoidCallback onStartEdit;
   final VoidCallback onCancel;
   final VoidCallback onSave;
@@ -56,7 +64,9 @@ class KeepoutCard extends StatelessWidget {
         Text(
           editing
               ? '지도를 손가락으로 눌러 끌면 사각형이 그려집니다. 편집하는 동안 지도 이동과 확대는 잠깁니다.'
-              : '로봇이 들어가지 않을 자리입니다. 편집을 누르면 지도에 사각형을 그릴 수 있습니다.',
+              : drivingHold
+                  ? '로봇이 목적지로 가는 중에는 금지구역을 편집할 수 없습니다. 주행이 끝나면 열립니다.'
+                  : '로봇이 들어가지 않을 자리입니다. 편집을 누르면 지도에 사각형을 그릴 수 있습니다.',
           style: const TextStyle(
               fontSize: 13, color: VicaColors.muted, height: 1.5),
         ),
@@ -126,6 +136,8 @@ class KeepoutCard extends StatelessWidget {
           const _Badge(text: 'ROS 연결 없음', color: VicaColors.red)
         else if (editing)
           const _Badge(text: '편집 중 · 저장 전', color: VicaColors.primary)
+        else if (drivingHold)
+          const _Badge(text: '주행 중 · 편집 잠김', color: VicaColors.muted)
         else if (maskApplied)
           const _Badge(text: '로봇에 적용됨', color: VicaColors.green)
         else
@@ -175,7 +187,8 @@ class KeepoutCard extends StatelessWidget {
         children: [
           Expanded(
             child: FilledButton.icon(
-              onPressed: connected ? onStartEdit : null,
+              // 주행·일시정지 중에는 시작을 잠급니다(drivingHold 주석 참고).
+              onPressed: (connected && !drivingHold) ? onStartEdit : null,
               icon: const Icon(Icons.edit_outlined),
               label: Text(
                 state == KeepoutSaveState.failed ? '다시 시도' : '금지구역 편집',
