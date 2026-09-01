@@ -399,6 +399,10 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
       _picking = false;
       _picked = null;
     });
+    // 확정으로 칸이 닫히면 라이다 점도 함께 지운다(2026-09-01 사용자 결정).
+    // 종전에는 '반영 확인용 마지막 그림'으로 남겼는데, 실기에서 계속 떠 있는
+    // 점이 오히려 헷갈린다는 피드백을 받았다.
+    supervisor.clearPoseCheck();
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
   }

@@ -19,7 +19,9 @@ class KeepoutCard extends StatelessWidget {
     required this.maskApplied,
     required this.connected,
     required this.drivingHold,
+    required this.hasPending,
     required this.onStartEdit,
+    required this.onConfirmPending,
     required this.onCancel,
     required this.onSave,
     required this.onDeleteSelected,
@@ -46,7 +48,12 @@ class KeepoutCard extends StatelessWidget {
   /// 판정(keepout_mask.hold_apply)이 안전을 맡습니다.
   final bool drivingHold;
 
+  /// 그려 놓고 아직 '확정'하지 않은 사각형이 있는가. 드래그를 다시 하면 그
+  /// 초안이 교체되고, 확정을 눌러야 목록에 들어갑니다(2026-09-01 UX).
+  final bool hasPending;
+
   final VoidCallback onStartEdit;
+  final VoidCallback onConfirmPending;
   final VoidCallback onCancel;
   final VoidCallback onSave;
   final VoidCallback onDeleteSelected;
@@ -63,7 +70,7 @@ class KeepoutCard extends StatelessWidget {
       children: [
         Text(
           editing
-              ? '지도를 손가락으로 눌러 끌면 사각형이 그려집니다. 편집하는 동안 지도 이동과 확대는 잠깁니다.'
+              ? '끌어서 사각형을 그리세요. 다시 끌면 그리던 사각형이 새로 그려지고, [이 사각형 확정]을 눌러야 목록에 들어갑니다. 편집 중에는 지도 이동·확대가 잠깁니다.'
               : drivingHold
                   ? '로봇이 목적지로 가는 중에는 금지구역을 편집할 수 없습니다. 주행이 끝나면 열립니다.'
                   : '로봇이 들어가지 않을 자리입니다. 편집을 누르면 지도에 사각형을 그릴 수 있습니다.',
@@ -207,6 +214,21 @@ class KeepoutCard extends StatelessWidget {
 
     return Column(
       children: [
+        // 초안 확정. 이걸 눌러야 목록에 들어가고 다음 사각형을 그릴 수 있습니다.
+        // 저장은 미확정 초안도 확정으로 간주하므로(provider), 이 버튼을 잊어도
+        // 그린 사각형이 사라지지는 않습니다.
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton.tonalIcon(
+                onPressed: (hasPending && !_saving) ? onConfirmPending : null,
+                icon: const Icon(Icons.check, size: 18),
+                label: const Text('이 사각형 확정'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
         Row(
           children: [
             Expanded(

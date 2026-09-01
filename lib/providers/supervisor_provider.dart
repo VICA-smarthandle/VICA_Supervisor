@@ -1169,12 +1169,21 @@ class SupervisorProvider extends ChangeNotifier {
   String get keepoutMessage => _keepoutMessage;
   bool get keepoutMaskApplied => _keepoutMaskApplied;
 
-  /// 드래그하는 동안 보여줄 임시 사각형입니다. 확정 전이라 목록에 없습니다.
+  // 그려 봤지만 아직 '확정'하지 않은 사각형입니다(2026-09-01 UX 변경).
+  // 종전에는 손을 뗄 때마다 목록에 새 사각형이 쌓여서, 자리를 다듬으려고
+  // 다시 그리면 사각형이 늘어났습니다. 이제 다시 끌면 이 초안이 **교체**되고,
+  // '확정'을 눌러야 목록에 들어갑니다.
+  KeepoutZone? _pendingZone;
+
+  bool get hasPendingKeepoutZone => _pendingZone != null;
+
+  /// 드래그 중엔 끌고 있는 사각형을, 아니면 미확정 초안을 보여줍니다.
+  /// 둘 다 목록 밖이라 캔버스에서 같은(초안) 모양으로 그려집니다.
   KeepoutZone? get draftKeepoutZone {
     final start = _keepoutDragStart;
     final current = _keepoutDragCurrent;
     if (start == null || current == null) {
-      return null;
+      return _pendingZone;
     }
     return KeepoutZone.fromDrag(zoneId: '_draft', start: start, end: current);
   }
@@ -1220,6 +1229,7 @@ class SupervisorProvider extends ChangeNotifier {
   void cancelKeepoutEdit(String mapId) {
     _keepoutsByMap[mapId] = List.of(_keepoutBackup);
     _keepoutEditing = false;
+    _pendingZone = null;
     _keepoutDragStart = null;
     _keepoutDragCurrent = null;
     _selectedKeepoutZoneId = null;
@@ -1261,13 +1271,26 @@ class SupervisorProvider extends ChangeNotifier {
       notifyListeners();
       return '구역이 너무 작습니다. 조금 더 크게 그려 주세요.';
     }
+    // 목록에 넣지 않고 초안으로만 둔다. 다시 끌면 이 초안이 교체되고,
+    // confirmPendingKeepoutZone 이 눌려야 목록에 들어간다(2026-09-01).
+    _pendingZone = draft.copyWith(zoneId: '_pending');
+    notifyListeners();
+    return null;
+  }
+
+  /// 미확정 초안을 목록에 넣습니다. 그 뒤에야 다음 사각형을 그립니다.
+  void confirmPendingKeepoutZone(String mapId) {
+    final pending = _pendingZone;
+    if (pending == null) {
+      return;
+    }
     _keepoutZoneSeq += 1;
-    final zone = draft.copyWith(
+    final zone = pending.copyWith(
         zoneId: 'kz_${_keepoutZoneSeq}_${_uuid.v4().substring(0, 4)}');
     _keepoutsByMap[mapId] = [...keepoutZonesFor(mapId), zone];
     _selectedKeepoutZoneId = zone.zoneId;
+    _pendingZone = null;
     notifyListeners();
-    return null;
   }
 
   void selectKeepoutZone(String? zoneId) {
@@ -1307,6 +1330,11 @@ class SupervisorProvider extends ChangeNotifier {
       return _keepoutMessage;
     }
 
+    // 확정을 안 누르고 저장한 초안은 확정으로 간주한다 — 그린 사각형이
+    // 소리 없이 버려지는 것이 가장 나쁜 실수 방식이다.
+    if (_pendingZone != null) {
+      confirmPendingKeepoutZone(mapId);
+    }
     final zones = keepoutZonesFor(mapId);
     _keepoutState = KeepoutSaveState.saving;
     _keepoutMessage = '금지구역 ${zones.length}개를 저장하고 있습니다.';

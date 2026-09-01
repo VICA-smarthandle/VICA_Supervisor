@@ -303,7 +303,10 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               maskApplied: supervisor.keepoutMaskApplied,
               connected:
                   supervisor.connectionState == RosConnectionState.connected,
+              hasPending: supervisor.hasPendingKeepoutZone,
               onStartEdit: () => supervisor.enterKeepoutEdit(map.mapId),
+              onConfirmPending: () =>
+                  supervisor.confirmPendingKeepoutZone(map.mapId),
               onCancel: () => supervisor.cancelKeepoutEdit(map.mapId),
               onSave: () =>
                   _saveKeepout(context, supervisor, settings, map.mapId),
@@ -700,14 +703,24 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     if (!mounted) {
       return;
     }
-    setState(() {
-      _homeMode = HomeCardMode.idle;
-      _homePicked = null;
-      _homeDirection = null;
-      _homeStanding = null;
+    // 정리(패널 접기·점 지우기)를 다음 프레임으로 미룬다(2026-09-01 수리).
+    // 이름 대화상자가 닫히는 프레임과 저장 알림(notifyListeners) 재빌드,
+    // 그리고 이 setState 의 트리 철거가 한 찰나에 겹치면 프레임워크 단정
+    // "_dependents.isEmpty" 가 깨지며 빨간 화면이 떴다 — 실기 재현 2026-09-01.
+    // 좌표 저장 자체는 그 전에 이미 끝나 있다.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _homeMode = HomeCardMode.idle;
+        _homePicked = null;
+        _homeDirection = null;
+        _homeStanding = null;
+      });
+      supervisor.clearPoseCheck();
+      _toast(message);
     });
-    supervisor.clearPoseCheck();
-    _toast(message);
   }
 
   /// 홈에 붙일 이름을 묻습니다. 비워도 됩니다 — 로봇은 쓰지 않습니다.
@@ -737,7 +750,11 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
         ],
       ),
     );
-    controller.dispose();
+    // showDialog 의 future 는 pop 순간 풀리지만, 대화상자의 퇴장 애니메이션
+    // (~0.2초)은 그 뒤에도 TextField 를 그린다. 여기서 바로 dispose 하면
+    // 죽은 컨트롤러를 그리다 프레임워크 단정이 깨진다(빨간 화면, 2026-09-01
+    // 실기 재현). 애니메이션이 끝난 뒤에 정리한다.
+    Future<void>.delayed(const Duration(milliseconds: 400), controller.dispose);
     return value;
   }
 

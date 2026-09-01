@@ -695,7 +695,8 @@ class _ScanHitPainter extends CustomPainter {
     // 점 하나가 너무 크면 벽을 덮어 "맞았는지"를 못 본다. 확대해서 볼 수
     // 있으므로 작게 둔다.
     for (final point in points) {
-      canvas.drawCircle(point, 1.6, paint);
+      // 1.6 -> 0.8 (2026-09-01 실기 피드백): 점이 커서 벽 선을 덮었다.
+      canvas.drawCircle(point, 0.8, paint);
     }
   }
 
