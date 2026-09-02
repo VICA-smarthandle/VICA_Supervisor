@@ -126,6 +126,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 controller: _c('missionRequestService'),
                 label: '목적지 주행 요청 service',
               ),
+              _Field(
+                controller: _c('missionDeliveryService'),
+                label: '물류 배송 요청 service',
+              ),
               _Field(controller: _c('robotStatusTopic'), label: '로봇 상태 topic'),
               _Field(
                 controller: _c('emergencyActivateService'),
@@ -186,6 +190,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'saveLocationTopic': settings.saveLocationTopic,
       'deleteLocationRequestTopic': settings.deleteLocationRequestTopic,
       'missionRequestService': settings.missionRequestService,
+      'missionDeliveryService': settings.missionDeliveryService,
       'robotStatusTopic': settings.robotStatusTopic,
       'emergencyActivateService': settings.emergencyActivateService,
       'emergencyResetService': settings.emergencyResetService,
@@ -220,6 +225,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       saveLocationTopic: _c('saveLocationTopic').text.trim(),
       deleteLocationRequestTopic: _c('deleteLocationRequestTopic').text.trim(),
       missionRequestService: _c('missionRequestService').text.trim(),
+      missionDeliveryService: _c('missionDeliveryService').text.trim(),
       robotStatusTopic: _c('robotStatusTopic').text.trim(),
       emergencyActivateService: _c('emergencyActivateService').text.trim(),
       emergencyResetService: _c('emergencyResetService').text.trim(),

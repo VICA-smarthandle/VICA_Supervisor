@@ -45,7 +45,10 @@ enum KeepoutSaveState {
 }
 
 class SupervisorProvider extends ChangeNotifier {
-  SupervisorProvider();
+  /// [deliveryNotifier] 를 안 주면 기기에 맞는 것을 고릅니다 — 안드로이드는 SMS,
+  /// 그 밖은 미리보기. 시험은 호스트(리눅스)에서 돌아 자동으로 미리보기가 됩니다.
+  SupervisorProvider({DeliveryNotifier? deliveryNotifier})
+      : _deliveryNotifier = deliveryNotifier ?? createDeliveryNotifier();
 
   static const _nav2UnavailableReason = 'Nav2/AMCL 미실행';
   static const _nav2UnavailableMessage =
@@ -589,7 +592,11 @@ class SupervisorProvider extends ChangeNotifier {
     AppSettings settings,
     LocationPoint location,
   ) async {
-    final (_, message) = await _callRequestDestination(settings, location);
+    final (_, message) = await _callRequestDestination(
+      settings,
+      location,
+      service: settings.missionRequestService,
+    );
     return message;
   }
 
@@ -599,15 +606,16 @@ class SupervisorProvider extends ChangeNotifier {
   /// 하는데, 문구만 받아서는 수락인지 거부인지 가릴 수 없습니다.
   Future<(bool, String)> _callRequestDestination(
     AppSettings settings,
-    LocationPoint location,
-  ) async {
+    LocationPoint location, {
+    required String service,
+  }) async {
     final client = _client;
     if (client == null || _connectionState != RosConnectionState.connected) {
       return (false, 'ROS Bridge에 연결되지 않았습니다.');
     }
     try {
       final response = await client.callService(
-        service: settings.missionRequestService,
+        service: service,
         type: 'vica_interfaces/srv/RequestDestination',
         args: {
           'request_id': _uuid.v4(),
@@ -923,7 +931,7 @@ class SupervisorProvider extends ChangeNotifier {
   // 실려 오므로, 그 id 가 기억해 둔 배송의 것이면 도착으로 칩니다.
 
   DeliveryJob? _delivery;
-  DeliveryNotifier _deliveryNotifier = const PreviewDeliveryNotifier();
+  DeliveryNotifier _deliveryNotifier;
   DeliveryNotice? _pendingDeliveryNotice;
 
   /// 지금 기억하고 있는 배송. 끝난 뒤에도 관리자가 '지우기'를 누를 때까지 남아
@@ -966,8 +974,13 @@ class SupervisorProvider extends ChangeNotifier {
         ? null
         : DeliveryOrigin(x: robot.x, y: robot.y, yaw: robot.yaw);
 
-    final (accepted, message) =
-        await _callRequestDestination(settings, location);
+    // 배송 전용 서비스로 나갑니다. 요청 모양은 같고 private 목적지만 추가로
+    // 허용됩니다. 나머지 검사(접근 가능·지도 안·Nav2·E-stop)는 그대로입니다.
+    final (accepted, message) = await _callRequestDestination(
+      settings,
+      location,
+      service: settings.missionDeliveryService,
+    );
     if (!accepted) {
       _addLog(LogFilter.delivery, '${location.name} 배송 출발 거부: $message');
       return message;

@@ -6,6 +6,11 @@
 // 관리자 폰의 SMS 발송 구현은 다음 단계에서 같은 자리에 끼웁니다.
 //
 // 결과에 번호를 넣지 않습니다. 결과 문자열은 그대로 로그에 남기 때문입니다.
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
+
+import 'sms_delivery_notifier.dart';
 
 /// 발송 시도의 결과.
 class DeliveryNotifyResult {
@@ -50,4 +55,16 @@ class PreviewDeliveryNotifier implements DeliveryNotifier {
       detail: '미리보기입니다. 실제 문자는 보내지 않았습니다 — 직접 연락하세요.',
     );
   }
+}
+
+/// 이 기기에 맞는 발송기를 고릅니다.
+///
+/// 안드로이드면 유심으로 직접 보내는 SMS 발송기, 그 밖(리눅스 데스크탑·웹)은
+/// 미리보기입니다. 개발 PC 에는 유심도 안드로이드도 없어서, 여기서 갈라 두어야
+/// PC 에서도 나머지 배송 흐름 전체를 검증할 수 있습니다.
+DeliveryNotifier createDeliveryNotifier() {
+  if (!kIsWeb && Platform.isAndroid) {
+    return SmsDeliveryNotifier();
+  }
+  return const PreviewDeliveryNotifier();
 }
