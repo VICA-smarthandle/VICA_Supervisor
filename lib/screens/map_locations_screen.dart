@@ -129,7 +129,9 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
           action: OutlinedButton.icon(
             onPressed: map == null
                 ? null
-                : () => supervisor.requestLocationList(settings, map.mapId),
+                // 장소·홈·금지구역을 함께 받습니다. 종전에는 장소만 받아서
+                // 이름과 동작이 어긋났습니다(2026-09-02).
+                : () => supervisor.refreshMapData(settings, map.mapId),
             icon: const Icon(Icons.sync, size: 18),
             label: const Text('동기화', maxLines: 1),
           ),

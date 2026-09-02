@@ -141,7 +141,9 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
           action: OutlinedButton.icon(
             onPressed: map == null
                 ? null
-                : () => supervisor.requestLocationList(settings, map.mapId),
+                // 장소·홈·금지구역을 함께 받습니다. 홈은 이 버튼 말고는
+                // 수동 갱신 경로가 아예 없었습니다(2026-09-02).
+                : () => supervisor.refreshMapData(settings, map.mapId),
             icon: const Icon(Icons.refresh, size: 18),
             label: const Text('새로고침'),
           ),
