@@ -28,6 +28,12 @@ enum GoalEventKind {
   returnHomeFailed('return_home_failed'),
   returnHomeCanceled('return_home_canceled'),
 
+  /// 취소를 눌렀는데 취소할 주행이 없었다 — 지금은 대기라는 통보입니다.
+  ///
+  /// 앱 표시가 로봇보다 뒤처져 있을 때 되맞추는 새로고침입니다(2026-09-02).
+  /// 사건이 아니라 사실 통보라 팝업은 띄우지 않습니다.
+  stateIdle('state_idle'),
+
   unknown('');
 
   const GoalEventKind(this.wire);

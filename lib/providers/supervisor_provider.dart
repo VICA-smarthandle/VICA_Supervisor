@@ -960,6 +960,12 @@ class SupervisorProvider extends ChangeNotifier {
       case GoalEventKind.rejected:
       case GoalEventKind.canceled:
       case GoalEventKind.emergencyStopped:
+      // 홈 복귀의 끝도 주행의 끝입니다. 빠뜨리면 홈 복귀 앞뒤로 일시정지
+      // 표시가 남아 '다시 출발' 버튼이 헛되이 뜹니다(2026-09-02).
+      case GoalEventKind.returnHomeSucceeded:
+      case GoalEventKind.returnHomeFailed:
+      case GoalEventKind.returnHomeCanceled:
+      case GoalEventKind.stateIdle:
         _pausedByEvent = false;
       default:
         break;

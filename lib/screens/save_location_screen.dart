@@ -182,6 +182,12 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               // 방향을 고르면 화살표로 미리 보여준다. 어느 쪽을 보고 서게 될지
               // 글자('위')보다 그림이 빠르다.
               poseArrow: _homeArrow(settings),
+              // 저장된 홈은 어느 칸을 펼쳤든 늘 보인다. 장소를 찍을 때도 홈이
+              // 어디인지 알고 찍는 편이 낫다. 찍는 중(주황 원)과 저장된 것
+              // (남색 점)이 함께 보여야 얼마나 옮기는지도 눈에 보인다.
+              homePoint: supervisor.homeBelongsTo(map.mapId)
+                  ? _homeOffset(supervisor)
+                  : null,
               // 여기서 정보 입력 시트를 띄우지 않습니다. 누르자마자 시트가 덮으면
               // 점이 원하는 자리에 찍혔는지 볼 수가 없고, 시트를 닫으면 점까지
               // 사라져 처음부터 다시 해야 했습니다. 이제 누르는 것은 '점 옮기기'
@@ -544,6 +550,12 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   /// 장소 찍기와 같은 `pickedLocation` 자리를 씁니다 — 한 화면에서 둘을 동시에
   /// 찍는 일은 없고(홈 모드에서는 지도 탭이 홈으로만 갑니다), 같은 모양으로
   /// 보여야 관리자가 새로 배울 것이 없습니다.
+  /// 저장된 홈의 지도 좌표. 지정돼 있지 않으면 null 입니다.
+  Offset? _homeOffset(SupervisorProvider supervisor) {
+    final home = supervisor.home;
+    return home == null ? null : Offset(home.x, home.y);
+  }
+
   LocationPoint? _homePickedMarker(String mapId) {
     final spot = _homePicked;
     if (spot == null) {

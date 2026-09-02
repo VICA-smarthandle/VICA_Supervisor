@@ -169,6 +169,12 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
               scanHits: supervisor.poseCheck?.scanHits.isNotEmpty == true
                   ? supervisor.poseCheck!.scanHits
                   : supervisor.committedScanHits,
+              // 홈이 어디인지 여기서도 보여 줍니다. '홈으로 복귀'를 누르기 전에
+              // 로봇이 어디로 갈지 지도에서 확인할 수 있어야 합니다.
+              homePoint: supervisor.homeBelongsTo(map.mapId) &&
+                      supervisor.home != null
+                  ? Offset(supervisor.home!.x, supervisor.home!.y)
+                  : null,
               onTapMap: _picking ? _onTapMap : null,
               onSelectLocation: (location) =>
                   supervisor.selectLocation(location.locationId),

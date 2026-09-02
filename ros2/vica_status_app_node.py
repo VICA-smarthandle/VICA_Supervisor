@@ -313,6 +313,20 @@ class VicaStatusAppNode(Node):
             "goal_rejected",
             "goal_canceled",
             "emergency_stopped",
+            # 홈 복귀는 **출발할 때는** 위의 goal_sent/goal_accepted 를 쓰고
+            # **끝날 때만** 전용 이름으로 알린다(mission_manager_node 의
+            # "return_home_… if returning else goal_…"). 그래서 이 셋이 없으면
+            # 홈에 도착해도 current_goal 이 영영 안 비고, 앱은 로봇이 계속
+            # 달리는 줄 알아 주행 요청·홈 복귀·취소 버튼을 모두 잠근다
+            # (2026-09-02 실기 재현). 안전망 goal_event_timeout_sec 는 600초라
+            # 그때까지 앱이 멈춰 있는 셈이었다.
+            "return_home_succeeded",
+            "return_home_failed",
+            "return_home_canceled",
+            # 미션이 "취소할 것이 없다"고 답할 때 보내는 동기화 신호다. 앱의
+            # 표시가 어떤 이유로든 로봇보다 뒤처져 있으면 취소 버튼이 그것을
+            # 되맞추는 새로고침이 된다.
+            "state_idle",
         }:
             self.current_goal = ""
             self.navigation_active = False
