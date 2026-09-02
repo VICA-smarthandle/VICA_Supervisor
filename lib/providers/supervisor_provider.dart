@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 
 import '../core/app_settings.dart';
 import '../core/log_filter.dart';
+import '../models/delivery_job.dart';
 import '../models/goal_event.dart';
 import '../models/home_position.dart';
 import '../models/keepout_zone.dart';
@@ -22,6 +23,7 @@ import '../models/stack_status.dart';
 import '../models/supervisor_log.dart';
 import '../models/vica_map.dart';
 import '../ros/ros_bridge_client.dart';
+import '../services/delivery_notifier.dart';
 
 enum EmergencyStopState {
   inactive,
@@ -587,9 +589,21 @@ class SupervisorProvider extends ChangeNotifier {
     AppSettings settings,
     LocationPoint location,
   ) async {
+    final (_, message) = await _callRequestDestination(settings, location);
+    return message;
+  }
+
+  /// 목적지 요청 서비스 호출. 원격 주행과 물류 배송이 같은 문으로 나갑니다.
+  ///
+  /// 수락 여부를 함께 돌려줍니다 — 배송은 수락됐을 때만 "배송 중"을 기억해야
+  /// 하는데, 문구만 받아서는 수락인지 거부인지 가릴 수 없습니다.
+  Future<(bool, String)> _callRequestDestination(
+    AppSettings settings,
+    LocationPoint location,
+  ) async {
     final client = _client;
     if (client == null || _connectionState != RosConnectionState.connected) {
-      return 'ROS Bridge에 연결되지 않았습니다.';
+      return (false, 'ROS Bridge에 연결되지 않았습니다.');
     }
     try {
       final response = await client.callService(
@@ -605,11 +619,11 @@ class SupervisorProvider extends ChangeNotifier {
           ? (response.accepted ? '주행 요청을 수락했습니다.' : '주행 요청이 거부되었습니다.')
           : _localizeGateReason(response.message);
       _addLog(LogFilter.coordinateTransfer, message);
-      return message;
+      return (response.accepted, message);
     } catch (error) {
       final message = 'Mission Manager 목적지 요청 실패: $error';
       _addLog(LogFilter.coordinateTransfer, message);
-      return message;
+      return (false, message);
     }
   }
 
@@ -901,6 +915,155 @@ class SupervisorProvider extends ChangeNotifier {
     }
   }
 
+  // ---- 물류 배송 -----------------------------------------------------------
+  //
+  // 배송은 원격 주행에 "도착하면 이 번호로 문자"를 얹은 것입니다. 주행 자체는
+  // 같은 서비스로 나가고(Mission·Safety 우회 없음), 앱은 **지금 배송 중인 건**
+  // 하나만 기억합니다. 로봇은 배송인지 모릅니다 — goal 이벤트에 목적지 id 만
+  // 실려 오므로, 그 id 가 기억해 둔 배송의 것이면 도착으로 칩니다.
+
+  DeliveryJob? _delivery;
+  DeliveryNotifier _deliveryNotifier = const PreviewDeliveryNotifier();
+  DeliveryNotice? _pendingDeliveryNotice;
+
+  /// 지금 기억하고 있는 배송. 끝난 뒤에도 관리자가 '지우기'를 누를 때까지 남아
+  /// 결과를 보여줍니다.
+  DeliveryJob? get delivery => _delivery;
+
+  /// 발송 수단 이름. 화면 배지에 씁니다.
+  String get deliveryNotifierLabel => _deliveryNotifier.modeLabel;
+
+  /// 아직 화면이 보여주지 않은 도착 문자 결과. 화면이 팝업을 띄우고
+  /// [consumeDeliveryNotice] 로 비웁니다.
+  DeliveryNotice? get pendingDeliveryNotice => _pendingDeliveryNotice;
+
+  void consumeDeliveryNotice() {
+    if (_pendingDeliveryNotice == null) {
+      return;
+    }
+    _pendingDeliveryNotice = null;
+    notifyListeners();
+  }
+
+  /// 배송 출발. 주행 요청이 **수락됐을 때만** 배송을 기억합니다.
+  ///
+  /// 거부된 요청을 기억해 두면 다음에 누가 그 장소로 안내 주행을 해서 도착했을
+  /// 때 엉뚱하게 배송 문자가 나갑니다.
+  Future<String> startDelivery(
+    AppSettings settings,
+    LocationPoint location,
+  ) async {
+    if (!location.canReceiveDelivery) {
+      return '${location.name}에는 도착 문자 연락처가 없습니다. 지도 설정에서 넣어 주세요.';
+    }
+    final current = _delivery;
+    if (current != null && current.isActive) {
+      return '${current.destination.name} 배송이 아직 진행 중입니다.';
+    }
+    // 출발 자리는 요청을 보내기 전에 잡습니다. 수락되는 순간 로봇이 움직입니다.
+    final robot = primaryRobot;
+    final origin = robot == null
+        ? null
+        : DeliveryOrigin(x: robot.x, y: robot.y, yaw: robot.yaw);
+
+    final (accepted, message) =
+        await _callRequestDestination(settings, location);
+    if (!accepted) {
+      _addLog(LogFilter.delivery, '${location.name} 배송 출발 거부: $message');
+      return message;
+    }
+    _delivery = DeliveryJob(
+      destination: location,
+      startedAt: DateTime.now(),
+      origin: origin,
+    );
+    _pendingDeliveryNotice = null;
+    _addLog(LogFilter.delivery, '${location.name} 배송 출발');
+    notifyListeners();
+    return '${location.name}(으)로 배송을 시작합니다.';
+  }
+
+  /// 끝난 배송 표시를 지웁니다. 진행 중인 배송은 지우지 않습니다 — 주행이 아직
+  /// 살아 있는데 기억만 지우면 도착해도 문자가 안 나갑니다. 먼저 주행을 취소하세요.
+  void clearDelivery() {
+    final current = _delivery;
+    if (current == null || current.isActive) {
+      return;
+    }
+    _delivery = null;
+    _pendingDeliveryNotice = null;
+    notifyListeners();
+  }
+
+  /// goal 이벤트 중 이 배송에 해당하는 것만 골라 상태를 옮깁니다.
+  void _applyGoalEventToDelivery(GoalEvent event) {
+    final job = _delivery;
+    if (job == null || !job.isActive) {
+      return;
+    }
+    if (!job.matches(locationId: event.locationId, name: event.destinationName)) {
+      return;
+    }
+    switch (event.kind) {
+      case GoalEventKind.succeeded:
+        // 빗장을 먼저 겁니다. 발송은 비동기라, 같은 이벤트가 연달아 오면
+        // 결과가 돌아오기 전에 두 번째 발송이 나갈 수 있습니다.
+        final arrived = job.copyWith(
+          phase: DeliveryPhase.arrived,
+          arrivedAt: DateTime.now(),
+          notified: true,
+        );
+        _delivery = arrived;
+        _addLog(LogFilter.delivery, '${job.destination.name} 배송 도착 — 문자 발송 시도');
+        unawaited(_notifyDeliveryArrival(arrived));
+      case GoalEventKind.failed:
+      case GoalEventKind.rejected:
+      case GoalEventKind.canceled:
+      case GoalEventKind.emergencyStopped:
+        _delivery = job.copyWith(
+          phase: DeliveryPhase.aborted,
+          abortReason: event.reason.isEmpty ? event.title : event.reason,
+        );
+        _addLog(
+          LogFilter.delivery,
+          '${job.destination.name} 배송 중단 (${event.title}) — 문자를 보내지 않았습니다',
+        );
+      default:
+        break;
+    }
+  }
+
+  Future<void> _notifyDeliveryArrival(DeliveryJob job) async {
+    final text = deliveryArrivalMessage(job.destination.name);
+    DeliveryNotifyResult result;
+    try {
+      result = await _deliveryNotifier.send(
+        phone: job.destination.contactPhone,
+        text: text,
+      );
+    } catch (error) {
+      result = DeliveryNotifyResult(sent: false, detail: '발송 오류: $error');
+    }
+    // 로그에는 장소 이름과 결과만 남깁니다. 번호는 개인정보입니다.
+    _addLog(
+      LogFilter.delivery,
+      '${job.destination.name} 도착 문자 ${result.sent ? '발송됨' : '미발송'}: ${result.detail}',
+    );
+    _pendingDeliveryNotice = DeliveryNotice(job: job, text: text, result: result);
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  set deliveryNotifierForTest(DeliveryNotifier notifier) =>
+      _deliveryNotifier = notifier;
+
+  /// 서비스 호출 없이 "배송 중" 상태를 만들어 도착 처리만 검증하는 주입 지점입니다.
+  @visibleForTesting
+  void setDeliveryForTest(DeliveryJob? job) {
+    _delivery = job;
+    notifyListeners();
+  }
+
   // ---- goal 생명주기 알림 --------------------------------------------------
   //
   // 실패·취소를 관리자에게 알리는 경로입니다. 종전에는 /robot_status 를 거치며
@@ -964,6 +1127,9 @@ class SupervisorProvider extends ChangeNotifier {
       default:
         break;
     }
+
+    // 배송 중이면 이 이벤트가 그 배송의 도착·중단일 수 있습니다.
+    _applyGoalEventToDelivery(event);
 
     // 홈 복귀가 성공하면 그 홈은 '가 본 자리'가 됩니다. 젯슨이 home.yaml 에
     // 이미 기록했지만, 앱 화면의 경고를 바로 내리기 위해 여기서도 반영합니다.

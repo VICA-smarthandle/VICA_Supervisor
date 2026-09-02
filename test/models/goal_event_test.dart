@@ -111,4 +111,29 @@ void main() {
       expect(failed.description, contains('홈 위치를 다시 지정'));
     });
   });
+
+  group('locationId', () {
+    test('로봇이 실어 보낸 목적지 id 를 읽는다', () {
+      final parsed = GoalEvent.fromJson(
+        {
+          'event': 'goal_succeeded',
+          'name': '305호',
+          'location_id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          'destination_id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          'map_id': 'm1',
+        },
+        id: 'x',
+      );
+      expect(parsed.locationId, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+    });
+
+    test('destination_id 만 있어도 읽고, 둘 다 없으면 빈 값이다', () {
+      final onlyDestination = GoalEvent.fromJson(
+        {'event': 'goal_succeeded', 'destination_id': 'd1'},
+        id: 'x',
+      );
+      expect(onlyDestination.locationId, 'd1');
+      expect(event('goal_succeeded').locationId, '');
+    });
+  });
 }

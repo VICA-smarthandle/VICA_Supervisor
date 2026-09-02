@@ -19,6 +19,7 @@ class LocationPoint {
     this.frameId = 'map',
     this.confirmPrompt = '',
     this.arrivalMessage = '',
+    this.contactPhone = '',
   });
 
   final String locationId;
@@ -39,6 +40,14 @@ class LocationPoint {
   final double yaw;
   final String confirmPrompt;
   final String arrivalMessage;
+
+  /// 물류 배송 도착 문자를 받을 휴대폰 번호. 숫자만('01012345678') 들어 있고
+  /// 비어 있으면 배송 대상이 아닙니다. 화면에는 core/contact_phone.dart 로
+  /// 가려서 보여줍니다. 로봇은 이 값을 읽지 않습니다.
+  final String contactPhone;
+
+  /// 배송 문자를 보낼 수 있는 장소인가.
+  bool get canReceiveDelivery => contactPhone.isNotEmpty;
 
   factory LocationPoint.fromJson(
       Map<String, Object?> json, String fallbackMapId) {
@@ -81,6 +90,8 @@ class LocationPoint {
           (name.isEmpty ? '' : '$name로 안내해드릴까요?'),
       arrivalMessage: json['arrival_message'] as String? ??
           (name.isEmpty ? '' : '$name 앞에 도착했습니다.'),
+      // 옛 파일에는 이 키가 없습니다. 없으면 빈 값이고 그것은 오류가 아닙니다.
+      contactPhone: (json['contact_phone'] as String?)?.trim() ?? '',
     );
   }
 
@@ -105,6 +116,7 @@ class LocationPoint {
       },
       'confirm_prompt': confirmPrompt,
       'arrival_message': arrivalMessage,
+      'contact_phone': contactPhone,
     };
   }
 }
