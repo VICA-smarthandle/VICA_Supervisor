@@ -59,16 +59,32 @@ void main() {
     });
   });
 
-  test('copyWith 는 출발 자리와 목적지를 그대로 둔다', () {
-    final started = DeliveryJob(
-      destination: _office,
-      startedAt: DateTime(2026),
-      origin: const DeliveryOrigin(x: 3, y: 4, yaw: 90),
+  test('copyWith 는 목적지·번호를 그대로 두고 복귀 예정만 지울 수 있다', () {
+    final started = DeliveryJob(destination: _office, startedAt: DateTime(2026));
+    final arrived = started.copyWith(
+      phase: DeliveryPhase.arrived,
+      notified: true,
+      returnAt: DateTime(2026, 1, 1, 0, 2),
     );
-    final arrived = started.copyWith(phase: DeliveryPhase.arrived, notified: true);
-    expect(arrived.origin?.x, 3);
     expect(arrived.destination.contactPhone, '01012345678');
     expect(arrived.isActive, isFalse);
-    expect(arrived.notified, isTrue);
+    expect(arrived.isWaitingToReturn, isTrue);
+
+    final canceled = arrived.copyWith(clearReturnAt: true);
+    expect(canceled.returnAt, isNull);
+    expect(canceled.isWaitingToReturn, isFalse);
+    expect(canceled.phase, DeliveryPhase.arrived);
+  });
+
+  test('끝난 단계만 지울 수 있다', () {
+    expect(DeliveryPhase.completed.isFinished, isTrue);
+    expect(DeliveryPhase.aborted.isFinished, isTrue);
+    expect(DeliveryPhase.driving.isFinished, isFalse);
+    expect(DeliveryPhase.arrived.isFinished, isFalse);
+    expect(DeliveryPhase.returning.isFinished, isFalse);
+  });
+
+  test('복귀 대기는 시험하기 좋게 2분이다', () {
+    expect(deliveryReturnDelay, const Duration(minutes: 2));
   });
 }

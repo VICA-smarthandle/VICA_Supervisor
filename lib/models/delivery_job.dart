@@ -5,45 +5,55 @@
 // 목적지 id 와 이름만 싣습니다). 그래서 "이번 주행이 끝나면 이 번호로 문자를
 // 보낸다"는 앱이 들고 있어야 하고, 앱이 닫히면 함께 사라집니다 — 그것은
 // 의도된 한계입니다. 문자를 보내는 것도 앱(관리자 폰)이기 때문입니다.
+//
+// 도착 뒤에는 잠시 기다렸다가 **홈으로** 돌아갑니다(2026-09-02 사용자 결정).
+// 출발했던 자리로 되돌아가는 안은 버렸습니다 — 배송은 일회성일 수 있고, 홈 복귀는
+// 기존 서비스 그대로라 로봇 쪽에 새 문을 낼 필요가 없으며, 관리자는 언제든 앱에서
+// 복귀를 취소하고 다시 부를 수 있습니다.
 import '../services/delivery_notifier.dart';
 import 'location_point.dart';
+
+/// 도착 뒤 홈으로 출발하기까지 기다리는 시간. 받는 사람이 물건을 꺼낼 여유입니다.
+///
+/// 시험하기 좋게 2분으로 시작합니다(사용자 결정). 늘릴 때는 이 값만 바꿉니다.
+const deliveryReturnDelay = Duration(minutes: 2);
 
 /// 배송이 지금 어느 단계인가.
 enum DeliveryPhase {
   /// 주행 요청이 수락됐고 로봇이 가는 중.
   driving('배송 중'),
 
-  /// 로봇이 목적지에 섰다. 문자를 보낼 차례이거나 보냈다.
+  /// 로봇이 목적지에 섰다. 문자를 보냈고, 홈 복귀까지 기다리는 중.
   arrived('도착'),
 
-  /// 주행이 실패·취소·비상정지로 끝났다. 문자는 보내지 않는다.
+  /// 홈으로 돌아가는 중.
+  returning('홈 복귀 중'),
+
+  /// 홈에 도착했다. 배송 한 건이 끝났다.
+  completed('완료'),
+
+  /// 목적지로 가던 주행이 실패·취소·비상정지로 끝났다. 문자는 보내지 않는다.
   aborted('중단');
 
   const DeliveryPhase(this.label);
 
   final String label;
-}
 
-/// 출발한 순간 로봇이 서 있던 자리(map 좌표, yaw 는 도).
-///
-/// 나중에 "출발지로 복귀"가 씁니다. 출발할 때 로봇 상태를 못 받고 있었으면
-/// 이 값이 없고, 그때는 홈 복귀로 대신합니다.
-class DeliveryOrigin {
-  const DeliveryOrigin({required this.x, required this.y, required this.yaw});
-
-  final double x;
-  final double y;
-  final double yaw;
+  /// 배송 표시를 지워도 되는가. 로봇이 움직이는 중에는 지우지 않습니다 — 기억만
+  /// 지우면 도착·복귀 결과를 화면이 못 잇습니다.
+  bool get isFinished =>
+      this == DeliveryPhase.completed || this == DeliveryPhase.aborted;
 }
 
 class DeliveryJob {
   const DeliveryJob({
     required this.destination,
     required this.startedAt,
-    this.origin,
     this.phase = DeliveryPhase.driving,
     this.arrivedAt,
     this.notified = false,
+    this.returnAt,
+    this.returnNote = '',
     this.abortReason = '',
   });
 
@@ -55,7 +65,6 @@ class DeliveryJob {
   final LocationPoint destination;
 
   final DateTime startedAt;
-  final DeliveryOrigin? origin;
 
   final DeliveryPhase phase;
   final DateTime? arrivedAt;
@@ -66,9 +75,22 @@ class DeliveryJob {
   /// 그 빗장입니다.
   final bool notified;
 
+  /// 홈으로 출발할 예정 시각. 도착 뒤 [deliveryReturnDelay] 뒤입니다.
+  /// 관리자가 복귀를 취소하면 null 이 됩니다.
+  final DateTime? returnAt;
+
+  /// 홈 복귀가 거부·실패했을 때 그 사유. 관리자가 다시 시도하거나 지울 수 있게
+  /// 화면에 보여줍니다.
+  final String returnNote;
+
   final String abortReason;
 
+  /// 목적지로 가는 중인가.
   bool get isActive => phase == DeliveryPhase.driving;
+
+  /// 도착해서 복귀를 기다리는 중인가(예정 시각이 살아 있는가).
+  bool get isWaitingToReturn =>
+      phase == DeliveryPhase.arrived && returnAt != null;
 
   /// 로봇이 보낸 goal 이벤트가 이 배송의 것인가.
   ///
@@ -86,15 +108,19 @@ class DeliveryJob {
     DeliveryPhase? phase,
     DateTime? arrivedAt,
     bool? notified,
+    DateTime? returnAt,
+    bool clearReturnAt = false,
+    String? returnNote,
     String? abortReason,
   }) {
     return DeliveryJob(
       destination: destination,
       startedAt: startedAt,
-      origin: origin,
       phase: phase ?? this.phase,
       arrivedAt: arrivedAt ?? this.arrivedAt,
       notified: notified ?? this.notified,
+      returnAt: clearReturnAt ? null : (returnAt ?? this.returnAt),
+      returnNote: returnNote ?? this.returnNote,
       abortReason: abortReason ?? this.abortReason,
     );
   }

@@ -4,6 +4,7 @@
 //   - 같은 도착 이벤트가 두 번 오면 문자가 두 번 나간다.
 //   - 실패·취소·비상정지로 끝난 배송에 "물건 왔습니다" 문자가 나간다.
 //   - 다른 장소로 간 주행(같은 이름 포함)이 내 배송의 도착으로 잡힌다.
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vica_supervisor/core/app_settings.dart';
 import 'package:vica_supervisor/models/delivery_job.dart';
@@ -97,7 +98,7 @@ void main() {
     test('진행 중인 배송이 있으면 새 배송을 받지 않는다', () async {
       provider.setDeliveryForTest(driving());
       final message = await provider.startDelivery(const AppSettings(), _office);
-      expect(message, contains('진행 중'));
+      expect(message, contains('끝나지 않았습니다'));
     });
   });
 
@@ -196,6 +197,102 @@ void main() {
       provider.setDeliveryForTest(driving().copyWith(phase: DeliveryPhase.aborted));
       provider.clearDelivery();
       expect(provider.delivery, isNull);
+    });
+  });
+
+  group('도착 뒤 홈 복귀', () {
+    DeliveryJob arrivedJob() => driving().copyWith(
+          phase: DeliveryPhase.arrived,
+          notified: true,
+          returnAt: DateTime.now().add(deliveryReturnDelay),
+        );
+
+    test('도착하면 2분 뒤 홈 복귀가 예약된다', () async {
+      provider.setDeliveryForTest(driving());
+      final before = DateTime.now();
+      provider.handleGoalEventForTest(goalEvent('goal_succeeded'));
+      await Future<void>.delayed(Duration.zero);
+      final returnAt = provider.delivery?.returnAt;
+      expect(returnAt, isNotNull);
+      expect(returnAt!.difference(before), greaterThanOrEqualTo(deliveryReturnDelay));
+      expect(provider.delivery?.isWaitingToReturn, isTrue);
+    });
+
+    test('시간이 다 되면 홈 복귀를 요청한다 — 연결이 없으면 거부 사유를 남긴다', () {
+      fakeAsync((async) {
+        provider.setDeliveryForTest(driving());
+        provider.handleGoalEventForTest(goalEvent('goal_succeeded'));
+        async.flushMicrotasks();
+        expect(provider.delivery?.isWaitingToReturn, isTrue);
+
+        async.elapse(deliveryReturnDelay - const Duration(seconds: 1));
+        expect(provider.delivery?.isWaitingToReturn, isTrue, reason: '아직 1초 남음');
+
+        async.elapse(const Duration(seconds: 2));
+        async.flushMicrotasks();
+        // 시험에는 rosbridge 가 없어 요청이 거부됩니다. 그러면 도착 상태로 남고
+        // 사유가 적히며 예정은 지워집니다 — 관리자가 다시 판단합니다.
+        expect(provider.delivery?.phase, DeliveryPhase.arrived);
+        expect(provider.delivery?.returnAt, isNull);
+        expect(provider.delivery?.returnNote, contains('연결'));
+      });
+    });
+
+    test('관리자가 복귀를 취소하면 예정이 사라지고 로봇은 그 자리에 남는다', () {
+      fakeAsync((async) {
+        provider.setDeliveryForTest(driving());
+        provider.handleGoalEventForTest(goalEvent('goal_succeeded'));
+        async.flushMicrotasks();
+        provider.cancelDeliveryReturn();
+        expect(provider.delivery?.returnAt, isNull);
+        expect(provider.delivery?.returnNote, contains('취소'));
+
+        async.elapse(deliveryReturnDelay * 2);
+        async.flushMicrotasks();
+        expect(provider.delivery?.phase, DeliveryPhase.arrived, reason: '취소 뒤엔 시계가 안 돈다');
+      });
+    });
+
+    test('지금 복귀는 예정을 기다리지 않는다', () async {
+      provider.setDeliveryForTest(arrivedJob());
+      final message = await provider.returnDeliveryNow(const AppSettings());
+      expect(message, contains('연결'));
+      expect(provider.delivery?.returnAt, isNull);
+    });
+
+    test('복귀 중 홈 도착이면 완료, 실패면 도착 상태로 되돌린다', () {
+      provider.setDeliveryForTest(driving().copyWith(phase: DeliveryPhase.returning));
+      provider.handleGoalEventForTest(
+        goalEvent('return_home_failed', locationId: '__home__', name: '홈', reason: '경로 막힘'),
+      );
+      expect(provider.delivery?.phase, DeliveryPhase.arrived);
+      expect(provider.delivery?.returnNote, '경로 막힘');
+
+      provider.setDeliveryForTest(driving().copyWith(phase: DeliveryPhase.returning));
+      provider.handleGoalEventForTest(
+        goalEvent('return_home_succeeded', locationId: '__home__', name: '홈'),
+      );
+      expect(provider.delivery?.phase, DeliveryPhase.completed);
+    });
+
+    test('복귀 예정이 살아 있거나 복귀 중이면 지워지지 않는다', () {
+      provider.setDeliveryForTest(arrivedJob());
+      provider.clearDelivery();
+      expect(provider.delivery, isNotNull);
+
+      provider.setDeliveryForTest(driving().copyWith(phase: DeliveryPhase.returning));
+      provider.clearDelivery();
+      expect(provider.delivery, isNotNull);
+
+      provider.setDeliveryForTest(driving().copyWith(phase: DeliveryPhase.completed));
+      provider.clearDelivery();
+      expect(provider.delivery, isNull);
+    });
+
+    test('끝나지 않은 배송이 있으면 새 배송을 받지 않는다', () async {
+      provider.setDeliveryForTest(arrivedJob());
+      final message = await provider.startDelivery(const AppSettings(), _office);
+      expect(message, contains('끝나지 않았습니다'));
     });
   });
 

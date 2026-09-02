@@ -901,9 +901,16 @@ class SupervisorProvider extends ChangeNotifier {
   /// 사용자가 핸들을 잡고 따라 걷는 중에 로봇이 방향을 틀면 **사용자는 자기가
   /// 어디로 끌려가는지 모르기** 때문입니다.
   Future<String> returnHome(AppSettings settings) async {
+    final (_, message) = await _callReturnHome(settings);
+    return message;
+  }
+
+  /// 홈 복귀 서비스 호출. 관리자 버튼과 배송 자동 복귀가 같은 문으로 나갑니다.
+  /// 배송은 수락됐을 때만 '복귀 중'으로 옮겨야 해서 수락 여부를 함께 돌려줍니다.
+  Future<(bool, String)> _callReturnHome(AppSettings settings) async {
     final client = _client;
     if (client == null || _connectionState != RosConnectionState.connected) {
-      return 'ROS Bridge에 연결되지 않았습니다.';
+      return (false, 'ROS Bridge에 연결되지 않았습니다.');
     }
     try {
       final response = await client.callService(
@@ -915,11 +922,11 @@ class SupervisorProvider extends ChangeNotifier {
           ? (response.accepted ? '홈으로 복귀합니다.' : '홈 복귀 요청이 거부되었습니다.')
           : _localizeGateReason(response.message);
       _addLog(LogFilter.coordinateTransfer, message);
-      return message;
+      return (response.accepted, message);
     } catch (error) {
       final message = '홈 복귀 요청 실패: $error';
       _addLog(LogFilter.coordinateTransfer, message);
-      return message;
+      return (false, message);
     }
   }
 
@@ -933,6 +940,11 @@ class SupervisorProvider extends ChangeNotifier {
   DeliveryJob? _delivery;
   DeliveryNotifier _deliveryNotifier;
   DeliveryNotice? _pendingDeliveryNotice;
+
+  /// 도착 뒤 홈으로 출발시키는 시계. 배송을 새로 시작하거나 지우거나 관리자가
+  /// 복귀를 취소하면 멈춥니다. 앱이 닫히면 같이 사라집니다 — 그때는 관리자가
+  /// 다시 켜서 '홈으로 복귀'를 누르면 됩니다(기존 버튼).
+  Timer? _deliveryReturnTimer;
 
   /// 지금 기억하고 있는 배송. 끝난 뒤에도 관리자가 '지우기'를 누를 때까지 남아
   /// 결과를 보여줍니다.
@@ -965,15 +977,9 @@ class SupervisorProvider extends ChangeNotifier {
       return '${location.name}에는 도착 문자 연락처가 없습니다. 지도 설정에서 넣어 주세요.';
     }
     final current = _delivery;
-    if (current != null && current.isActive) {
-      return '${current.destination.name} 배송이 아직 진행 중입니다.';
+    if (current != null && !current.phase.isFinished) {
+      return '${current.destination.name} 배송이 아직 끝나지 않았습니다 (${current.phase.label}).';
     }
-    // 출발 자리는 요청을 보내기 전에 잡습니다. 수락되는 순간 로봇이 움직입니다.
-    final robot = primaryRobot;
-    final origin = robot == null
-        ? null
-        : DeliveryOrigin(x: robot.x, y: robot.y, yaw: robot.yaw);
-
     // 배송 전용 서비스로 나갑니다. 요청 모양은 같고 private 목적지만 추가로
     // 허용됩니다. 나머지 검사(접근 가능·지도 안·Nav2·E-stop)는 그대로입니다.
     final (accepted, message) = await _callRequestDestination(
@@ -985,33 +991,116 @@ class SupervisorProvider extends ChangeNotifier {
       _addLog(LogFilter.delivery, '${location.name} 배송 출발 거부: $message');
       return message;
     }
-    _delivery = DeliveryJob(
-      destination: location,
-      startedAt: DateTime.now(),
-      origin: origin,
-    );
+    _cancelDeliveryReturnTimer();
+    _delivery = DeliveryJob(destination: location, startedAt: DateTime.now());
     _pendingDeliveryNotice = null;
     _addLog(LogFilter.delivery, '${location.name} 배송 출발');
     notifyListeners();
     return '${location.name}(으)로 배송을 시작합니다.';
   }
 
-  /// 끝난 배송 표시를 지웁니다. 진행 중인 배송은 지우지 않습니다 — 주행이 아직
-  /// 살아 있는데 기억만 지우면 도착해도 문자가 안 나갑니다. 먼저 주행을 취소하세요.
+  /// 배송 표시를 지웁니다. 로봇이 움직이는 중(배송 중·홈 복귀 중)이거나 복귀
+  /// 예정이 살아 있으면 지우지 않습니다 — 기억만 지우면 도착·복귀 결과를 화면이
+  /// 못 잇고, 예정된 복귀가 관리자 모르게 나갑니다. 먼저 취소하세요.
   void clearDelivery() {
     final current = _delivery;
-    if (current == null || current.isActive) {
+    if (current == null ||
+        current.isActive ||
+        current.phase == DeliveryPhase.returning ||
+        current.isWaitingToReturn) {
       return;
     }
+    _cancelDeliveryReturnTimer();
     _delivery = null;
     _pendingDeliveryNotice = null;
     notifyListeners();
   }
 
+  /// 복귀 대기를 건너뛰고 지금 홈으로 보냅니다.
+  Future<String> returnDeliveryNow(AppSettings settings) async {
+    final job = _delivery;
+    if (job == null || job.phase != DeliveryPhase.arrived) {
+      return '복귀시킬 배송이 없습니다.';
+    }
+    _cancelDeliveryReturnTimer();
+    return _returnHomeForDelivery(settings);
+  }
+
+  /// 예정된 홈 복귀를 취소합니다. 로봇은 그 자리에 남고, 관리자가 나중에
+  /// '지금 복귀'나 원격 주행 화면의 홈 복귀로 부를 수 있습니다.
+  void cancelDeliveryReturn() {
+    final job = _delivery;
+    if (job == null || !job.isWaitingToReturn) {
+      return;
+    }
+    _cancelDeliveryReturnTimer();
+    _delivery = job.copyWith(clearReturnAt: true, returnNote: '관리자가 복귀를 취소했습니다.');
+    _addLog(LogFilter.delivery, '${job.destination.name} 배송 홈 복귀 취소(관리자)');
+    notifyListeners();
+  }
+
+  void _cancelDeliveryReturnTimer() {
+    _deliveryReturnTimer?.cancel();
+    _deliveryReturnTimer = null;
+  }
+
+  /// 도착 뒤 [deliveryReturnDelay] 를 재기 시작합니다.
+  void _scheduleDeliveryReturn(DeliveryJob job) {
+    _cancelDeliveryReturnTimer();
+    _deliveryReturnTimer = Timer(deliveryReturnDelay, () {
+      _deliveryReturnTimer = null;
+      // 시계가 울릴 때는 화면이 없을 수 있어 마지막 접속 설정을 씁니다. 접속한
+      // 적이 없으면 설정도 없지만, 그때는 클라이언트도 없어 어차피 거부됩니다.
+      unawaited(_returnHomeForDelivery(_lastSettings ?? const AppSettings()));
+    });
+  }
+
+  /// 홈 복귀 서비스를 부르고, 수락됐을 때만 '홈 복귀 중'으로 옮깁니다.
+  ///
+  /// 거부·실패(홈 미지정, E-stop, 연결 끊김)면 도착 상태로 남기고 사유를 적습니다.
+  /// 그러면 화면에 '다시 복귀'와 '지우기'가 다시 열립니다 — 로봇은 문 앞에 서 있고
+  /// 관리자가 판단합니다.
+  Future<String> _returnHomeForDelivery(AppSettings settings) async {
+    final job = _delivery;
+    if (job == null || job.phase != DeliveryPhase.arrived) {
+      return '복귀시킬 배송이 없습니다.';
+    }
+    final (accepted, message) = await _callReturnHome(settings);
+    final current = _delivery;
+    if (current == null || current.phase != DeliveryPhase.arrived) {
+      // 기다리는 사이 관리자가 지우거나 새 배송을 시작했습니다.
+      return message;
+    }
+    if (accepted) {
+      _delivery = current.copyWith(
+        phase: DeliveryPhase.returning,
+        clearReturnAt: true,
+        returnNote: '',
+      );
+      _addLog(LogFilter.delivery, '${job.destination.name} 배송 홈 복귀 출발');
+    } else {
+      _delivery = current.copyWith(clearReturnAt: true, returnNote: message);
+      _addLog(LogFilter.delivery, '${job.destination.name} 배송 홈 복귀 거부: $message');
+    }
+    notifyListeners();
+    return message;
+  }
+
   /// goal 이벤트 중 이 배송에 해당하는 것만 골라 상태를 옮깁니다.
+  ///
+  /// 목적지로 가는 중에는 목적지 id 로 맞추고, 홈 복귀 중에는 홈 복귀 이벤트
+  /// (`return_home_*`)를 봅니다 — 홈은 카탈로그에 없어 id 가 `__home__` 이라
+  /// 목적지 비교로는 잡히지 않습니다.
   void _applyGoalEventToDelivery(GoalEvent event) {
     final job = _delivery;
-    if (job == null || !job.isActive) {
+    if (job == null) {
+      return;
+    }
+    if (job.phase == DeliveryPhase.returning) {
+      _applyReturnEventToDelivery(job, event);
+      return;
+    }
+    if (!job.isActive) {
       return;
     }
     if (!job.matches(locationId: event.locationId, name: event.destinationName)) {
@@ -1021,13 +1110,20 @@ class SupervisorProvider extends ChangeNotifier {
       case GoalEventKind.succeeded:
         // 빗장을 먼저 겁니다. 발송은 비동기라, 같은 이벤트가 연달아 오면
         // 결과가 돌아오기 전에 두 번째 발송이 나갈 수 있습니다.
+        final now = DateTime.now();
         final arrived = job.copyWith(
           phase: DeliveryPhase.arrived,
-          arrivedAt: DateTime.now(),
+          arrivedAt: now,
           notified: true,
+          returnAt: now.add(deliveryReturnDelay),
         );
         _delivery = arrived;
-        _addLog(LogFilter.delivery, '${job.destination.name} 배송 도착 — 문자 발송 시도');
+        _addLog(
+          LogFilter.delivery,
+          '${job.destination.name} 배송 도착 — 문자 발송 시도, '
+          '${deliveryReturnDelay.inMinutes}분 뒤 홈 복귀',
+        );
+        _scheduleDeliveryReturn(arrived);
         unawaited(_notifyDeliveryArrival(arrived));
       case GoalEventKind.failed:
       case GoalEventKind.rejected:
@@ -1041,6 +1137,27 @@ class SupervisorProvider extends ChangeNotifier {
           LogFilter.delivery,
           '${job.destination.name} 배송 중단 (${event.title}) — 문자를 보내지 않았습니다',
         );
+      default:
+        break;
+    }
+  }
+
+  void _applyReturnEventToDelivery(DeliveryJob job, GoalEvent event) {
+    switch (event.kind) {
+      case GoalEventKind.returnHomeSucceeded:
+        _delivery = job.copyWith(phase: DeliveryPhase.completed);
+        _addLog(LogFilter.delivery, '${job.destination.name} 배송 완료 — 홈 도착');
+      case GoalEventKind.returnHomeFailed:
+      case GoalEventKind.returnHomeCanceled:
+        // 로봇은 도중에 섰습니다. 도착 상태로 되돌려 관리자가 다시 보내거나
+        // 지울 수 있게 합니다. 자동으로 다시 시도하지 않습니다 — 실패한 길을
+        // 사람 없이 또 가는 것은 E-stop 뒤 자동 재개 금지와 같은 이유로 피합니다.
+        _delivery = job.copyWith(
+          phase: DeliveryPhase.arrived,
+          clearReturnAt: true,
+          returnNote: event.reason.isEmpty ? event.title : event.reason,
+        );
+        _addLog(LogFilter.delivery, '${job.destination.name} 배송 홈 복귀 중단 (${event.title})');
       default:
         break;
     }
@@ -1073,6 +1190,7 @@ class SupervisorProvider extends ChangeNotifier {
   /// 서비스 호출 없이 "배송 중" 상태를 만들어 도착 처리만 검증하는 주입 지점입니다.
   @visibleForTesting
   void setDeliveryForTest(DeliveryJob? job) {
+    _cancelDeliveryReturnTimer();
     _delivery = job;
     notifyListeners();
   }
@@ -2124,6 +2242,7 @@ class SupervisorProvider extends ChangeNotifier {
   void dispose() {
     _teleopTimer?.cancel();
     _reconnectTimer?.cancel();
+    _deliveryReturnTimer?.cancel();
     unawaited(_client?.close());
     super.dispose();
   }

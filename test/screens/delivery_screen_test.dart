@@ -140,4 +140,38 @@ void main() {
     await tester.pump();
     expect(supervisor.delivery, isNull);
   });
+
+  testWidgets('도착하면 카운트다운과 지금 복귀·복귀 취소가 뜬다', (tester) async {
+    final supervisor = await pump(tester, locations: [_office]);
+    supervisor.setDeliveryForTest(
+      DeliveryJob(destination: _office, startedAt: DateTime(2026)).copyWith(
+        phase: DeliveryPhase.arrived,
+        notified: true,
+        returnAt: DateTime.now().add(const Duration(seconds: 90)),
+      ),
+    );
+    await tester.pump();
+    expect(find.textContaining('뒤 홈 복귀'), findsOneWidget);
+    expect(find.text('지금 복귀'), findsOneWidget);
+    expect(find.text('복귀 취소'), findsOneWidget);
+
+    await tester.tap(find.text('복귀 취소'));
+    await tester.pump();
+    expect(supervisor.delivery?.returnAt, isNull);
+    expect(find.text('홈이 없습니다'), findsOneWidget, reason: '시험엔 홈이 없어 복귀 버튼이 잠긴다');
+    expect(find.text('지우기'), findsOneWidget);
+  });
+
+  testWidgets('완료된 배송은 지울 수 있다', (tester) async {
+    final supervisor = await pump(tester, locations: [_office]);
+    supervisor.setDeliveryForTest(
+      DeliveryJob(destination: _office, startedAt: DateTime(2026))
+          .copyWith(phase: DeliveryPhase.completed),
+    );
+    await tester.pump();
+    expect(find.textContaining('완료 · 홈 도착'), findsOneWidget);
+    await tester.tap(find.text('배송 완료 · 지우기'));
+    await tester.pump();
+    expect(supervisor.delivery, isNull);
+  });
 }

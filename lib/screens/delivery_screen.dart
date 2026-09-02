@@ -6,6 +6,8 @@
 //   2. 출발 전에 "물건을 실었다"를 한 번 확인한다 — 로봇은 적재 센서가 없어
 //      물건이 있는지 모른다. 이 확인은 사람의 선언이다.
 //   3. 도착하면 문자를 보내고 결과를 팝업으로 알린다.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -356,24 +358,83 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
   }
 }
 
-/// 지금 배송의 상태 카드. 주행 중이면 일시정지·취소, 끝났으면 결과와 지우기.
-class _DeliveryStatusCard extends StatelessWidget {
+/// 지금 배송의 상태 카드.
+///
+/// 배송 중이면 일시정지·취소, 도착하면 홈 복귀 카운트다운과 '지금 복귀'·'복귀 취소',
+/// 복귀 중이면 취소, 끝나면 지우기. 카운트다운 때문에 1초마다 다시 그립니다.
+class _DeliveryStatusCard extends StatefulWidget {
   const _DeliveryStatusCard({required this.job, required this.supervisor});
 
   final DeliveryJob job;
   final SupervisorProvider supervisor;
 
   @override
+  State<_DeliveryStatusCard> createState() => _DeliveryStatusCardState();
+}
+
+class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncTicker();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DeliveryStatusCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncTicker();
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  // 남은 시간을 보여줄 때만 시계를 돌립니다. 그 밖에는 그릴 이유가 없습니다.
+  void _syncTicker() {
+    final needTicker = widget.job.isWaitingToReturn;
+    if (needTicker && _ticker == null) {
+      _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) {
+          setState(() {});
+        }
+      });
+    } else if (!needTicker && _ticker != null) {
+      _ticker!.cancel();
+      _ticker = null;
+    }
+  }
+
+  String _remaining(DateTime returnAt) {
+    final left = returnAt.difference(DateTime.now());
+    final seconds = left.isNegative ? 0 : left.inSeconds;
+    final minutes = seconds ~/ 60;
+    final rest = seconds % 60;
+    return '$minutes:${rest.toString().padLeft(2, '0')}';
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final job = widget.job;
+    final supervisor = widget.supervisor;
     final paused = supervisor.navigationPaused;
     final phaseColor = switch (job.phase) {
       DeliveryPhase.driving => VicaColors.primaryDark,
       DeliveryPhase.arrived => VicaColors.green,
+      DeliveryPhase.returning => VicaColors.primaryDark,
+      DeliveryPhase.completed => VicaColors.green,
       DeliveryPhase.aborted => VicaColors.red,
     };
     final phaseText = switch (job.phase) {
       DeliveryPhase.driving => paused ? '일시정지' : '배송 중',
-      DeliveryPhase.arrived => '도착 · 문자 ${job.notified ? '발송 처리됨' : '대기'}',
+      DeliveryPhase.arrived => job.isWaitingToReturn
+          ? '도착 · ${_remaining(job.returnAt!)} 뒤 홈 복귀'
+          : '도착 · 문 앞 대기',
+      DeliveryPhase.returning => '홈 복귀 중',
+      DeliveryPhase.completed => '완료 · 홈 도착',
       DeliveryPhase.aborted => '중단',
     };
 
@@ -410,59 +471,125 @@ class _DeliveryStatusCard extends StatelessWidget {
               style: const TextStyle(color: VicaColors.red, fontSize: 13),
             ),
           ],
-          const SizedBox(height: 12),
-          if (job.isActive)
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _send(
-                      context,
-                      paused
-                          ? supervisor.resumeNavigation
-                          : supervisor.pauseNavigation,
-                    ),
-                    icon: Icon(paused ? Icons.play_arrow : Icons.pause),
-                    label: Text(paused ? '다시 출발' : '일시정지'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _confirmCancel(context),
-                    icon: const Icon(Icons.cancel_outlined),
-                    label: const Text('배송 취소'),
-                  ),
-                ),
-              ],
-            )
-          else
-            Row(
-              children: [
-                // 도착 뒤 복귀는 아직 관리자가 직접 부릅니다. 5분 대기와 출발지
-                // 복귀는 다음 단계입니다.
-                if (job.phase == DeliveryPhase.arrived &&
-                    supervisor.home != null) ...[
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _send(context, supervisor.returnHome),
-                      icon: const Icon(Icons.home_outlined),
-                      label: const Text('홈으로 복귀'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                ],
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: supervisor.clearDelivery,
-                    icon: const Icon(Icons.check),
-                    label: const Text('배송 완료 · 지우기'),
-                  ),
-                ),
-              ],
+          if (job.returnNote.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              '홈 복귀: ${job.returnNote}',
+              style: const TextStyle(color: VicaColors.red, fontSize: 13),
             ),
+          ],
+          const SizedBox(height: 12),
+          switch (job.phase) {
+            DeliveryPhase.driving => _drivingButtons(context, paused),
+            DeliveryPhase.arrived => _arrivedButtons(context),
+            DeliveryPhase.returning => _returningButtons(context),
+            DeliveryPhase.completed || DeliveryPhase.aborted =>
+              _finishedButtons(),
+          },
         ],
       ),
+    );
+  }
+
+  Widget _drivingButtons(BuildContext context, bool paused) {
+    final supervisor = widget.supervisor;
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: () => _send(
+              context,
+              paused ? supervisor.resumeNavigation : supervisor.pauseNavigation,
+            ),
+            icon: Icon(paused ? Icons.play_arrow : Icons.pause),
+            label: Text(paused ? '다시 출발' : '일시정지'),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: () => _confirmCancel(
+              context,
+              title: '배송 취소',
+              body: '진행 중인 배송 주행을 취소합니다. 도착 문자는 보내지 않습니다.',
+            ),
+            icon: const Icon(Icons.cancel_outlined),
+            label: const Text('배송 취소'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // 도착 뒤. 예정이 살아 있으면 '지금 복귀'·'복귀 취소', 취소했거나 거부됐으면
+  // '홈으로 복귀'·'지우기'. 홈이 없으면 복귀 버튼 자체를 잠급니다.
+  Widget _arrivedButtons(BuildContext context) {
+    final supervisor = widget.supervisor;
+    final job = widget.job;
+    final hasHome = supervisor.home != null;
+    if (job.isWaitingToReturn) {
+      return Row(
+        children: [
+          Expanded(
+            child: FilledButton.icon(
+              onPressed: hasHome
+                  ? () => _send(context, supervisor.returnDeliveryNow)
+                  : null,
+              icon: const Icon(Icons.home),
+              label: const Text('지금 복귀'),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: supervisor.cancelDeliveryReturn,
+              icon: const Icon(Icons.timer_off_outlined),
+              label: const Text('복귀 취소'),
+            ),
+          ),
+        ],
+      );
+    }
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: hasHome
+                ? () => _send(context, supervisor.returnDeliveryNow)
+                : null,
+            icon: const Icon(Icons.home_outlined),
+            label: Text(hasHome ? '홈으로 복귀' : '홈이 없습니다'),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: supervisor.clearDelivery,
+            icon: const Icon(Icons.check),
+            label: const Text('지우기'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _returningButtons(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: () => _confirmCancel(
+        context,
+        title: '홈 복귀 취소',
+        body: '홈으로 가던 주행을 취소합니다. 로봇은 그 자리에 섭니다.',
+      ),
+      icon: const Icon(Icons.cancel_outlined),
+      label: const Text('복귀 취소'),
+    );
+  }
+
+  Widget _finishedButtons() {
+    return OutlinedButton.icon(
+      onPressed: widget.supervisor.clearDelivery,
+      icon: const Icon(Icons.check),
+      label: const Text('배송 완료 · 지우기'),
     );
   }
 
@@ -478,16 +605,22 @@ class _DeliveryStatusCard extends StatelessWidget {
     }
   }
 
-  Future<void> _confirmCancel(BuildContext context) async {
+  // 취소는 로봇이 서므로 한 번 묻습니다. 앱 취소는 Mission Manager 가 어느 상태든
+  // (E-stop 제외) 받습니다 — 홈 복귀 중에도 같은 서비스로 세웁니다.
+  Future<void> _confirmCancel(
+    BuildContext context, {
+    required String title,
+    required String body,
+  }) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('배송 취소'),
-        content: const Text('진행 중인 배송 주행을 취소합니다. 도착 문자는 보내지 않습니다.'),
+        title: Text(title),
+        content: Text(body),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('계속 배송'),
+            child: const Text('계속'),
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
@@ -499,6 +632,6 @@ class _DeliveryStatusCard extends StatelessWidget {
     if (confirmed != true || !context.mounted) {
       return;
     }
-    await _send(context, supervisor.cancelDestination);
+    await _send(context, widget.supervisor.cancelDestination);
   }
 }
