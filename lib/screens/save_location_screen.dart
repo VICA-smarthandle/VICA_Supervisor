@@ -25,7 +25,7 @@ import '../widgets/vica_ui.dart';
 /// 셋 다 지도를 보면서 하는 일이라 모두 펼쳐 두면 지도가 손톱만 해집니다.
 /// 그리고 셋은 지도 터치를 서로 다르게 씁니다 — 장소 찍기·홈 찍기·사각형 끌기.
 /// 펼친 칸이 지도 조작권을 가지므로 지금 무엇을 찍는 중인지가 드러납니다.
-enum _SettingsPanel { none, location, home, keepout }
+enum _SettingsPanel { none, location, home, keepout, mapDelete }
 
 class SaveLocationScreen extends StatefulWidget {
   const SaveLocationScreen({super.key});
@@ -318,10 +318,18 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               onSelect: supervisor.selectKeepoutZone,
             ),
           ),
-          const SizedBox(height: 8),
-          // 지도 삭제는 목록 맨 아래에 둡니다. 되돌릴 수 없는 일이라 지도를
-          // 고르는 자리(맨 위)에서 멀리 떼어 놓습니다.
-          const MapDeleteCard(),
+          // 지도 삭제도 다른 셋과 같은 접히는 칸입니다. 되돌릴 수 없는 일이라
+          // 목록 맨 아래에 두고 **기본으로 접어** 둡니다 — 지도를 고르는
+          // 자리(맨 위)에서 멀고, 펼치는 손짓이 한 번 더 필요합니다.
+          VicaExpandPanel(
+            title: '지도 삭제',
+            icon: Icons.delete_outline,
+            summary: '${supervisor.maps.length}개',
+            expanded: _panel == _SettingsPanel.mapDelete,
+            onTap: () =>
+                _openPanel(context, supervisor, _SettingsPanel.mapDelete),
+            child: const MapDeleteCard(framed: false),
+          ),
         ],
       ],
     );
