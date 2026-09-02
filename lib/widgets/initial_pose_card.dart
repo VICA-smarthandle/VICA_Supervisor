@@ -183,7 +183,13 @@ class InitialPoseCard extends StatelessWidget {
                     // 그대로 씁니다. 앱에서 다시 계산하면 두 기준이 갈립니다.
                     onPressed: result!.ok && !busy ? onCommit : null,
                     icon: const Icon(Icons.check),
-                    label: const Text('이 위치로 확정'),
+                    // 두 줄로 끊어 씁니다. 한 줄로 두면 좁은 화면에서 마지막
+                    // 한 글자만 밑줄로 떨어져 읽기 나쁩니다(2026-09-02 실기).
+                    // 끊는 자리를 사람이 정해야 '확정'이 통째로 남습니다.
+                    label: const Text(
+                      '지금 위치\n확정',
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),

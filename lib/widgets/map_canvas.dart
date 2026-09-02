@@ -269,9 +269,11 @@ class MapCanvas extends StatelessWidget {
                     // 홈은 장소 마커보다 **위**입니다. 지도에 하나뿐이고, 장소가
                     // 촘촘한 곳에 있으면 가려져 못 찾습니다.
                     //
-                    // 색: 저장 장소가 이미 Colors.blue 라 같은 파랑을 쓰면
-                    // 구분이 안 됩니다. 앱 팔레트의 남색을 씁니다 — 여전히
-                    // 푸른 계열이면서 하늘색과는 한눈에 갈립니다.
+                    // 색: 밝은 주황입니다(2026-09-02 실기 판정). 처음에 팔레트의
+                    // 남색을 썼는데 장소 마커의 파랑과 실기에서 거의 구분되지
+                    // 않았습니다 — 작은 점에서는 명도 차이만으로 안 갈립니다.
+                    // 아래 '선택 위치'도 주황 계열이지만 그쪽은 속 빈 원이고
+                    // 찍는 동안만 잠깐 보입니다.
                     if (homePoint != null)
                       _Marker(
                         offset: _scaledOffset(
@@ -280,7 +282,7 @@ class MapCanvas extends StatelessWidget {
                           scale,
                         ),
                         label: '홈',
-                        color: VicaColors.primaryDark,
+                        color: Colors.orange,
                         size: _markerSize,
                       ),
                     if (draftLocation != null)

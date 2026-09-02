@@ -175,6 +175,11 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                       supervisor.home != null
                   ? Offset(supervisor.home!.x, supervisor.home!.y)
                   : null,
+              // 금지구역도 함께 보여 줍니다(2026-09-02 사용자 요청). 로봇이
+              // 못 가는 자리를 알아야 목적지를 고르고 경로를 이해할 수
+              // 있습니다 — 여기서 편집은 하지 않으므로 그리기용 인자는
+              // 넘기지 않습니다. 보기 전용입니다.
+              keepoutZones: supervisor.keepoutZonesFor(map.mapId),
               onTapMap: _picking ? _onTapMap : null,
               onSelectLocation: (location) =>
                   supervisor.selectLocation(location.locationId),
