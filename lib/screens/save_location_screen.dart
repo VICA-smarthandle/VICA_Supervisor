@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 
 import '../core/app_settings.dart';
 import '../core/contact_phone.dart';
+import '../core/location_edit.dart';
 import '../core/destination_categories.dart';
 import '../models/home_position.dart';
 import '../models/location_point.dart';
@@ -77,6 +78,11 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   // 임시 저장 장소를 수정하는 중이면 그 id를 들고 있습니다. 새로 저장할 때 id가
   // 바뀌면 같은 장소가 둘로 늘어나므로, 수정 중에는 기존 id를 그대로 씁니다.
   String? _editingLocationId;
+  // 젯슨에 저장된 장소를 고치는 중이면 그 원본입니다(2026-09-03). 임시 저장 수정과
+  // 다른 점: 시트의 저장이 임시 저장이 아니라 **ROS 에 바로** 나가고, 이름이 그대로면
+  // 원본 멘트를 지킵니다(core/location_edit.dart). 시트를 닫아도 점과 폼은 남아
+  // 지도를 눌러 점을 옮긴 뒤 다시 열 수 있습니다.
+  LocationPoint? _editingSaved;
   String? _category1;
   String? _category2;
   String _authorization = 'public';
@@ -208,6 +214,12 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                 // 장소 칸을 펼쳤을 때만 지도 탭이 '장소 찍기'입니다. 접혀 있는데도
                 // 점이 찍히면 관리자가 무엇을 하고 있었는지 화면에 드러나지 않습니다.
                 if (_panel != _SettingsPanel.location) {
+                  return;
+                }
+                // 저장된 장소를 고치는 중이면 점만 옮깁니다. 폼을 비우면 관리자가
+                // 적어 둔 것이 사라집니다.
+                if (_editingSaved != null) {
+                  setState(() => _pickedRos = ros);
                   return;
                 }
                 // 임시 저장 장소를 버리는 것은 의도한 동작입니다. 최종 저장 전에
@@ -435,8 +447,13 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
           Text(
             _pickedRos == null
                 ? '지도를 눌러 저장할 위치를 찍으세요. 다시 누르면 점이 옮겨갑니다.'
-                : '선택 위치   x ${_pickedRos!.dx.toStringAsFixed(2)}   '
-                    'y ${_pickedRos!.dy.toStringAsFixed(2)}',
+                : _editingSaved != null
+                    ? '수정 중: ${_editingSaved!.name}   '
+                        'x ${_pickedRos!.dx.toStringAsFixed(2)}   '
+                        'y ${_pickedRos!.dy.toStringAsFixed(2)}   '
+                        '(지도를 누르면 점이 옮겨갑니다)'
+                    : '선택 위치   x ${_pickedRos!.dx.toStringAsFixed(2)}   '
+                        'y ${_pickedRos!.dy.toStringAsFixed(2)}',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 12),
@@ -453,7 +470,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                             locations,
                           ),
                   icon: const Icon(Icons.edit_location_alt_outlined),
-                  label: const Text('장소 정보 입력'),
+                  label: Text(_editingSaved == null ? '장소 정보 입력' : '수정 내용 입력'),
                 ),
               ),
               const SizedBox(width: 10),
@@ -493,12 +510,39 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
           onChanged: (value) => setState(() => _deleteTargetId = value),
         ),
         const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: deleteTarget == null
-              ? null
-              : () => supervisor.deleteLocation(settings, deleteTarget),
-          icon: const Icon(Icons.delete_outline),
-          label: const Text('선택 장소 삭제'),
+        Row(
+          children: [
+            Expanded(
+              // 저장된 장소를 고칩니다. 새 메뉴를 두지 않고 삭제와 같은 자리에 두는
+              // 이유: 저장·수정·삭제가 한 곳이라 배울 것이 없고, 어느 장소인지
+              // 지도에서 바로 보입니다(2026-09-03 사용자 결정). 임시 저장이 있는
+              // 동안은 잠급니다 — 두 장소를 동시에 편집하면 어느 쪽이 저장되는지
+              // 화면이 말해 주지 못합니다.
+              child: OutlinedButton.icon(
+                onPressed: deleteTarget == null || draft != null
+                    ? null
+                    : () => _editSavedLocation(
+                          context,
+                          supervisor,
+                          deleteTarget,
+                          mapId,
+                          locations,
+                        ),
+                icon: const Icon(Icons.edit_location_alt_outlined),
+                label: const Text('선택 장소 수정'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: deleteTarget == null
+                    ? null
+                    : () => supervisor.deleteLocation(settings, deleteTarget),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('선택 장소 삭제'),
+              ),
+            ),
+          ],
         ),
         if (draft != null) ...[
           const SizedBox(height: 14),
@@ -1127,18 +1171,35 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                                         false)) {
                                       return;
                                     }
+                                    if (_editingSaved != null) {
+                                      // 저장된 장소 수정은 바로 ROS 로 나간다.
+                                      final message = _saveEditedToRos(
+                                        supervisor,
+                                        sheetContext
+                                            .read<SettingsProvider>()
+                                            .settings,
+                                        mapId,
+                                      );
+                                      Navigator.of(sheetContext).pop();
+                                      _showSnack(context, message);
+                                      return;
+                                    }
                                     _saveDraft(supervisor, mapId);
                                     Navigator.of(sheetContext).pop();
                                   },
                             icon: Icon(
-                              _editingLocationId == null
-                                  ? Icons.add_location_alt
-                                  : Icons.save_outlined,
+                              _editingSaved != null
+                                  ? Icons.cloud_upload
+                                  : _editingLocationId == null
+                                      ? Icons.add_location_alt
+                                      : Icons.save_outlined,
                             ),
                             label: Text(
-                              _editingLocationId == null
-                                  ? '장소 임시 저장'
-                                  : '수정 내용 저장',
+                              _editingSaved != null
+                                  ? 'ROS2에 수정 저장'
+                                  : _editingLocationId == null
+                                      ? '장소 임시 저장'
+                                      : '수정 내용 저장',
                             ),
                           ),
                           const SizedBox(height: 10),
@@ -1204,13 +1265,39 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     SupervisorProvider supervisor,
     String mapId,
   ) {
-    final picked = _pickedRos;
-    if (picked == null || _category1 == null || _category2 == null) {
+    final point = _locationFromForm(mapId);
+    if (point == null) {
       return;
     }
+    supervisor.setDraftLocation(point);
+  }
+
+  /// 저장된 장소를 고친 것을 바로 ROS 에 보냅니다. 보냈으면 점과 폼을 정리합니다.
+  String _saveEditedToRos(
+    SupervisorProvider supervisor,
+    AppSettings settings,
+    String mapId,
+  ) {
+    final point = _locationFromForm(mapId);
+    if (point == null) {
+      return '입력이 비어 저장하지 못했습니다.';
+    }
+    final merged = mergeEditedLocation(edited: point, original: _editingSaved);
+    final (sent, message) = supervisor.saveLocation(settings, merged);
+    if (sent) {
+      _clearPickedLocation();
+    }
+    return message;
+  }
+
+  /// 폼에 적힌 것으로 장소 한 건을 만듭니다. 좌표나 분류가 없으면 null 입니다.
+  LocationPoint? _locationFromForm(String mapId) {
+    final picked = _pickedRos;
+    if (picked == null || _category1 == null || _category2 == null) {
+      return null;
+    }
     final name = _nameController.text.trim();
-    supervisor.setDraftLocation(
-      LocationPoint(
+    return LocationPoint(
         // 수정 중이면 기존 id를 유지해야 같은 장소로 갱신됩니다.
         locationId: _editingLocationId ?? _uuid.v4(),
         mapId: mapId,
@@ -1232,8 +1319,22 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
         yaw: _yawFromDirection(_yawDirection),
         confirmPrompt: '$name으로 안내해드릴까요?',
         arrivalMessage: '$name 앞에 도착했습니다.',
-      ),
     );
+  }
+
+  // 젯슨에 저장된 장소를 고칩니다. 폼에 원본을 채우고 시트를 엽니다. 시트를 닫아도
+  // 점과 폼은 남습니다 — 지도를 눌러 점을 옮긴 뒤 '수정 내용 입력'으로 다시 열 수
+  // 있습니다. '선택 취소'가 수정을 접습니다.
+  Future<void> _editSavedLocation(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    LocationPoint location,
+    String mapId,
+    List<LocationPoint> locations,
+  ) async {
+    _loadDraftIntoForm(location);
+    setState(() => _editingSaved = location);
+    await _showLocationInfoSheet(context, supervisor, mapId, locations);
   }
 
   // 임시 저장된 장소를 다시 편집합니다. 입력 폼은 임시 저장 직후 비워지므로
@@ -1304,7 +1405,10 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
 
   void _clearPickedLocation() {
     _resetLocationInput();
-    setState(() => _pickedRos = null);
+    setState(() {
+      _pickedRos = null;
+      _editingSaved = null;
+    });
   }
 
   // _yawFromDirection의 역변환. 저장된 각도를 가장 가까운 방향으로 되돌립니다.

@@ -574,25 +574,49 @@ class SupervisorProvider extends ChangeNotifier {
     if (draft == null) {
       return;
     }
-    final destination = draft.toJson();
-    final pose = Map<String, Object>.from(
-      destination['pose']! as Map<String, Object>,
-    );
-    pose['yaw'] = _normalizeYawDegrees(draft.yaw);
-    final payload = {
-      'request_id': _uuid.v4(),
-      'map_id': draft.mapId,
-      ...destination,
-      'pose': pose,
-      'timestamp': DateTime.now().toIso8601String(),
-    };
     _client?.publishJsonString(
       topic: settings.saveLocationTopic,
-      payload: payload,
+      payload: _locationPayload(draft),
     );
     _addLog(LogFilter.coordinateTransfer, '${draft.name} 장소 저장 요청 전송');
     _draftLocation = null;
     notifyListeners();
+  }
+
+  /// 저장된 장소를 고쳐 **바로** ROS 에 저장합니다(사용자 결정 2026-09-03).
+  ///
+  /// 임시 저장 단계가 없습니다 — 이미 있는 장소를 손보는 일이라 되돌릴 대상이
+  /// 젯슨에 남아 있고, 같은 id 로 보내면 저장 노드가 그 자리를 덮어씁니다.
+  /// 연결이 없으면 보내지 않았다고 분명히 답합니다. 보낸 척하면 관리자는 고쳤다고
+  /// 믿고 자리를 뜹니다.
+  (bool, String) saveLocation(AppSettings settings, LocationPoint location) {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return (false, 'rosbridge 연결이 없어 ${location.name} 을(를) 저장하지 못했습니다.');
+    }
+    client.publishJsonString(
+      topic: settings.saveLocationTopic,
+      payload: _locationPayload(location),
+    );
+    _addLog(LogFilter.coordinateTransfer, '${location.name} 장소 수정 저장 요청 전송');
+    notifyListeners();
+    return (true, '${location.name} 수정을 저장했습니다.');
+  }
+
+  /// /save_location 에 싣는 모양. 새 저장과 수정 저장이 같은 모양을 씁니다.
+  Map<String, Object?> _locationPayload(LocationPoint location) {
+    final destination = location.toJson();
+    final pose = Map<String, Object>.from(
+      destination['pose']! as Map<String, Object>,
+    );
+    pose['yaw'] = _normalizeYawDegrees(location.yaw);
+    return {
+      'request_id': _uuid.v4(),
+      'map_id': location.mapId,
+      ...destination,
+      'pose': pose,
+      'timestamp': DateTime.now().toIso8601String(),
+    };
   }
 
   double _normalizeYawDegrees(double yaw) {

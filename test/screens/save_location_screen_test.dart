@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:vica_supervisor/models/location_point.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/screens/save_location_screen.dart';
@@ -14,7 +15,28 @@ import 'package:vica_supervisor/widgets/map_canvas.dart';
 class _FakeSupervisor extends SupervisorProvider {
   void injectMaps(Map<String, Object?> message) =>
       handleMapListForTest(message);
+
+  void injectLocations(List<LocationPoint> locations) =>
+      handleLocationListForTest({
+        'map_id': 'vica_map_test',
+        'locations': locations.map((e) => e.toJson()).toList(),
+      });
 }
+
+const _savedRestroom = LocationPoint(
+  locationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  mapId: 'vica_map_test',
+  name: '화장실',
+  x: 1,
+  y: 2,
+  yaw: 90,
+  category1: 'facility',
+  category2: 'restroom',
+  building: '로봇관',
+  floor: 4,
+  confirmPrompt: '화장실로 안내해드릴까요?',
+  arrivalMessage: '화장실 앞에 도착했습니다.',
+);
 
 Map<String, Object?> mapListMsg() {
   return {
@@ -150,5 +172,32 @@ void main() {
 
     expect(find.textContaining('1.50'), findsNothing);
     expect(find.textContaining('지도를 눌러'), findsOneWidget);
+  });
+
+  // ---- 저장된 장소 수정 (2026-09-03) ----------------------------------------
+
+  testWidgets('선택 장소 수정을 누르면 원본이 채워진 시트가 열리고 저장은 ROS 로 바로 간다',
+      (tester) async {
+    final supervisor = await pumpWithMap(tester);
+    supervisor.injectLocations([_savedRestroom]);
+    await tester.pump();
+
+    // 저장된 장소가 하나뿐이라 드롭다운 기본 선택이 그것이다.
+    final edit = find.widgetWithText(OutlinedButton, '선택 장소 수정');
+    expect(edit, findsOneWidget);
+    await tester.tap(edit);
+    await tester.pumpAndSettle();
+
+    expect(find.text('ROS2에 수정 저장'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, '화장실'), findsOneWidget);
+    expect(find.text('장소 임시 저장'), findsNothing);
+  });
+
+  testWidgets('저장된 장소가 없으면 수정 버튼은 잠긴다', (tester) async {
+    await pumpWithMap(tester);
+    final button = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, '선택 장소 수정'),
+    );
+    expect(button.onPressed, isNull);
   });
 }
