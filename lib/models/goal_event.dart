@@ -79,6 +79,7 @@ class GoalEvent {
     required this.id,
     required this.kind,
     required this.destinationName,
+    this.locationId = '',
     required this.reason,
     required this.mapId,
     required this.receivedAt,
@@ -90,6 +91,11 @@ class GoalEvent {
 
   final GoalEventKind kind;
   final String destinationName;
+
+  /// 로봇이 실어 보낸 목적지 id. 배송이 "내 주행이 끝났나"를 이름이 아니라
+  /// 이것으로 맞춥니다 — 같은 이름의 장소가 둘이면 이름은 믿을 수 없습니다.
+  /// 홈 복귀처럼 카탈로그에 없는 자리는 `__home__` 같은 값이 옵니다.
+  final String locationId;
 
   /// 로봇이 적어 보낸 사유입니다. 비어 있을 수 있습니다.
   final String reason;
@@ -110,6 +116,11 @@ class GoalEvent {
       id: id,
       kind: GoalEventKind.fromWire(json['event'] as String?),
       destinationName: (json['name'] as String?)?.trim() ?? '',
+      // mission_manager_node._publish_goal_event 는 location_id 와
+      // destination_id 에 같은 값을 싣습니다. 둘 중 있는 쪽을 씁니다.
+      locationId: ((json['location_id'] ?? json['destination_id']) as String?)
+              ?.trim() ??
+          '',
       reason: (json['reason'] as String?)?.trim() ?? '',
       mapId: (json['map_id'] as String?)?.trim() ?? '',
       receivedAt: DateTime.now(),

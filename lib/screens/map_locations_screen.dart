@@ -3,11 +3,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../core/app_settings.dart';
 import '../models/location_point.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../widgets/initial_pose_card.dart';
+import '../widgets/drive_control_bar.dart';
+import '../widgets/drive_map_canvas.dart';
 import '../widgets/map_canvas.dart';
 import '../widgets/vica_ui.dart';
 
@@ -107,7 +108,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                     value: item.mapId,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Text(item.mapName),
+                      child: Text(item.displayName),
                     ),
                   ),
                 )
@@ -117,7 +118,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                   (item) => Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      item.mapName,
+                      item.displayName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -136,56 +137,45 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
             label: const Text('동기화', maxLines: 1),
           ),
         ),
+        CurrentMapNotice(supervisor: supervisor, map: map),
         const SizedBox(height: 18),
         if (map == null)
           const VicaCard(child: Text('지도 목록을 먼저 불러오세요.'))
         else ...[
-          ResponsiveMapFrame(
+          // 홈·금지구역·로봇 위치는 주행 화면 공통(DriveMapCanvas). 이 화면은
+          // 장소 전체를 보이고, 초기 위치 잡기의 짚은 점·자세·라이다 점만 얹습니다.
+          DriveMapCanvas(
             map: map,
-            child: MapCanvas(
-              map: map,
-              settings: settings,
-              locations: locations,
-              selectedLocationId: supervisor.selectedLocationId,
-              robot: supervisor.primaryRobot,
-              pickedLocation: _picking && _picked != null
-                  ? LocationPoint(
-                      locationId: '_initial_pose',
-                      mapId: map.mapId,
-                      name: '짚은 자리',
-                      x: _picked!.dx,
-                      y: _picked!.dy,
-                      yaw: 0,
-                    )
-                  : null,
-              poseArrow: _picking && supervisor.poseCheck != null
-                  ? MapPoseArrow(
-                      x: supervisor.poseCheck!.x,
-                      y: supervisor.poseCheck!.y,
-                      yawDegrees: supervisor.poseCheck!.yawDegrees,
-                      label: '찾아낸 자세',
-                    )
-                  : null,
-              // 확인한 자세에서 본 라이다 점. 확정 뒤에는 AMCL 자세의 점으로
-              // 바뀝니다 — 반영이 제대로 됐는지 눈으로 볼 마지막 그림입니다.
-              scanHits: supervisor.poseCheck?.scanHits.isNotEmpty == true
-                  ? supervisor.poseCheck!.scanHits
-                  : supervisor.committedScanHits,
-              // 홈이 어디인지 여기서도 보여 줍니다. '홈으로 복귀'를 누르기 전에
-              // 로봇이 어디로 갈지 지도에서 확인할 수 있어야 합니다.
-              homePoint: supervisor.homeBelongsTo(map.mapId) &&
-                      supervisor.home != null
-                  ? Offset(supervisor.home!.x, supervisor.home!.y)
-                  : null,
-              // 금지구역도 함께 보여 줍니다(2026-09-02 사용자 요청). 로봇이
-              // 못 가는 자리를 알아야 목적지를 고르고 경로를 이해할 수
-              // 있습니다 — 여기서 편집은 하지 않으므로 그리기용 인자는
-              // 넘기지 않습니다. 보기 전용입니다.
-              keepoutZones: supervisor.keepoutZonesFor(map.mapId),
-              onTapMap: _picking ? _onTapMap : null,
-              onSelectLocation: (location) =>
-                  supervisor.selectLocation(location.locationId),
-            ),
+            settings: settings,
+            supervisor: supervisor,
+            locations: locations,
+            selectedLocationId: supervisor.selectedLocationId,
+            pickedLocation: _picking && _picked != null
+                ? LocationPoint(
+                    locationId: '_initial_pose',
+                    mapId: map.mapId,
+                    name: '짚은 자리',
+                    x: _picked!.dx,
+                    y: _picked!.dy,
+                    yaw: 0,
+                  )
+                : null,
+            poseArrow: _picking && supervisor.poseCheck != null
+                ? MapPoseArrow(
+                    x: supervisor.poseCheck!.x,
+                    y: supervisor.poseCheck!.y,
+                    yawDegrees: supervisor.poseCheck!.yawDegrees,
+                    label: '찾아낸 자세',
+                  )
+                : null,
+            // 확인한 자세에서 본 라이다 점. 확정 뒤에는 AMCL 자세의 점으로
+            // 바뀝니다 — 반영이 제대로 됐는지 눈으로 볼 마지막 그림입니다.
+            scanHits: supervisor.poseCheck?.scanHits.isNotEmpty == true
+                ? supervisor.poseCheck!.scanHits
+                : supervisor.committedScanHits,
+            onTapMap: _picking ? _onTapMap : null,
+            onSelectLocation: (location) =>
+                supervisor.selectLocation(location.locationId),
           ),
           const SizedBox(height: 20),
           if (_picking)
@@ -277,31 +267,14 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                 ),
                 if (driving || paused) ...[
                   const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _sendMissionCommand(
-                            context,
-                            paused
-                                ? supervisor.resumeNavigation
-                                : supervisor.pauseNavigation,
-                          ),
-                          icon: Icon(
-                            paused ? Icons.play_arrow : Icons.pause,
-                          ),
-                          label: Text(paused ? '다시 출발' : '일시정지'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _confirmCancel(context, supervisor),
-                          icon: const Icon(Icons.cancel_outlined),
-                          label: const Text('주행 취소'),
-                        ),
-                      ),
-                    ],
+                  // 물류 배송과 같은 버튼 한 벌(2026-09-03 통일).
+                  DriveControlBar(
+                    supervisor: supervisor,
+                    paused: paused,
+                    cancelLabel: '주행 취소',
+                    cancelTitle: '주행 취소',
+                    cancelBody: '진행 중인 주행을 취소합니다. 목적지는 지워지며 다시 요청해야 합니다.',
+                    keepLabel: '계속 주행',
                   ),
                 ],
                 // 홈 복귀는 **관리자 전용**입니다. 사용자(음성)에게는 이 문이
@@ -486,48 +459,6 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
         ],
       ),
     );
-  }
-
-  // 일시정지와 다시 출발은 되돌릴 수 있어 확인 없이 바로 보냅니다.
-  static Future<void> _sendMissionCommand(
-    BuildContext context,
-    Future<String> Function(AppSettings) send,
-  ) async {
-    final settings = context.read<SettingsProvider>().settings;
-    final message = await send(settings);
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
-    }
-  }
-
-  // 취소는 진행하던 안내가 사라지므로 한 번 확인합니다.
-  static Future<void> _confirmCancel(
-    BuildContext context,
-    SupervisorProvider supervisor,
-  ) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('주행 취소'),
-        content: const Text('진행 중인 주행을 취소합니다. 목적지는 지워지며 다시 요청해야 합니다.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('계속 주행'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('취소하기'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !context.mounted) {
-      return;
-    }
-    await _sendMissionCommand(context, supervisor.cancelDestination);
   }
 
   // 실제 로봇이 움직이므로 요청 전에 한 번 확인합니다.

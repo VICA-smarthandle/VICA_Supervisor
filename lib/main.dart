@@ -14,10 +14,14 @@ Future<void> main() async {
   final authProvider = AuthProvider();
   final settingsProvider = SettingsProvider();
   final uiPreferencesProvider = UiPreferencesProvider();
+  // 배송 기억도 연결 전에 되살립니다. 연결 뒤 첫 로봇 상태가 그 기억과 대조하는데,
+  // 되살리기가 늦으면 대조할 기회를 놓칩니다(2026-09-03).
+  final supervisorProvider = SupervisorProvider();
   await Future.wait([
     authProvider.load(),
     settingsProvider.load(),
     uiPreferencesProvider.load(),
+    supervisorProvider.restoreDelivery(),
   ]);
   runApp(
     MultiProvider(
@@ -25,7 +29,7 @@ Future<void> main() async {
         ChangeNotifierProvider.value(value: authProvider),
         ChangeNotifierProvider.value(value: settingsProvider),
         ChangeNotifierProvider.value(value: uiPreferencesProvider),
-        ChangeNotifierProvider(create: (_) => SupervisorProvider()),
+        ChangeNotifierProvider.value(value: supervisorProvider),
         ChangeNotifierProvider(create: (_) => AppModeProvider()),
       ],
       child: const VicaSupervisorApp(),

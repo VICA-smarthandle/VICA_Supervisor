@@ -13,6 +13,7 @@ import 'providers/ui_preferences_provider.dart';
 import 'widgets/vica_ui.dart';
 import 'screens/current_location_screen.dart';
 import 'screens/dashboard_screen.dart';
+import 'screens/delivery_screen.dart';
 import 'screens/logs_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/map_locations_screen.dart';
@@ -163,6 +164,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
         ),
         const SaveLocationScreen(),
         const MapLocationsScreen(),
+        const DeliveryScreen(),
         const CurrentLocationScreen(),
         const SystemDiagnosticsScreen(),
         const LogsScreen(),
@@ -184,6 +186,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
     '대시보드',
     '지도 설정',
     '원격 주행',
+    '물류 배송',
     '현재 위치',
     '시스템 진단',
     '알림 및 로그',
@@ -707,6 +710,10 @@ class _SupervisorShellState extends State<SupervisorShell> {
       label: Text('원격 주행'),
     ),
     NavigationDrawerDestination(
+      icon: Icon(Icons.local_shipping),
+      label: Text('물류 배송'),
+    ),
+    NavigationDrawerDestination(
       icon: Icon(Icons.my_location),
       label: Text('현재 위치'),
     ),
@@ -739,6 +746,11 @@ class _SupervisorShellState extends State<SupervisorShell> {
       icon: Icons.navigation_outlined,
       selectedIcon: Icons.navigation,
       label: '원격 주행',
+    ),
+    _SidebarNavigationItem(
+      icon: Icons.local_shipping_outlined,
+      selectedIcon: Icons.local_shipping,
+      label: '물류 배송',
     ),
     _SidebarNavigationItem(
       icon: Icons.my_location_outlined,

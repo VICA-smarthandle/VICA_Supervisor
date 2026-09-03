@@ -78,7 +78,7 @@ class _MapDeleteCardState extends State<MapDeleteCard> {
                     (map) => DropdownMenuItem(
                       value: map.mapId,
                       child: Text(
-                        map.mapName,
+                        map.displayName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),

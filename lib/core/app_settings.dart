@@ -18,6 +18,7 @@ class AppSettings {
     this.saveLocationTopic = '/save_location',
     this.deleteLocationRequestTopic = '/delete_location_request',
     this.missionRequestService = '/vica/mission/request_destination',
+    this.missionDeliveryService = '/vica/mission/request_delivery',
     this.missionCancelService = '/vica/mission/cancel_destination',
     this.missionPauseService = '/vica/mission/pause_navigation',
     this.missionResumeService = '/vica/mission/resume_navigation',
@@ -114,6 +115,11 @@ class AppSettings {
   final String goalEventTopic;
 
   final String missionRequestService;
+  // 물류 배송 요청. 요청 모양은 목적지 주행과 같고(RequestDestination) private
+  // 목적지만 추가로 허용합니다. 이름을 따로 둔 이유는 MissionCommand 와 같습니다 —
+  // "무엇을 할지는 service 이름이 정한다". 음성/LLM 은 서비스 클라이언트가 없어
+  // 이 문에 닿지 못합니다.
+  final String missionDeliveryService;
   // 진행 중인 주행 제어. 모두 vica_interfaces/srv/MissionCommand를 씁니다.
   final String missionCancelService;
   final String missionPauseService;
@@ -163,6 +169,7 @@ class AppSettings {
     String? missionReturnHomeService,
     String? goalEventTopic,
     String? missionRequestService,
+    String? missionDeliveryService,
     String? missionCancelService,
     String? missionPauseService,
     String? missionResumeService,
@@ -215,6 +222,8 @@ class AppSettings {
       goalEventTopic: goalEventTopic ?? this.goalEventTopic,
       missionRequestService:
           missionRequestService ?? this.missionRequestService,
+      missionDeliveryService:
+          missionDeliveryService ?? this.missionDeliveryService,
       missionCancelService: missionCancelService ?? this.missionCancelService,
       missionPauseService: missionPauseService ?? this.missionPauseService,
       missionResumeService: missionResumeService ?? this.missionResumeService,
@@ -262,6 +271,7 @@ class AppSettings {
       'mappingStopService': mappingStopService,
       'mappingSaveService': mappingSaveService,
       'missionRequestService': missionRequestService,
+      'missionDeliveryService': missionDeliveryService,
       'missionCancelService': missionCancelService,
       'missionPauseService': missionPauseService,
       'missionResumeService': missionResumeService,
@@ -318,6 +328,8 @@ class AppSettings {
           json['mappingSaveService'] as String? ?? defaults.mappingSaveService,
       missionRequestService: json['missionRequestService'] as String? ??
           defaults.missionRequestService,
+      missionDeliveryService: json['missionDeliveryService'] as String? ??
+          defaults.missionDeliveryService,
       missionCancelService: json['missionCancelService'] as String? ??
           defaults.missionCancelService,
       missionPauseService: json['missionPauseService'] as String? ??
