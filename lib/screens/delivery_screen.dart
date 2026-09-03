@@ -17,7 +17,8 @@ import '../models/delivery_job.dart';
 import '../models/location_point.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
-import '../widgets/map_canvas.dart';
+import '../widgets/drive_control_bar.dart';
+import '../widgets/drive_map_canvas.dart';
 import '../widgets/vica_ui.dart';
 
 class DeliveryScreen extends StatefulWidget {
@@ -72,7 +73,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
                     value: item.mapId,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Text(item.mapName),
+                      child: Text(item.displayName),
                     ),
                   ),
                 )
@@ -82,7 +83,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
                   (item) => Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      item.mapName,
+                      item.displayName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -97,30 +98,31 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
           action: OutlinedButton.icon(
             onPressed: map == null
                 ? null
-                : () => supervisor.requestLocationList(settings, map.mapId),
+                // 장소·홈·금지구역을 함께 받습니다 — 원격 주행의 '동기화'와
+                // 같은 뜻이어야 합니다.
+                : () => supervisor.refreshMapData(settings, map.mapId),
             icon: const Icon(Icons.sync, size: 18),
             label: const Text('동기화', maxLines: 1),
           ),
         ),
+        CurrentMapNotice(supervisor: supervisor, map: map),
         const SizedBox(height: 18),
         if (map == null)
           const VicaCard(child: Text('지도 목록을 먼저 불러오세요.'))
         else ...[
-          ResponsiveMapFrame(
+          // 홈·금지구역·로봇 위치는 주행 화면 공통으로 DriveMapCanvas 가 채웁니다.
+          // 장소만 이 화면이 정합니다 — 연락처 있는 곳만. 지도에 보이는 것이
+          // 곧 고를 수 있는 것(사용자 결정 2026-09-03).
+          DriveMapCanvas(
             map: map,
-            child: MapCanvas(
-              map: map,
-              settings: settings,
-              // 연락처 있는 장소만 그립니다. 지도에 보이는 것이 곧 고를 수 있는 것.
-              locations: candidates,
-              selectedLocationId: _selectedId,
-              robot: supervisor.primaryRobot,
-              keepoutZones: supervisor.keepoutZonesFor(map.mapId),
-              onSelectLocation: busy
-                  ? null
-                  : (location) =>
-                      setState(() => _selectedId = location.locationId),
-            ),
+            settings: settings,
+            supervisor: supervisor,
+            locations: candidates,
+            selectedLocationId: _selectedId,
+            onSelectLocation: busy
+                ? null
+                : (location) =>
+                    setState(() => _selectedId = location.locationId),
           ),
           const SizedBox(height: 20),
           if (job != null) ...[
@@ -360,8 +362,9 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
 
 /// 지금 배송의 상태 카드.
 ///
-/// 배송 중이면 일시정지·취소, 도착하면 홈 복귀 카운트다운과 '지금 복귀'·'복귀 취소',
-/// 복귀 중이면 취소, 끝나면 지우기. 카운트다운 때문에 1초마다 다시 그립니다.
+/// 배송 중·홈 복귀 중이면 일시정지·다시 출발·취소(원격 주행과 같은 한 벌),
+/// 도착하면 홈 복귀 카운트다운과 '지금 복귀'·'복귀 취소', 확인 필요면 '도착 처리'·
+/// '지우기', 끝나면 지우기. 카운트다운 때문에 1초마다 다시 그립니다.
 class _DeliveryStatusCard extends StatefulWidget {
   const _DeliveryStatusCard({required this.job, required this.supervisor});
 
@@ -427,15 +430,17 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
       DeliveryPhase.returning => VicaColors.primaryDark,
       DeliveryPhase.completed => VicaColors.green,
       DeliveryPhase.aborted => VicaColors.red,
+      DeliveryPhase.unconfirmed => VicaColors.red,
     };
     final phaseText = switch (job.phase) {
       DeliveryPhase.driving => paused ? '일시정지' : '배송 중',
       DeliveryPhase.arrived => job.isWaitingToReturn
           ? '도착 · ${_remaining(job.returnAt!)} 뒤 홈 복귀'
           : '도착 · 문 앞 대기',
-      DeliveryPhase.returning => '홈 복귀 중',
+      DeliveryPhase.returning => paused ? '홈 복귀 일시정지' : '홈 복귀 중',
       DeliveryPhase.completed => '완료 · 홈 도착',
       DeliveryPhase.aborted => '중단',
+      DeliveryPhase.unconfirmed => '확인 필요',
     };
 
     return VicaCard(
@@ -471,6 +476,14 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
               style: const TextStyle(color: VicaColors.red, fontSize: 13),
             ),
           ],
+          if (job.phase == DeliveryPhase.unconfirmed) ...[
+            const SizedBox(height: 6),
+            Text(
+              '${job.abortReason} 로봇이 문 앞에 있으면 "도착 처리"를, '
+              '아니면 "지우기"를 누르세요.',
+              style: const TextStyle(color: VicaColors.red, fontSize: 13),
+            ),
+          ],
           if (job.returnNote.isNotEmpty) ...[
             const SizedBox(height: 6),
             Text(
@@ -480,44 +493,29 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
           ],
           const SizedBox(height: 12),
           switch (job.phase) {
-            DeliveryPhase.driving => _drivingButtons(context, paused),
+            // 배송 중과 홈 복귀 중은 원격 주행과 같은 버튼 한 벌을 씁니다.
+            // 홈 복귀 중 일시정지·재개는 미션이 복귀로 되돌립니다(2026-09-03).
+            DeliveryPhase.driving => DriveControlBar(
+                supervisor: supervisor,
+                paused: paused,
+                cancelLabel: '배송 취소',
+                cancelTitle: '배송 취소',
+                cancelBody: '진행 중인 배송 주행을 취소합니다. 도착 문자는 보내지 않습니다.',
+              ),
             DeliveryPhase.arrived => _arrivedButtons(context),
-            DeliveryPhase.returning => _returningButtons(context),
+            DeliveryPhase.returning => DriveControlBar(
+                supervisor: supervisor,
+                paused: paused,
+                cancelLabel: '복귀 취소',
+                cancelTitle: '홈 복귀 취소',
+                cancelBody: '홈으로 가던 주행을 취소합니다. 로봇은 그 자리에 섭니다.',
+              ),
+            DeliveryPhase.unconfirmed => _unconfirmedButtons(context),
             DeliveryPhase.completed || DeliveryPhase.aborted =>
               _finishedButtons(),
           },
         ],
       ),
-    );
-  }
-
-  Widget _drivingButtons(BuildContext context, bool paused) {
-    final supervisor = widget.supervisor;
-    return Row(
-      children: [
-        Expanded(
-          child: OutlinedButton.icon(
-            onPressed: () => _send(
-              context,
-              paused ? supervisor.resumeNavigation : supervisor.pauseNavigation,
-            ),
-            icon: Icon(paused ? Icons.play_arrow : Icons.pause),
-            label: Text(paused ? '다시 출발' : '일시정지'),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: OutlinedButton.icon(
-            onPressed: () => _confirmCancel(
-              context,
-              title: '배송 취소',
-              body: '진행 중인 배송 주행을 취소합니다. 도착 문자는 보내지 않습니다.',
-            ),
-            icon: const Icon(Icons.cancel_outlined),
-            label: const Text('배송 취소'),
-          ),
-        ),
-      ],
     );
   }
 
@@ -573,15 +571,28 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
     );
   }
 
-  Widget _returningButtons(BuildContext context) {
-    return OutlinedButton.icon(
-      onPressed: () => _confirmCancel(
-        context,
-        title: '홈 복귀 취소',
-        body: '홈으로 가던 주행을 취소합니다. 로봇은 그 자리에 섭니다.',
-      ),
-      icon: const Icon(Icons.cancel_outlined),
-      label: const Text('복귀 취소'),
+  // 앱이 꺼진 사이 주행이 끝났다. 앱은 결과를 모르므로 관리자가 로봇을 보고
+  // 고른다. '도착 처리'는 문자를 보내고 복귀 시계를 건다.
+  Widget _unconfirmedButtons(BuildContext context) {
+    final supervisor = widget.supervisor;
+    return Row(
+      children: [
+        Expanded(
+          child: FilledButton.icon(
+            onPressed: () => _send(context, (_) => supervisor.confirmDeliveryArrival()),
+            icon: const Icon(Icons.sms_outlined),
+            label: const Text('도착 처리 · 문자'),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: supervisor.clearDelivery,
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('지우기'),
+          ),
+        ),
+      ],
     );
   }
 
@@ -603,35 +614,5 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(message)));
     }
-  }
-
-  // 취소는 로봇이 서므로 한 번 묻습니다. 앱 취소는 Mission Manager 가 어느 상태든
-  // (E-stop 제외) 받습니다 — 홈 복귀 중에도 같은 서비스로 세웁니다.
-  Future<void> _confirmCancel(
-    BuildContext context, {
-    required String title,
-    required String body,
-  }) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: Text(body),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('계속'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('취소하기'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !context.mounted) {
-      return;
-    }
-    await _send(context, widget.supervisor.cancelDestination);
   }
 }

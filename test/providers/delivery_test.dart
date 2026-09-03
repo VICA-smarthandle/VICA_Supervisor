@@ -10,6 +10,7 @@ import 'package:vica_supervisor/core/app_settings.dart';
 import 'package:vica_supervisor/models/delivery_job.dart';
 import 'package:vica_supervisor/models/location_point.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
+import 'package:vica_supervisor/services/delivery_job_store.dart';
 import 'package:vica_supervisor/services/delivery_notifier.dart';
 
 const _office = LocationPoint(
@@ -69,12 +70,27 @@ class _CountingNotifier implements DeliveryNotifier {
   }
 }
 
+/// /robot_status 한 줄. 되살린 배송을 대조할 때 목적지 이름만 본다.
+Map<String, Object?> robotStatus({String goal = ''}) => {
+      'robot_id': 'vica_01',
+      'status': goal.isEmpty ? 'idle' : 'moving',
+      'x': 0.0,
+      'y': 0.0,
+      'yaw': 0.0,
+      'current_goal': goal,
+      'error_reason': '',
+      'waiting_reason': '',
+      'map_id': 'm1',
+    };
+
 void main() {
   late SupervisorProvider provider;
   late _CountingNotifier notifier;
+  late MemoryDeliveryJobStore store;
 
   setUp(() {
-    provider = SupervisorProvider();
+    store = MemoryDeliveryJobStore();
+    provider = SupervisorProvider(deliveryJobStore: store);
     notifier = _CountingNotifier();
     provider.deliveryNotifierForTest = notifier;
   });
@@ -304,5 +320,188 @@ void main() {
       expect(log.message, isNot(contains('01012345678')));
       expect(log.message, isNot(contains('1234')));
     }
+  });
+  group('복귀 중 일반 이벤트 (2026-09-03)', () {
+    DeliveryJob returning() => driving().copyWith(phase: DeliveryPhase.returning);
+
+    // 앱 '복귀 취소'는 미션의 on_app_cancel 을 거쳐 goal_canceled 로 온다.
+    // 홈 이름만 기다리면 카드가 '홈 복귀 중'에 영영 남는다.
+    for (final kind in ['goal_canceled', 'emergency_stopped', 'goal_rejected', 'state_idle']) {
+      test('$kind 도 복귀 중단으로 받아 도착 상태로 되돌린다', () {
+        provider.setDeliveryForTest(returning());
+        provider.handleGoalEventForTest(
+          goalEvent(kind, locationId: '__home__', name: '홈', reason: '관리자 취소'),
+        );
+        expect(provider.delivery?.phase, DeliveryPhase.arrived, reason: kind);
+        expect(provider.delivery?.returnNote, isNotEmpty);
+        expect(notifier.calls, 0, reason: '복귀 중단에 문자는 없다');
+      });
+    }
+
+    test('복귀 중 일시정지·재출발 이벤트는 단계를 바꾸지 않는다', () {
+      provider.setDeliveryForTest(returning());
+      provider.handleGoalEventForTest(goalEvent('goal_paused', locationId: '__home__', name: '홈'));
+      expect(provider.delivery?.phase, DeliveryPhase.returning);
+      expect(provider.navigationPaused, isTrue);
+      provider.handleGoalEventForTest(goalEvent('goal_accepted', locationId: '__home__', name: '홈'));
+      expect(provider.delivery?.phase, DeliveryPhase.returning);
+      expect(provider.navigationPaused, isFalse);
+    });
+  });
+
+  group('저장과 이어받기 (2026-09-03)', () {
+    test('배송 기억이 바뀔 때마다 저장소에 적히고, 지우면 비운다', () async {
+      provider.setDeliveryForTest(driving());
+      expect(store.job?.phase, DeliveryPhase.driving);
+      provider.handleGoalEventForTest(goalEvent('goal_succeeded'));
+      await Future<void>.delayed(Duration.zero);
+      expect(store.job?.phase, DeliveryPhase.arrived);
+      expect(store.job?.notified, isTrue);
+      provider.cancelDeliveryReturn();
+      provider.clearDelivery();
+      expect(store.job, isNull);
+    });
+
+    test('배송 중이었고 로봇이 아직 그 목적지로 가면 그대로 잇는다', () async {
+      final restored = SupervisorProvider(
+        deliveryJobStore: MemoryDeliveryJobStore(driving()),
+      );
+      addTearDown(restored.dispose);
+      await restored.restoreDelivery();
+      expect(restored.delivery?.phase, DeliveryPhase.driving);
+      restored.handleRobotStatusForTest(robotStatus(goal: '305호'));
+      expect(restored.delivery?.phase, DeliveryPhase.driving);
+      // 그 뒤 도착 이벤트는 평소처럼 받는다.
+      restored.handleGoalEventForTest(goalEvent('goal_succeeded'));
+      expect(restored.delivery?.phase, DeliveryPhase.arrived);
+    });
+
+    test('배송 중이었는데 로봇이 아무 데도 안 가면 확인 필요로 두고 문자는 안 보낸다', () async {
+      final counting = _CountingNotifier();
+      final restored = SupervisorProvider(
+        deliveryJobStore: MemoryDeliveryJobStore(driving()),
+        deliveryNotifier: counting,
+      );
+      addTearDown(restored.dispose);
+      await restored.restoreDelivery();
+      restored.handleRobotStatusForTest(robotStatus());
+      expect(restored.delivery?.phase, DeliveryPhase.unconfirmed);
+      expect(restored.delivery?.abortReason, contains('꺼진 사이'));
+      expect(counting.calls, 0);
+      // 새 배송은 막히고, 지우기는 된다.
+      final message = await restored.startDelivery(const AppSettings(), _office);
+      expect(message, contains('끝나지 않았습니다'));
+      restored.clearDelivery();
+      expect(restored.delivery, isNull);
+    });
+
+    test('확인 필요를 도착 처리하면 문자를 한 번 보내고 복귀 시계를 건다', () async {
+      final counting = _CountingNotifier();
+      final restored = SupervisorProvider(
+        deliveryJobStore: MemoryDeliveryJobStore(
+          driving().copyWith(phase: DeliveryPhase.unconfirmed),
+        ),
+        deliveryNotifier: counting,
+      );
+      addTearDown(restored.dispose);
+      await restored.restoreDelivery();
+      final message = await restored.confirmDeliveryArrival();
+      await Future<void>.delayed(Duration.zero);
+      expect(message, contains('도착으로 처리'));
+      expect(restored.delivery?.phase, DeliveryPhase.arrived);
+      expect(restored.delivery?.isWaitingToReturn, isTrue);
+      expect(counting.calls, 1);
+      // 이미 보냈다는 표시가 있으면 두 번 안 보낸다.
+      final again = SupervisorProvider(
+        deliveryJobStore: MemoryDeliveryJobStore(
+          driving().copyWith(phase: DeliveryPhase.unconfirmed, notified: true),
+        ),
+        deliveryNotifier: counting,
+      );
+      addTearDown(again.dispose);
+      await again.restoreDelivery();
+      await again.confirmDeliveryArrival();
+      await Future<void>.delayed(Duration.zero);
+      expect(counting.calls, 1);
+      expect(again.delivery?.phase, DeliveryPhase.arrived);
+    });
+
+    test('도착 뒤 복귀 예정이 남아 있으면 남은 시간만큼만 다시 잰다', () {
+      fakeAsync((async) {
+        final restored = SupervisorProvider(
+          deliveryJobStore: MemoryDeliveryJobStore(driving().copyWith(
+            phase: DeliveryPhase.arrived,
+            notified: true,
+            returnAt: DateTime.now().add(const Duration(seconds: 30)),
+          )),
+        );
+        restored.restoreDelivery();
+        async.flushMicrotasks();
+        expect(restored.delivery?.isWaitingToReturn, isTrue);
+
+        async.elapse(const Duration(seconds: 20));
+        expect(restored.delivery?.isWaitingToReturn, isTrue, reason: '아직 10초 남음');
+
+        async.elapse(const Duration(seconds: 12));
+        async.flushMicrotasks();
+        // 연결이 없어 거부되지만, 시계가 울렸다는 증거로 예정이 지워지고 사유가 남는다.
+        expect(restored.delivery?.returnAt, isNull);
+        expect(restored.delivery?.returnNote, contains('연결'));
+        restored.dispose();
+      });
+    });
+
+    test('복귀 예정 시각이 이미 지났으면 움직이지 않고 관리자에게 맡긴다', () {
+      fakeAsync((async) {
+        final restored = SupervisorProvider(
+          deliveryJobStore: MemoryDeliveryJobStore(driving().copyWith(
+            phase: DeliveryPhase.arrived,
+            notified: true,
+            returnAt: DateTime.now().subtract(const Duration(minutes: 5)),
+          )),
+        );
+        restored.restoreDelivery();
+        async.flushMicrotasks();
+        expect(restored.delivery?.phase, DeliveryPhase.arrived);
+        expect(restored.delivery?.returnAt, isNull);
+        expect(restored.delivery?.returnNote, contains('지났습니다'));
+        async.elapse(deliveryReturnDelay * 2);
+        async.flushMicrotasks();
+        expect(restored.delivery?.returnNote, contains('지났습니다'), reason: '시계가 안 돈다');
+        restored.dispose();
+      });
+    });
+
+    test('복귀 중이었는데 로봇이 서 있으면 도착 상태로 되돌린다', () async {
+      final restored = SupervisorProvider(
+        deliveryJobStore: MemoryDeliveryJobStore(
+          driving().copyWith(phase: DeliveryPhase.returning),
+        ),
+      );
+      addTearDown(restored.dispose);
+      await restored.restoreDelivery();
+      restored.handleRobotStatusForTest(robotStatus());
+      expect(restored.delivery?.phase, DeliveryPhase.arrived);
+      expect(restored.delivery?.returnNote, contains('꺼진 사이'));
+    });
+
+    test('끝난 배송은 그대로 되살아나고 대조하지 않는다', () async {
+      final restored = SupervisorProvider(
+        deliveryJobStore: MemoryDeliveryJobStore(
+          driving().copyWith(phase: DeliveryPhase.completed),
+        ),
+      );
+      addTearDown(restored.dispose);
+      await restored.restoreDelivery();
+      restored.handleRobotStatusForTest(robotStatus(goal: '엉뚱한 곳'));
+      expect(restored.delivery?.phase, DeliveryPhase.completed);
+    });
+
+    test('저장된 것이 없으면 아무 일도 없다', () async {
+      final fresh = SupervisorProvider(deliveryJobStore: MemoryDeliveryJobStore());
+      addTearDown(fresh.dispose);
+      await fresh.restoreDelivery();
+      expect(fresh.delivery, isNull);
+    });
   });
 }

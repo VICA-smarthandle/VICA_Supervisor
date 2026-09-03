@@ -16,6 +16,7 @@ import '../providers/supervisor_provider.dart';
 import '../ros/ros_bridge_client.dart';
 import '../widgets/home_position_card.dart';
 import '../widgets/initial_pose_card.dart' show PoseDirection;
+import '../widgets/drive_map_canvas.dart';
 import '../widgets/keepout_card.dart';
 import '../widgets/map_canvas.dart';
 import '../widgets/map_delete_card.dart';
@@ -122,7 +123,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                     value: item.mapId,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Text(item.mapName),
+                      child: Text(item.displayName),
                     ),
                   ),
                 )
@@ -132,7 +133,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                   (item) => Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      item.mapName,
+                      item.displayName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -151,6 +152,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
             label: const Text('새로고침'),
           ),
         ),
+        CurrentMapNotice(supervisor: supervisor, map: map),
         const SizedBox(height: 18),
         if (map == null)
           const VicaCard(child: Text('지도 목록을 먼저 불러오세요.'))
@@ -190,9 +192,8 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               // 저장된 홈은 어느 칸을 펼쳤든 늘 보인다. 장소를 찍을 때도 홈이
               // 어디인지 알고 찍는 편이 낫다. 찍는 중(주황 원)과 저장된 것
               // (남색 점)이 함께 보여야 얼마나 옮기는지도 눈에 보인다.
-              homePoint: supervisor.homeBelongsTo(map.mapId)
-                  ? _homeOffset(supervisor)
-                  : null,
+              // 주행 화면(DriveMapCanvas)과 같은 provider 함수에서 받는다.
+              homePoint: supervisor.homePointFor(map.mapId),
               // 여기서 정보 입력 시트를 띄우지 않습니다. 누르자마자 시트가 덮으면
               // 점이 원하는 자리에 찍혔는지 볼 수가 없고, 시트를 닫으면 점까지
               // 사라져 처음부터 다시 해야 했습니다. 이제 누르는 것은 '점 옮기기'
@@ -555,12 +556,6 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   /// 장소 찍기와 같은 `pickedLocation` 자리를 씁니다 — 한 화면에서 둘을 동시에
   /// 찍는 일은 없고(홈 모드에서는 지도 탭이 홈으로만 갑니다), 같은 모양으로
   /// 보여야 관리자가 새로 배울 것이 없습니다.
-  /// 저장된 홈의 지도 좌표. 지정돼 있지 않으면 null 입니다.
-  Offset? _homeOffset(SupervisorProvider supervisor) {
-    final home = supervisor.home;
-    return home == null ? null : Offset(home.x, home.y);
-  }
-
   LocationPoint? _homePickedMarker(String mapId) {
     final spot = _homePicked;
     if (spot == null) {

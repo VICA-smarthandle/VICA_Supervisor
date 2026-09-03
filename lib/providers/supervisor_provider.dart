@@ -23,6 +23,7 @@ import '../models/stack_status.dart';
 import '../models/supervisor_log.dart';
 import '../models/vica_map.dart';
 import '../ros/ros_bridge_client.dart';
+import '../services/delivery_job_store.dart';
 import '../services/delivery_notifier.dart';
 
 enum EmergencyStopState {
@@ -47,8 +48,12 @@ enum KeepoutSaveState {
 class SupervisorProvider extends ChangeNotifier {
   /// [deliveryNotifier] 를 안 주면 기기에 맞는 것을 고릅니다 — 안드로이드는 SMS,
   /// 그 밖은 미리보기. 시험은 호스트(리눅스)에서 돌아 자동으로 미리보기가 됩니다.
-  SupervisorProvider({DeliveryNotifier? deliveryNotifier})
-      : _deliveryNotifier = deliveryNotifier ?? createDeliveryNotifier();
+  SupervisorProvider({
+    DeliveryNotifier? deliveryNotifier,
+    DeliveryJobStore? deliveryJobStore,
+  })  : _deliveryNotifier = deliveryNotifier ?? createDeliveryNotifier(),
+        _deliveryStore =
+            deliveryJobStore ?? const SharedPreferencesDeliveryJobStore();
 
   static const _nav2UnavailableReason = 'Nav2/AMCL 미실행';
   static const _nav2UnavailableMessage =
@@ -794,6 +799,17 @@ class SupervisorProvider extends ChangeNotifier {
   /// 지도를 바꾸면 홈도 다른 것이라 이전 지도의 홈을 계속 보여주면 안 됩니다.
   bool homeBelongsTo(String? mapId) => mapId != null && _homeMapId == mapId;
 
+  /// 지도에 그릴 홈 점. 지도 설정·원격 주행·물류 배송이 전부 이 하나를 씁니다.
+  /// 화면마다 따로 계산하면 하나가 빠집니다 — 배송 화면에 홈이 없던 이유다
+  /// (2026-09-03 실기).
+  Offset? homePointFor(String? mapId) {
+    final home = _home;
+    if (home == null || !homeBelongsTo(mapId)) {
+      return null;
+    }
+    return Offset(home.x, home.y);
+  }
+
   /// 젯슨에서 홈을 읽어옵니다. 없으면 [home] 이 null 이 되며 오류가 아닙니다.
   Future<void> refreshHome(AppSettings settings, String mapId) async {
     final client = _client;
@@ -964,11 +980,115 @@ class SupervisorProvider extends ChangeNotifier {
   DeliveryJob? _delivery;
   DeliveryNotifier _deliveryNotifier;
   DeliveryNotice? _pendingDeliveryNotice;
+  final DeliveryJobStore _deliveryStore;
+
+  /// 저장소에서 되살린 배송을 아직 로봇 상태와 대조하지 못했다. 앱이 꺼진 사이의
+  /// goal 이벤트는 못 받았으므로(VOLATILE) 첫 /robot_status 로 맞춰 본다.
+  bool _deliveryNeedsReconcile = false;
 
   /// 도착 뒤 홈으로 출발시키는 시계. 배송을 새로 시작하거나 지우거나 관리자가
-  /// 복귀를 취소하면 멈춥니다. 앱이 닫히면 같이 사라집니다 — 그때는 관리자가
-  /// 다시 켜서 '홈으로 복귀'를 누르면 됩니다(기존 버튼).
+  /// 복귀를 취소하면 멈춥니다. 앱이 닫히면 시계는 사라지지만 예정 시각은
+  /// 저장돼 있어, 다시 켜면 남은 시간만큼 다시 겁니다([restoreDelivery]).
   Timer? _deliveryReturnTimer;
+
+  /// 배송 기억을 바꾸는 유일한 자리. 바꿀 때마다 기기 저장소에도 적어 앱을
+  /// 껐다 켜도 이어받습니다(2026-09-03 사용자 결정).
+  void _setDelivery(DeliveryJob? job) {
+    _delivery = job;
+    unawaited(_deliveryStore.save(job));
+  }
+
+  /// 젯슨이 지금 쓰는 지도(maps/CURRENT_MAP). 지도 목록 노드가 실어 보냅니다.
+  /// 옛 노드는 안 실어 빈 값입니다.
+  String _currentMapId = '';
+  String get currentMapId => _currentMapId;
+
+  /// 앱을 켤 때 지난 배송을 기기 저장소에서 되살립니다. main 이 연결 전에 부릅니다.
+  ///
+  /// 되살린 것을 그대로 믿지 않습니다 — 앱이 꺼진 사이 로봇이 도착했거나 섰을
+  /// 수 있고 그 이벤트는 못 받았습니다. 첫 로봇 상태가 오면
+  /// [_reconcileRestoredDelivery] 가 대조합니다. 복귀 예정이 남아 있으면 남은
+  /// 시간만큼 시계를 다시 겁니다. 예정 시각이 이미 지났으면 **움직이지 않습니다**
+  /// — 앱을 켰다고 로봇이 출발하면 안 됩니다. 관리자가 버튼을 다시 누릅니다.
+  Future<void> restoreDelivery() async {
+    final job = await _deliveryStore.load();
+    if (job == null) {
+      return;
+    }
+    _delivery = job;
+    _deliveryNeedsReconcile = !job.phase.isFinished;
+    final name = job.destination.name;
+    if (job.isWaitingToReturn) {
+      final left = job.returnAt!.difference(DateTime.now());
+      if (left > Duration.zero) {
+        _scheduleDeliveryReturn(job, delay: left);
+        _addLog(LogFilter.delivery, '$name 배송 이어받음 — ${left.inSeconds}초 뒤 홈 복귀');
+      } else {
+        _setDelivery(job.copyWith(
+          clearReturnAt: true,
+          returnNote: '앱이 꺼진 사이 복귀 예정 시각이 지났습니다. 홈으로 복귀를 눌러 주세요.',
+        ));
+        _addLog(LogFilter.delivery, '$name 배송 이어받음 — 복귀 예정 시각이 지나 기다립니다');
+      }
+    } else {
+      _addLog(LogFilter.delivery, '$name 배송 이어받음 (${job.phase.label})');
+    }
+    notifyListeners();
+  }
+
+  /// 되살린 배송을 로봇의 지금 상태와 맞춥니다. 첫 /robot_status 에서 한 번.
+  ///
+  /// 상태 노드가 주는 것은 목적지 **이름**뿐이라 이름으로 봅니다. 배송 중이었는데
+  /// 로봇이 그 목적지로 가고 있지 않으면 어떻게 끝났는지 알 수 없습니다 —
+  /// '확인 필요'로 두고 관리자가 로봇을 보고 고릅니다. 앱이 짐작으로 문자를
+  /// 보내지는 않습니다.
+  void _reconcileRestoredDelivery(RobotStatus robot) {
+    _deliveryNeedsReconcile = false;
+    final job = _delivery;
+    if (job == null) {
+      return;
+    }
+    final goal = robot.currentGoal.trim();
+    final name = job.destination.name;
+    switch (job.phase) {
+      case DeliveryPhase.driving:
+        if (goal == name) {
+          _addLog(LogFilter.delivery, '$name 배송 주행이 이어지고 있습니다');
+          return;
+        }
+        _setDelivery(job.copyWith(
+          phase: DeliveryPhase.unconfirmed,
+          abortReason: goal.isEmpty
+              ? '앱이 꺼진 사이 주행이 끝났습니다. 문자는 보내지 않았습니다.'
+              : '로봇이 다른 곳($goal)으로 가고 있습니다. 문자는 보내지 않았습니다.',
+        ));
+        _addLog(LogFilter.delivery, '$name 배송 결과를 확인하지 못했습니다 — 관리자 확인 필요');
+      case DeliveryPhase.returning:
+        if (goal.isNotEmpty) {
+          _addLog(LogFilter.delivery, '$name 배송 홈 복귀가 이어지고 있습니다');
+          return;
+        }
+        _setDelivery(job.copyWith(
+          phase: DeliveryPhase.arrived,
+          clearReturnAt: true,
+          returnNote: '앱이 꺼진 사이 홈 복귀가 끝났거나 멈췄습니다. 로봇 위치를 보고 지우거나 다시 보내세요.',
+        ));
+        _addLog(LogFilter.delivery, '$name 배송 홈 복귀 결과를 확인하지 못했습니다');
+      default:
+        return;
+    }
+  }
+
+  /// '확인 필요' 배송을 관리자가 도착으로 처리합니다. 로봇이 문 앞에 있는 것을
+  /// 눈으로 본 뒤 누릅니다. 문자를 아직 안 보냈으면 보내고, 복귀 시계를 겁니다.
+  Future<String> confirmDeliveryArrival() async {
+    final job = _delivery;
+    if (job == null || job.phase != DeliveryPhase.unconfirmed) {
+      return '도착 처리할 배송이 없습니다.';
+    }
+    _markDeliveryArrived(job, sendText: !job.notified);
+    return '${job.destination.name} 도착으로 처리했습니다.';
+  }
 
   /// 지금 기억하고 있는 배송. 끝난 뒤에도 관리자가 '지우기'를 누를 때까지 남아
   /// 결과를 보여줍니다.
@@ -1016,7 +1136,7 @@ class SupervisorProvider extends ChangeNotifier {
       return message;
     }
     _cancelDeliveryReturnTimer();
-    _delivery = DeliveryJob(destination: location, startedAt: DateTime.now());
+    _setDelivery(DeliveryJob(destination: location, startedAt: DateTime.now()));
     _pendingDeliveryNotice = null;
     _addLog(LogFilter.delivery, '${location.name} 배송 출발');
     notifyListeners();
@@ -1035,7 +1155,7 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     _cancelDeliveryReturnTimer();
-    _delivery = null;
+    _setDelivery(null);
     _pendingDeliveryNotice = null;
     notifyListeners();
   }
@@ -1058,7 +1178,7 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     _cancelDeliveryReturnTimer();
-    _delivery = job.copyWith(clearReturnAt: true, returnNote: '관리자가 복귀를 취소했습니다.');
+    _setDelivery(job.copyWith(clearReturnAt: true, returnNote: '관리자가 복귀를 취소했습니다.'));
     _addLog(LogFilter.delivery, '${job.destination.name} 배송 홈 복귀 취소(관리자)');
     notifyListeners();
   }
@@ -1068,10 +1188,11 @@ class SupervisorProvider extends ChangeNotifier {
     _deliveryReturnTimer = null;
   }
 
-  /// 도착 뒤 [deliveryReturnDelay] 를 재기 시작합니다.
-  void _scheduleDeliveryReturn(DeliveryJob job) {
+  /// 도착 뒤 [deliveryReturnDelay] 를 재기 시작합니다. 되살린 배송은 남은
+  /// 시간([delay])만 잽니다.
+  void _scheduleDeliveryReturn(DeliveryJob job, {Duration? delay}) {
     _cancelDeliveryReturnTimer();
-    _deliveryReturnTimer = Timer(deliveryReturnDelay, () {
+    _deliveryReturnTimer = Timer(delay ?? deliveryReturnDelay, () {
       _deliveryReturnTimer = null;
       // 시계가 울릴 때는 화면이 없을 수 있어 마지막 접속 설정을 씁니다. 접속한
       // 적이 없으면 설정도 없지만, 그때는 클라이언트도 없어 어차피 거부됩니다.
@@ -1096,14 +1217,14 @@ class SupervisorProvider extends ChangeNotifier {
       return message;
     }
     if (accepted) {
-      _delivery = current.copyWith(
+      _setDelivery(current.copyWith(
         phase: DeliveryPhase.returning,
         clearReturnAt: true,
         returnNote: '',
-      );
+      ));
       _addLog(LogFilter.delivery, '${job.destination.name} 배송 홈 복귀 출발');
     } else {
-      _delivery = current.copyWith(clearReturnAt: true, returnNote: message);
+      _setDelivery(current.copyWith(clearReturnAt: true, returnNote: message));
       _addLog(LogFilter.delivery, '${job.destination.name} 배송 홈 복귀 거부: $message');
     }
     notifyListeners();
@@ -1132,31 +1253,15 @@ class SupervisorProvider extends ChangeNotifier {
     }
     switch (event.kind) {
       case GoalEventKind.succeeded:
-        // 빗장을 먼저 겁니다. 발송은 비동기라, 같은 이벤트가 연달아 오면
-        // 결과가 돌아오기 전에 두 번째 발송이 나갈 수 있습니다.
-        final now = DateTime.now();
-        final arrived = job.copyWith(
-          phase: DeliveryPhase.arrived,
-          arrivedAt: now,
-          notified: true,
-          returnAt: now.add(deliveryReturnDelay),
-        );
-        _delivery = arrived;
-        _addLog(
-          LogFilter.delivery,
-          '${job.destination.name} 배송 도착 — 문자 발송 시도, '
-          '${deliveryReturnDelay.inMinutes}분 뒤 홈 복귀',
-        );
-        _scheduleDeliveryReturn(arrived);
-        unawaited(_notifyDeliveryArrival(arrived));
+        _markDeliveryArrived(job, sendText: true);
       case GoalEventKind.failed:
       case GoalEventKind.rejected:
       case GoalEventKind.canceled:
       case GoalEventKind.emergencyStopped:
-        _delivery = job.copyWith(
+        _setDelivery(job.copyWith(
           phase: DeliveryPhase.aborted,
           abortReason: event.reason.isEmpty ? event.title : event.reason,
-        );
+        ));
         _addLog(
           LogFilter.delivery,
           '${job.destination.name} 배송 중단 (${event.title}) — 문자를 보내지 않았습니다',
@@ -1166,21 +1271,56 @@ class SupervisorProvider extends ChangeNotifier {
     }
   }
 
+  /// 도착. 빗장(notified)을 먼저 겁니다 — 발송은 비동기라 같은 이벤트가 연달아
+  /// 오면 결과가 돌아오기 전에 두 번째 발송이 나갈 수 있습니다. [sendText] 가
+  /// false 면 이미 보낸 것으로 보고 복귀 시계만 겁니다('확인 필요' 처리).
+  void _markDeliveryArrived(DeliveryJob job, {required bool sendText}) {
+    final now = DateTime.now();
+    final arrived = job.copyWith(
+      phase: DeliveryPhase.arrived,
+      arrivedAt: now,
+      notified: true,
+      returnAt: now.add(deliveryReturnDelay),
+      returnNote: '',
+      abortReason: '',
+    );
+    _setDelivery(arrived);
+    _addLog(
+      LogFilter.delivery,
+      '${job.destination.name} 배송 도착 — ${sendText ? '문자 발송 시도' : '문자는 이미 보냄'}, '
+      '${deliveryReturnDelay.inMinutes}분 뒤 홈 복귀',
+    );
+    _scheduleDeliveryReturn(arrived);
+    if (sendText) {
+      unawaited(_notifyDeliveryArrival(arrived));
+    }
+    notifyListeners();
+  }
+
   void _applyReturnEventToDelivery(DeliveryJob job, GoalEvent event) {
     switch (event.kind) {
       case GoalEventKind.returnHomeSucceeded:
-        _delivery = job.copyWith(phase: DeliveryPhase.completed);
+        _setDelivery(job.copyWith(phase: DeliveryPhase.completed));
         _addLog(LogFilter.delivery, '${job.destination.name} 배송 완료 — 홈 도착');
       case GoalEventKind.returnHomeFailed:
       case GoalEventKind.returnHomeCanceled:
+      // 앱의 '복귀 취소'·비상정지·Nav2 거부는 미션이 일반 이름(goal_canceled 등)
+      // 으로 냅니다 — on_app_cancel 은 상태를 가리지 않고 같은 취소를 씁니다.
+      // 홈 이름만 기다리면 카드가 '홈 복귀 중'에 영영 남고 지우기도 잠깁니다
+      // (2026-09-03 검토). state_idle 은 "취소했는데 달리는 게 없었다"라 같은 뜻.
+      case GoalEventKind.failed:
+      case GoalEventKind.rejected:
+      case GoalEventKind.canceled:
+      case GoalEventKind.emergencyStopped:
+      case GoalEventKind.stateIdle:
         // 로봇은 도중에 섰습니다. 도착 상태로 되돌려 관리자가 다시 보내거나
         // 지울 수 있게 합니다. 자동으로 다시 시도하지 않습니다 — 실패한 길을
         // 사람 없이 또 가는 것은 E-stop 뒤 자동 재개 금지와 같은 이유로 피합니다.
-        _delivery = job.copyWith(
+        _setDelivery(job.copyWith(
           phase: DeliveryPhase.arrived,
           clearReturnAt: true,
           returnNote: event.reason.isEmpty ? event.title : event.reason,
-        );
+        ));
         _addLog(LogFilter.delivery, '${job.destination.name} 배송 홈 복귀 중단 (${event.title})');
       default:
         break;
@@ -1215,7 +1355,7 @@ class SupervisorProvider extends ChangeNotifier {
   @visibleForTesting
   void setDeliveryForTest(DeliveryJob? job) {
     _cancelDeliveryReturnTimer();
-    _delivery = job;
+    _setDelivery(job);
     notifyListeners();
   }
 
@@ -1928,6 +2068,15 @@ class SupervisorProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  static String? _initialMapChoice(List<VicaMap> maps) {
+    for (final map in maps) {
+      if (map.isCurrent) {
+        return map.mapId;
+      }
+    }
+    return maps.isEmpty ? null : maps.first.mapId;
+  }
+
   void _handleMapList(Map<String, Object?> message) {
     final rawMaps = message['maps'];
     if (rawMaps is! List) {
@@ -1943,8 +2092,13 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     _maps = nextMaps;
+    _currentMapId = (message['current_map_id'] as String?)?.trim() ?? '';
     final hadNoSelection = _selectedMapId == null;
-    _selectedMapId ??= _maps.isEmpty ? null : _maps.first.mapId;
+    // 앱을 켠 직후에는 젯슨이 지금 쓰는 지도(maps/CURRENT_MAP)를 고릅니다.
+    // 종전에는 목록 첫 번째(이름순)를 골라, 오늘 새로 그린 지도가 앞에 오면
+    // 로봇이 달리는 지도와 다른 지도를 보고 있었습니다(2026-09-03). 관리자가
+    // 이미 고른 지도는 바꾸지 않습니다.
+    _selectedMapId ??= _initialMapChoice(_maps);
     // 첫 연결에서는 선택된 지도가 없어 장소를 함께 요청하지 못합니다.
     // 지도가 처음 정해지는 이 시점에 그 지도의 장소도 받아옵니다.
     final mapId = _selectedMapId;
@@ -1991,6 +2145,9 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     _robotsById[next.robotId] = next;
+    if (_deliveryNeedsReconcile) {
+      _reconcileRestoredDelivery(next);
+    }
     _logErrorReasonChange(next);
     _handleNav2StatusLog(next);
     notifyListeners();

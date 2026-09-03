@@ -184,66 +184,88 @@ class MapListNode(Node):
             3. PNG 헤더에서 width/height를 읽습니다.
             4. 앱이 이해하는 JSON 목록으로 묶어 /map_list에 publish합니다.
         """
-        maps = []
-        for image_path in sorted(self.maps_root.glob("*.png")):
-            metadata = self._read_yaml_like_metadata(image_path.with_suffix(".yaml"))
-            width, height = self._png_size(image_path)
-            maps.append(
-                {
-                    "map_id": image_path.stem,
-                    "map_name": image_path.stem,
-                    "image_url": f"/maps/{image_path.name}",
-                    "resolution": float(metadata.get("resolution", 0.05)),
-                    "origin_x": float(metadata.get("origin_x", 0.0)),
-                    "origin_y": float(metadata.get("origin_y", 0.0)),
-                    "width": width,
-                    "height": height,
-                }
-            )
+        payload = build_map_list(self.maps_root, self._current_map_id())
         msg = String()
-        msg.data = json.dumps({"maps": maps}, ensure_ascii=False)
+        msg.data = json.dumps(payload, ensure_ascii=False)
         self.publisher.publish(msg)
 
     def _read_yaml_like_metadata(self, path: Path) -> dict[str, Any]:
-        """외부 YAML 패키지 없이 ROS map yaml의 resolution/origin만 단순 파싱합니다.
-
-        ROS map yaml은 보통 image, resolution, origin 등의 값을 가집니다.
-        앱 좌표 변환에는 resolution과 origin x/y만 필요하므로 이 두 항목만 읽습니다.
-        yaml 패키지 의존성을 추가하지 않기 위해 단순 문자열 파싱을 사용합니다.
-        """
-        metadata: dict[str, Any] = {}
-        if not path.exists():
-            # yaml이 없는 PNG도 지도 목록에는 보이게 하고 기본 resolution/origin을 씁니다.
-            return metadata
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if ":" not in line:
-                continue
-            key, value = line.split(":", 1)
-            key = key.strip()
-            value = value.strip()
-            if key == "resolution":
-                metadata["resolution"] = value
-            elif key == "origin":
-                origin = value.strip("[]").split(",")
-                if len(origin) >= 2:
-                    metadata["origin_x"] = origin[0].strip()
-                    metadata["origin_y"] = origin[1].strip()
-        return metadata
+        return read_yaml_like_metadata(path)
 
     def _png_size(self, path: Path) -> tuple[int, int]:
-        """PNG IHDR 헤더에서 이미지 크기를 읽어 지도 좌표 변환에 사용합니다.
+        return png_size(path)
 
-        Pillow 같은 이미지 라이브러리를 추가하지 않고 PNG 표준 헤더만 읽습니다.
-        앱은 이 크기를 기준으로 ROS 좌표와 화면 픽셀 좌표를 변환합니다.
-        """
-        with path.open("rb") as file:
-            signature = file.read(8)
-            if signature != b"\x89PNG\r\n\x1a\n":
-                return 1024, 1024
-            file.read(8)
-            width = int.from_bytes(file.read(4), "big")
-            height = int.from_bytes(file.read(4), "big")
-        return width, height
+
+def build_map_list(maps_root: Path, current_map_id: str) -> dict[str, Any]:
+    """앱이 이해하는 지도 목록 JSON. 노드 없이도 부를 수 있게 함수로 뺐다.
+
+    ``current_map_id`` 는 maps/CURRENT_MAP 의 지도 이름이다. 목록의 각 지도에
+    ``is_current`` 로 표시하고 위에도 한 번 더 싣는다(2026-09-03). 앱은 켤 때
+    이 지도를 먼저 고르고 드롭다운에 '(현재)'를 붙인다 — 그전에는 이름순 첫
+    지도를 골라, 새로 그린 지도가 앞에 오면 로봇이 달리는 지도와 다른 지도를
+    보고 있었다. 터미네이터에서 지도를 잘못 띄웠을 때도 앱에서 바로 보인다.
+    """
+    maps = []
+    for image_path in sorted(maps_root.glob("*.png")):
+        metadata = read_yaml_like_metadata(image_path.with_suffix(".yaml"))
+        width, height = png_size(image_path)
+        maps.append(
+            {
+                "map_id": image_path.stem,
+                "map_name": image_path.stem,
+                "image_url": f"/maps/{image_path.name}",
+                "resolution": float(metadata.get("resolution", 0.05)),
+                "origin_x": float(metadata.get("origin_x", 0.0)),
+                "origin_y": float(metadata.get("origin_y", 0.0)),
+                "width": width,
+                "height": height,
+                "is_current": image_path.stem == current_map_id,
+            }
+        )
+    return {"maps": maps, "current_map_id": current_map_id}
+
+
+def read_yaml_like_metadata(path: Path) -> dict[str, Any]:
+    """외부 YAML 패키지 없이 ROS map yaml의 resolution/origin만 단순 파싱합니다.
+
+    ROS map yaml은 보통 image, resolution, origin 등의 값을 가집니다.
+    앱 좌표 변환에는 resolution과 origin x/y만 필요하므로 이 두 항목만 읽습니다.
+    yaml 패키지 의존성을 추가하지 않기 위해 단순 문자열 파싱을 사용합니다.
+    """
+    metadata: dict[str, Any] = {}
+    if not path.exists():
+        # yaml이 없는 PNG도 지도 목록에는 보이게 하고 기본 resolution/origin을 씁니다.
+        return metadata
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip()
+        value = value.strip()
+        if key == "resolution":
+            metadata["resolution"] = value
+        elif key == "origin":
+            origin = value.strip("[]").split(",")
+            if len(origin) >= 2:
+                metadata["origin_x"] = origin[0].strip()
+                metadata["origin_y"] = origin[1].strip()
+    return metadata
+
+
+def png_size(path: Path) -> tuple[int, int]:
+    """PNG IHDR 헤더에서 이미지 크기를 읽어 지도 좌표 변환에 사용합니다.
+
+    Pillow 같은 이미지 라이브러리를 추가하지 않고 PNG 표준 헤더만 읽습니다.
+    앱은 이 크기를 기준으로 ROS 좌표와 화면 픽셀 좌표를 변환합니다.
+    """
+    with path.open("rb") as file:
+        signature = file.read(8)
+        if signature != b"\x89PNG\r\n\x1a\n":
+            return 1024, 1024
+        file.read(8)
+        width = int.from_bytes(file.read(4), "big")
+        height = int.from_bytes(file.read(4), "big")
+    return width, height
 
 
 def main() -> None:

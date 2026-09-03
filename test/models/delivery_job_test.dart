@@ -87,4 +87,41 @@ void main() {
   test('복귀 대기는 시험하기 좋게 2분이다', () {
     expect(deliveryReturnDelay, const Duration(minutes: 2));
   });
+  group('저장·되살리기 (2026-09-03)', () {
+    test('JSON 으로 나갔다 돌아와도 같은 배송이다', () {
+      final original = job().copyWith(
+        phase: DeliveryPhase.arrived,
+        arrivedAt: DateTime(2026, 9, 3, 14, 0),
+        notified: true,
+        returnAt: DateTime(2026, 9, 3, 14, 2),
+        returnNote: '관리자가 복귀를 취소했습니다.',
+      );
+      final restored = DeliveryJob.fromJson(original.toJson());
+      expect(restored, isNotNull);
+      expect(restored!.destination.locationId, _office.locationId);
+      expect(restored.destination.contactPhone, _office.contactPhone);
+      expect(restored.phase, DeliveryPhase.arrived);
+      expect(restored.arrivedAt, original.arrivedAt);
+      expect(restored.notified, isTrue);
+      expect(restored.returnAt, original.returnAt);
+      expect(restored.returnNote, original.returnNote);
+    });
+
+    test('목적지가 없거나 단계 이름이 낯설면 되살리지 않거나 중단으로 친다', () {
+      expect(DeliveryJob.fromJson({'phase': 'driving'}), isNull);
+      final odd = DeliveryJob.fromJson({
+        'destination': _office.toJson(),
+        'phase': 'flying',
+      });
+      // 모르는 단계로 로봇이 움직이는 일은 없어야 한다.
+      expect(odd?.phase, DeliveryPhase.aborted);
+    });
+
+    test('확인 필요는 끝난 것이 아니라 새 배송을 막지만, 지울 수는 있다', () {
+      expect(DeliveryPhase.unconfirmed.isFinished, isFalse);
+      final j = job().copyWith(phase: DeliveryPhase.unconfirmed);
+      expect(j.isActive, isFalse);
+      expect(j.isWaitingToReturn, isFalse);
+    });
+  });
 }

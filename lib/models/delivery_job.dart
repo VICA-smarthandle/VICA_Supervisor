@@ -33,7 +33,12 @@ enum DeliveryPhase {
   completed('완료'),
 
   /// 목적지로 가던 주행이 실패·취소·비상정지로 끝났다. 문자는 보내지 않는다.
-  aborted('중단');
+  aborted('중단'),
+
+  /// 앱이 꺼진 사이 주행이 끝나 결과를 못 봤다(2026-09-03). 문자도 아직 안
+  /// 나갔다. 관리자가 로봇이 문 앞에 있는지 눈으로 보고 '도착 처리'(문자 →
+  /// 복귀)나 '지우기'를 고른다. 앱이 대신 짐작해 문자를 보내지는 않는다.
+  unconfirmed('확인 필요');
 
   const DeliveryPhase(this.label);
 
@@ -43,6 +48,17 @@ enum DeliveryPhase {
   /// 지우면 도착·복귀 결과를 화면이 못 잇습니다.
   bool get isFinished =>
       this == DeliveryPhase.completed || this == DeliveryPhase.aborted;
+
+  /// 저장소에서 읽을 때. 모르는 이름은 '중단'으로 친다 — 되살린 배송으로
+  /// 로봇이 움직이는 일은 없어야 한다.
+  static DeliveryPhase fromName(String? name) {
+    for (final phase in values) {
+      if (phase.name == name) {
+        return phase;
+      }
+    }
+    return DeliveryPhase.aborted;
+  }
 }
 
 class DeliveryJob {
@@ -102,6 +118,47 @@ class DeliveryJob {
       return locationId == destination.locationId;
     }
     return name.isNotEmpty && name == destination.name;
+  }
+
+  /// 기기 저장소에 남길 모양. 앱을 껐다 켜도 이어받기 위해서다(2026-09-03).
+  Map<String, Object?> toJson() {
+    return {
+      'destination': destination.toJson(),
+      'started_at': startedAt.toIso8601String(),
+      'phase': phase.name,
+      'arrived_at': arrivedAt?.toIso8601String(),
+      'notified': notified,
+      'return_at': returnAt?.toIso8601String(),
+      'return_note': returnNote,
+      'abort_reason': abortReason,
+    };
+  }
+
+  /// 저장분을 되살린다. 목적지가 없거나 깨졌으면 null — 되살릴 것이 없다.
+  static DeliveryJob? fromJson(Map<String, Object?> json) {
+    final rawDestination = json['destination'];
+    if (rawDestination is! Map) {
+      return null;
+    }
+    final destination = LocationPoint.fromJson(
+      rawDestination.map((key, value) => MapEntry(key.toString(), value)),
+      '',
+    );
+    if (destination.locationId.isEmpty) {
+      return null;
+    }
+    DateTime? time(Object? raw) =>
+        raw is String ? DateTime.tryParse(raw) : null;
+    return DeliveryJob(
+      destination: destination,
+      startedAt: time(json['started_at']) ?? DateTime.now(),
+      phase: DeliveryPhase.fromName(json['phase'] as String?),
+      arrivedAt: time(json['arrived_at']),
+      notified: json['notified'] == true,
+      returnAt: time(json['return_at']),
+      returnNote: json['return_note'] as String? ?? '',
+      abortReason: json['abort_reason'] as String? ?? '',
+    );
   }
 
   DeliveryJob copyWith({
