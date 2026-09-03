@@ -129,7 +129,9 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
           action: OutlinedButton.icon(
             onPressed: map == null
                 ? null
-                : () => supervisor.requestLocationList(settings, map.mapId),
+                // 장소·홈·금지구역을 함께 받습니다. 종전에는 장소만 받아서
+                // 이름과 동작이 어긋났습니다(2026-09-02).
+                : () => supervisor.refreshMapData(settings, map.mapId),
             icon: const Icon(Icons.sync, size: 18),
             label: const Text('동기화', maxLines: 1),
           ),
@@ -169,6 +171,17 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
               scanHits: supervisor.poseCheck?.scanHits.isNotEmpty == true
                   ? supervisor.poseCheck!.scanHits
                   : supervisor.committedScanHits,
+              // 홈이 어디인지 여기서도 보여 줍니다. '홈으로 복귀'를 누르기 전에
+              // 로봇이 어디로 갈지 지도에서 확인할 수 있어야 합니다.
+              homePoint: supervisor.homeBelongsTo(map.mapId) &&
+                      supervisor.home != null
+                  ? Offset(supervisor.home!.x, supervisor.home!.y)
+                  : null,
+              // 금지구역도 함께 보여 줍니다(2026-09-02 사용자 요청). 로봇이
+              // 못 가는 자리를 알아야 목적지를 고르고 경로를 이해할 수
+              // 있습니다 — 여기서 편집은 하지 않으므로 그리기용 인자는
+              // 넘기지 않습니다. 보기 전용입니다.
+              keepoutZones: supervisor.keepoutZonesFor(map.mapId),
               onTapMap: _picking ? _onTapMap : null,
               onSelectLocation: (location) =>
                   supervisor.selectLocation(location.locationId),

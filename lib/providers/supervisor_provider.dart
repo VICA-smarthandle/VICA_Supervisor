@@ -230,12 +230,8 @@ class SupervisorProvider extends ChangeNotifier {
       requestMapList(settings);
     }
     final mapId = _selectedMapId;
-    if (settings.autoRequestLocationList && mapId != null) {
-      requestLocationList(settings, mapId);
-    }
     if (mapId != null) {
-      unawaited(refreshHome(settings, mapId));
-      unawaited(requestKeepoutList(settings, mapId));
+      refreshMapData(settings, mapId, auto: true);
     }
   }
 
@@ -482,6 +478,38 @@ class SupervisorProvider extends ChangeNotifier {
     _addLog(LogFilter.connection, '지도 목록 요청 전송');
   }
 
+  /// 지도에 딸린 것을 **한꺼번에** 다시 받아옵니다 — 장소·홈·금지구역.
+  ///
+  /// 셋은 모두 "이 지도의 저장물"이라 따로 갱신할 이유가 없습니다. 종전에는
+  /// 장소만 다시 받는 길(requestLocationList)밖에 없어서 두 가지 구멍이
+  /// 있었습니다(2026-09-02 실기).
+  ///
+  ///   - **앱을 껐다 켜면 홈과 금지구역이 사라져 보였다.** 젯슨에는 파일로
+  ///     남아 있는데 앱이 물어보질 않았다. 첫 연결에서는 지도가 아직 안
+  ///     정해져 건너뛰고, 지도가 정해지는 순간에는 장소만 요청했다.
+  ///   - 화면의 '동기화'·'새로고침' 버튼이 이름과 달리 장소만 갱신했다.
+  ///     홈은 앱 전체에 수동 갱신 경로가 아예 없어, 지도를 바꿨다 돌아오는
+  ///     것이 유일한 방법이었다.
+  ///
+  /// 장소 요청은 topic 왕복이고 나머지 둘은 service 라 기다리는 방식이
+  /// 다릅니다. 셋 다 실패해도 화면은 이전 값을 그대로 두므로 여기서 결과를
+  /// 기다리지 않습니다.
+  /// [auto] 는 사람이 누른 것이 아니라 앱이 스스로 부르는 경우입니다. 그때만
+  /// 설정의 '장소 목록 자동 요청'을 존중합니다 — 관리자가 그 스위치를 껐다는
+  /// 것은 "앱이 알아서 받지 마라"는 뜻이지 "새로고침 버튼도 듣지 마라"가
+  /// 아닙니다. 홈·금지구역에는 그런 스위치가 없어 언제나 받습니다.
+  void refreshMapData(
+    AppSettings settings,
+    String mapId, {
+    bool auto = false,
+  }) {
+    if (!auto || settings.autoRequestLocationList) {
+      requestLocationList(settings, mapId);
+    }
+    unawaited(refreshHome(settings, mapId));
+    unawaited(requestKeepoutList(settings, mapId));
+  }
+
   void requestLocationList(AppSettings settings, String mapId) {
     _client?.publishJsonString(
       topic: settings.locationListRequestTopic,
@@ -514,12 +542,8 @@ class SupervisorProvider extends ChangeNotifier {
     _keepoutMessage = '';
     _keepoutMaskApplied = false;
     notifyListeners();
-    if (mapId != null && settings.autoRequestLocationList) {
-      requestLocationList(settings, mapId);
-    }
     if (mapId != null) {
-      unawaited(refreshHome(settings, mapId));
-      unawaited(requestKeepoutList(settings, mapId));
+      refreshMapData(settings, mapId, auto: true);
     }
   }
 
@@ -1254,6 +1278,12 @@ class SupervisorProvider extends ChangeNotifier {
       case GoalEventKind.rejected:
       case GoalEventKind.canceled:
       case GoalEventKind.emergencyStopped:
+      // 홈 복귀의 끝도 주행의 끝입니다. 빠뜨리면 홈 복귀 앞뒤로 일시정지
+      // 표시가 남아 '다시 출발' 버튼이 헛되이 뜹니다(2026-09-02).
+      case GoalEventKind.returnHomeSucceeded:
+      case GoalEventKind.returnHomeFailed:
+      case GoalEventKind.returnHomeCanceled:
+      case GoalEventKind.stateIdle:
         _pausedByEvent = false;
       default:
         break;
@@ -1919,11 +1949,11 @@ class SupervisorProvider extends ChangeNotifier {
     // 지도가 처음 정해지는 이 시점에 그 지도의 장소도 받아옵니다.
     final mapId = _selectedMapId;
     final settings = _lastSettings;
-    if (hadNoSelection &&
-        mapId != null &&
-        settings != null &&
-        settings.autoRequestLocationList) {
-      requestLocationList(settings, mapId);
+    if (hadNoSelection && mapId != null && settings != null) {
+      // 홈·금지구역까지 함께 받는다. 종전에는 장소만 받아서, 앱을 새로 켜면
+      // 젯슨에 저장돼 있는 홈과 금지구역이 화면에서 사라져 보였다
+      // (2026-09-02 실기). 지도를 바꿨다 돌아와야 나타나던 이유가 이것이다.
+      refreshMapData(settings, mapId, auto: true);
     }
     _addLog(LogFilter.connection, '지도 목록 ${_maps.length}개 수신');
     notifyListeners();

@@ -26,7 +26,7 @@ import '../widgets/vica_ui.dart';
 /// 셋 다 지도를 보면서 하는 일이라 모두 펼쳐 두면 지도가 손톱만 해집니다.
 /// 그리고 셋은 지도 터치를 서로 다르게 씁니다 — 장소 찍기·홈 찍기·사각형 끌기.
 /// 펼친 칸이 지도 조작권을 가지므로 지금 무엇을 찍는 중인지가 드러납니다.
-enum _SettingsPanel { none, location, home, keepout }
+enum _SettingsPanel { none, location, home, keepout, mapDelete }
 
 class SaveLocationScreen extends StatefulWidget {
   const SaveLocationScreen({super.key});
@@ -144,7 +144,9 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
           action: OutlinedButton.icon(
             onPressed: map == null
                 ? null
-                : () => supervisor.requestLocationList(settings, map.mapId),
+                // 장소·홈·금지구역을 함께 받습니다. 홈은 이 버튼 말고는
+                // 수동 갱신 경로가 아예 없었습니다(2026-09-02).
+                : () => supervisor.refreshMapData(settings, map.mapId),
             icon: const Icon(Icons.refresh, size: 18),
             label: const Text('새로고침'),
           ),
@@ -185,6 +187,12 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               // 방향을 고르면 화살표로 미리 보여준다. 어느 쪽을 보고 서게 될지
               // 글자('위')보다 그림이 빠르다.
               poseArrow: _homeArrow(settings),
+              // 저장된 홈은 어느 칸을 펼쳤든 늘 보인다. 장소를 찍을 때도 홈이
+              // 어디인지 알고 찍는 편이 낫다. 찍는 중(주황 원)과 저장된 것
+              // (남색 점)이 함께 보여야 얼마나 옮기는지도 눈에 보인다.
+              homePoint: supervisor.homeBelongsTo(map.mapId)
+                  ? _homeOffset(supervisor)
+                  : null,
               // 여기서 정보 입력 시트를 띄우지 않습니다. 누르자마자 시트가 덮으면
               // 점이 원하는 자리에 찍혔는지 볼 수가 없고, 시트를 닫으면 점까지
               // 사라져 처음부터 다시 해야 했습니다. 이제 누르는 것은 '점 옮기기'
@@ -321,10 +329,18 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               onSelect: supervisor.selectKeepoutZone,
             ),
           ),
-          const SizedBox(height: 8),
-          // 지도 삭제는 목록 맨 아래에 둡니다. 되돌릴 수 없는 일이라 지도를
-          // 고르는 자리(맨 위)에서 멀리 떼어 놓습니다.
-          const MapDeleteCard(),
+          // 지도 삭제도 다른 셋과 같은 접히는 칸입니다. 되돌릴 수 없는 일이라
+          // 목록 맨 아래에 두고 **기본으로 접어** 둡니다 — 지도를 고르는
+          // 자리(맨 위)에서 멀고, 펼치는 손짓이 한 번 더 필요합니다.
+          VicaExpandPanel(
+            title: '지도 삭제',
+            icon: Icons.delete_outline,
+            summary: '${supervisor.maps.length}개',
+            expanded: _panel == _SettingsPanel.mapDelete,
+            onTap: () =>
+                _openPanel(context, supervisor, _SettingsPanel.mapDelete),
+            child: const MapDeleteCard(framed: false),
+          ),
         ],
       ],
     );
@@ -539,6 +555,12 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   /// 장소 찍기와 같은 `pickedLocation` 자리를 씁니다 — 한 화면에서 둘을 동시에
   /// 찍는 일은 없고(홈 모드에서는 지도 탭이 홈으로만 갑니다), 같은 모양으로
   /// 보여야 관리자가 새로 배울 것이 없습니다.
+  /// 저장된 홈의 지도 좌표. 지정돼 있지 않으면 null 입니다.
+  Offset? _homeOffset(SupervisorProvider supervisor) {
+    final home = supervisor.home;
+    return home == null ? null : Offset(home.x, home.y);
+  }
+
   LocationPoint? _homePickedMarker(String mapId) {
     final spot = _homePicked;
     if (spot == null) {

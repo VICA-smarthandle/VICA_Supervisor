@@ -81,6 +81,7 @@ class MapCanvas extends StatelessWidget {
     this.draftLocation,
     this.pickedLocation,
     this.poseArrow,
+    this.homePoint,
     this.scanHits = const [],
     this.onTapMap,
     this.onSelectLocation,
@@ -106,6 +107,13 @@ class MapCanvas extends StatelessWidget {
   // 초기 위치 확인이 찾아낸 자세입니다. 사람이 짚은 점(pickedLocation)과 함께
   // 그려져야 얼마나 옮겨졌는지가 눈에 보입니다.
   final MapPoseArrow? poseArrow;
+
+  /// 저장된 홈 위치(ROS 좌표). 없으면 null 이며 오류가 아닙니다.
+  ///
+  /// 관리자 앱이라 늘 보여 줍니다 — 장소를 찍을 때도 홈이 어디인지 알고 찍는
+  /// 편이 낫고, 사용자가 볼 화면이 아니라 가릴 이유가 없습니다(2026-09-02
+  /// 사용자 결정). 크기와 모양은 저장 장소와 같고 색만 다릅니다.
+  final Offset? homePoint;
 
   /// 초기 위치를 확인한 뒤 그 자세에서 본 라이다 점입니다(ROS 좌표).
   ///
@@ -258,6 +266,25 @@ class MapCanvas extends StatelessWidget {
                                   : () => onSelectLocation!(location),
                             ),
                     ),
+                    // 홈은 장소 마커보다 **위**입니다. 지도에 하나뿐이고, 장소가
+                    // 촘촘한 곳에 있으면 가려져 못 찾습니다.
+                    //
+                    // 색: 밝은 주황입니다(2026-09-02 실기 판정). 처음에 팔레트의
+                    // 남색을 썼는데 장소 마커의 파랑과 실기에서 거의 구분되지
+                    // 않았습니다 — 작은 점에서는 명도 차이만으로 안 갈립니다.
+                    // 아래 '선택 위치'도 주황 계열이지만 그쪽은 속 빈 원이고
+                    // 찍는 동안만 잠깐 보입니다.
+                    if (homePoint != null)
+                      _Marker(
+                        offset: _scaledOffset(
+                          homePoint!.dx,
+                          homePoint!.dy,
+                          scale,
+                        ),
+                        label: '홈',
+                        color: Colors.orange,
+                        size: _markerSize,
+                      ),
                     if (draftLocation != null)
                       _Marker(
                         offset: _scaledOffset(

@@ -20,7 +20,14 @@ import 'vica_ui.dart';
 // 실제 검사는 노드가 합니다 — 이름 규칙, 지금 쓰는 지도인지, 파일이 있는지.
 // 앱은 확인만 받습니다.
 class MapDeleteCard extends StatefulWidget {
-  const MapDeleteCard({super.key});
+  const MapDeleteCard({super.key, this.framed = true});
+
+  /// 스스로 카드 테두리와 제목을 그릴지 여부입니다.
+  ///
+  /// 접히는 칸(VicaExpandPanel) 안에 들어갈 때는 false 로 둡니다 — 칸 머리에
+  /// 이미 '지도 삭제'가 적혀 있어 제목이 두 번 보이고, 카드 안에 카드가
+  /// 겹쳐 테두리가 이중이 됩니다. 홈 위치 칸과 같은 방식입니다.
+  final bool framed;
 
   @override
   State<MapDeleteCard> createState() => _MapDeleteCardState();
@@ -44,12 +51,13 @@ class _MapDeleteCardState extends State<MapDeleteCard> {
     final maps = supervisor.maps;
     final selected = maps.any((map) => map.mapId == _target) ? _target : null;
 
-    return VicaCard(
-      child: Column(
+    final body = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('지도 관리', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 6),
+          if (widget.framed) ...[
+            Text('지도 삭제', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 6),
+          ],
           const Text(
             '지운 지도는 되돌릴 수 없습니다. 지금 쓰는 지도는 지울 수 없습니다.',
             style: TextStyle(color: VicaColors.muted, fontSize: 12),
@@ -114,8 +122,9 @@ class _MapDeleteCardState extends State<MapDeleteCard> {
             ),
           ],
         ],
-      ),
-    );
+      );
+
+    return widget.framed ? VicaCard(child: body) : body;
   }
 
   Future<void> _confirmDelete(

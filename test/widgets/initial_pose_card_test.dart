@@ -31,6 +31,14 @@ PoseCheckResult result({
       movedDeg: 8,
     );
 
+/// 확정 버튼을 찾습니다.
+///
+/// 문구가 버튼 폭에 따라 '지금 위치로 확정'(넓을 때)과 '지금 위치\n확정'
+/// (좁을 때)으로 갈리므로(2026-09-02), 문구가 아니라 **아이콘**으로 찾습니다.
+/// 이 카드에서 체크 아이콘을 쓰는 버튼은 이것 하나뿐입니다.
+Finder _commitButton() =>
+    find.widgetWithIcon(FilledButton, Icons.check);
+
 void main() {
   Future<int> pump(
     WidgetTester tester, {
@@ -80,7 +88,7 @@ void main() {
 
   testWidgets('확인 전에는 확정 버튼 자체가 없다', (tester) async {
     await pump(tester, picked: const Offset(1, 2));
-    expect(find.text('이 위치로 확정'), findsNothing);
+    expect(_commitButton(), findsNothing);
   });
 
   testWidgets('노드가 막으면 확정 버튼이 잠긴다', (tester) async {
@@ -92,7 +100,7 @@ void main() {
       checked: result(ok: false, score: 84, message: '앞뒤가 비슷해 구분이 안 됩니다.'),
     );
     final button = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, '이 위치로 확정'),
+      _commitButton(),
     );
     expect(button.onPressed, isNull);
     // 점수가 84 로 높아도 잠겨 있어야 합니다 -- 이게 대칭 복도 사고를 막는 지점입니다.
@@ -107,7 +115,7 @@ void main() {
       checked: result(),
       calls: calls,
     );
-    await tester.tap(find.widgetWithText(FilledButton, '이 위치로 확정'));
+    await tester.tap(_commitButton());
     expect(calls, contains('commit'));
   });
 

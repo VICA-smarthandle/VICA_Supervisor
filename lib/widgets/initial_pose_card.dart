@@ -175,26 +175,44 @@ class InitialPoseCard extends StatelessWidget {
             const SizedBox(height: 16),
             _Score(result: result!),
             const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    // 확정 가능 여부는 **노드가 판정합니다.** 앱은 그 결과를
-                    // 그대로 씁니다. 앱에서 다시 계산하면 두 기준이 갈립니다.
-                    onPressed: result!.ok && !busy ? onCommit : null,
-                    icon: const Icon(Icons.check),
-                    label: const Text('이 위치로 확정'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: busy ? null : onReset,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('다시 짚기'),
-                  ),
-                ),
-              ],
+            // 버튼 폭에 따라 글자를 한 줄로 둘지 두 줄로 끊을지 정합니다.
+            //
+            // 휴대폰(좁음)에서 한 줄로 두면 마지막 한 글자만 아래로 떨어져
+            // 읽기 나쁘고, 웹·데스크톱(넓음)에서 두 줄로 고정하면 버튼만
+            // 쓸데없이 높아집니다(2026-09-02 실기 양쪽 확인). 자동 줄바꿈에
+            // 맡기지 않는 이유는 그때 '확정'이 쪼개지기 때문입니다 — 끊는
+            // 자리는 사람이 정합니다.
+            LayoutBuilder(
+              builder: (context, constraints) {
+                // 두 버튼이 10 px 간격으로 폭을 절반씩 나눠 씁니다. 한 줄
+                // ('지금 위치로 확정' 8자 + 체크 아이콘 + 좌우 여백)에
+                // 필요한 폭이 대략 180 px 이라 그 두 배를 문턱으로 둡니다.
+                final oneLine = (constraints.maxWidth - 10) / 2 >= 180;
+                return Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        // 확정 가능 여부는 **노드가 판정합니다.** 앱은 그 결과를
+                        // 그대로 씁니다. 앱에서 다시 계산하면 두 기준이 갈립니다.
+                        onPressed: result!.ok && !busy ? onCommit : null,
+                        icon: const Icon(Icons.check),
+                        label: Text(
+                          oneLine ? '지금 위치로 확정' : '지금 위치\n확정',
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: busy ? null : onReset,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('다시 짚기'),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ],
         ],
