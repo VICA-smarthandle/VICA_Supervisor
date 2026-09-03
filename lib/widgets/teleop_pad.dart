@@ -6,9 +6,11 @@
 // "손을 떼면 명령이 끊긴다"를 전제로 하므로, 눌러 두고 손을 떼도 계속 가는 방식은
 // 그 전제를 깨뜨립니다. 잔디깎이 손잡이와 같습니다.
 //
-// 속도 상한은 SupervisorProvider 가 갖고 있습니다(0.3 m/s, 0.4 rad/s).
+// 속도 상한은 SupervisorProvider 가 갖고 있습니다(직진 0.3 m/s, 회전 0.3 rad/s).
 // docs/cartographer_corridor_mapping.md 4절이 근거입니다 — 더 빠르면 스캔 사이
 // 이동이 Cartographer 의 예측 탐색 창(0.1 m)에 닿아 지도가 나빠집니다.
+// 회전은 그 문서의 0.4 보다 한 단계 더 내렸습니다 — 직진과 같은 0.3 이 지도가
+// 곱게 나온다는 운영자 관찰(2026-09-03)입니다.
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 

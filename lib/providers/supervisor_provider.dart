@@ -1979,10 +1979,18 @@ class SupervisorProvider extends ChangeNotifier {
   // "직진 0.3 m/s, 회전 0.4 rad/s 아래. 예측 탐색 창이 0.1 m 라 0.5 m/s 면
   //  스캔 사이 이동이 10 cm 로 창 경계에 닿는다".
   //
+  // 회전은 그 문서 기준(0.4 아래)에서 한 단계 더 내린 0.3 입니다. 직진과 같은
+  // 값으로 묶어야 지도가 곱게 나온다는 운영자 관찰(2026-09-03)이 근거입니다.
+  // 제자리 90도에 5.2초·한 바퀴에 20.9초로, 0.4 일 때보다 90도당 1.3초 느립니다.
+  // [미검증] 같은 복도를 두 값으로 돈 bag 비교는 아직 하지 않았습니다.
+  //
   // Safety 의 상한(1.0 / 2.0)은 실주행 상한의 3.8~5배라 폭주만 막고 일상 제한은
   // 못 합니다(nav2_backlog.md C8). 그래서 보내는 값 자체를 여기서 묶습니다.
+  //
+  // 이 두 값은 지도 그리기 화면과 홈 위치 저장 화면이 함께 씁니다. 홈 위치는
+  // 자세를 정밀하게 맞추는 일이라 느린 쪽이 유리해, 하나로 묶어 둡니다.
   static const teleopMaxLinear = 0.3;
-  static const teleopMaxAngular = 0.4;
+  static const teleopMaxAngular = 0.3;
 
   // 20 Hz. Safety 의 0.5초 시한보다 10배 촘촘해 한두 장을 놓쳐도 끊기지 않습니다.
   static const _teleopPeriod = Duration(milliseconds: 50);
