@@ -770,6 +770,35 @@ class SupervisorProvider extends ChangeNotifier {
   /// "지도 한 장은 사람이 로봇을 끌고 다닌 시간"이라(vica_map_save.sh 주석) 실제
   /// 검사는 노드가 합니다 — 이름 규칙, 지금 쓰는 지도인지, 파일이 있는지.
   /// 앱은 확인을 받고 결과를 보여줄 뿐입니다.
+  /// 지도의 표시 이름(한글 가능)을 바꿉니다. 파일·URL·장소는 map_id 로 묶여
+  /// 있어 그대로이고, 노드가 목록을 다시 보내면 드롭다운이 새 이름을 보입니다.
+  Future<String> renameMap(
+    AppSettings settings,
+    String mapId,
+    String displayName,
+  ) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return 'ROS Bridge에 연결되지 않았습니다.';
+    }
+    try {
+      final response = await client.callService(
+        service: settings.renameMapService,
+        type: 'vica_interfaces/srv/RenameMap',
+        args: {'map_id': mapId, 'display_name': displayName},
+      );
+      final message = response.message.isEmpty
+          ? (response.accepted ? '이름을 바꿨습니다.' : '이름 바꾸기가 거부되었습니다.')
+          : response.message;
+      _addLog(LogFilter.coordinateTransfer, message);
+      return message;
+    } catch (error) {
+      final message = '이름 바꾸기 요청 실패: $error';
+      _addLog(LogFilter.coordinateTransfer, message);
+      return message;
+    }
+  }
+
   Future<String> deleteMap(
     AppSettings settings,
     String mapId, {

@@ -15,7 +15,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 pytest.importorskip("rclpy")  # 노드 모듈이 rclpy 를 import 한다
-from map_list_node import build_map_list  # noqa: E402
+from map_list_node import apply_display_name, build_map_list  # noqa: E402
 
 
 def _png(path: Path, width: int, height: int) -> None:
@@ -64,3 +64,40 @@ def test_display_name_comes_from_meta_json(tmp_path: Path) -> None:
     assert by_id["map_0904_151230"]["map_name"] == "병원 2층"
     assert by_id["map_0904_151230"]["image_url"] == "/maps/map_0904_151230.png"
     assert by_id["vica_map_00"]["map_name"] == "vica_map_00"
+
+
+def test_rename_writes_meta_and_list_shows_it(tmp_path: Path) -> None:
+    _png(tmp_path / "vica_map_0903_d.png", 1, 1)
+    ok, message = apply_display_name(tmp_path, "vica_map_0903_d", "병원 2층")
+    assert ok, message
+    assert (tmp_path / "vica_map_0903_d.meta.json").is_file()
+    by_id = {m["map_id"]: m for m in build_map_list(tmp_path, "")["maps"]}
+    assert by_id["vica_map_0903_d"]["map_name"] == "병원 2층"
+    # 파일·URL 은 그대로 id 다.
+    assert by_id["vica_map_0903_d"]["image_url"] == "/maps/vica_map_0903_d.png"
+
+
+def test_rename_rejects_names_used_by_other_maps(tmp_path: Path) -> None:
+    _png(tmp_path / "a.png", 1, 1)
+    _png(tmp_path / "b.png", 1, 1)
+    assert apply_display_name(tmp_path, "a", "병원 2층")[0]
+    ok, message = apply_display_name(tmp_path, "b", "병원 2층")
+    assert not ok and "이미" in message
+    # 이름표 없는 옛 지도의 id 와 겹쳐도 거부한다.
+    (tmp_path / "old_map.yaml").write_text("resolution: 0.05\n", encoding="utf-8")
+    assert not apply_display_name(tmp_path, "b", "old_map")[0]
+
+
+def test_rename_to_empty_or_id_removes_meta(tmp_path: Path) -> None:
+    _png(tmp_path / "a.png", 1, 1)
+    apply_display_name(tmp_path, "a", "로비")
+    assert apply_display_name(tmp_path, "a", "")[0]
+    assert not (tmp_path / "a.meta.json").exists()
+
+
+def test_rename_rejects_bad_ids_and_paths(tmp_path: Path) -> None:
+    _png(tmp_path / "a.png", 1, 1)
+    assert not apply_display_name(tmp_path, "../a", "로비")[0]
+    assert not apply_display_name(tmp_path, "missing", "로비")[0]
+    assert not apply_display_name(tmp_path, "a", "로/비")[0]
+    assert not apply_display_name(tmp_path, "a", "가" * 41)[0]

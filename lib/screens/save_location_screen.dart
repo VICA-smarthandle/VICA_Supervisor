@@ -346,7 +346,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
           // 목록 맨 아래에 두고 **기본으로 접어** 둡니다 — 지도를 고르는
           // 자리(맨 위)에서 멀고, 펼치는 손짓이 한 번 더 필요합니다.
           VicaExpandPanel(
-            title: '지도 삭제',
+            title: '지도 관리',
             icon: Icons.delete_outline,
             summary: '${supervisor.maps.length}개',
             expanded: _panel == _SettingsPanel.mapDelete,

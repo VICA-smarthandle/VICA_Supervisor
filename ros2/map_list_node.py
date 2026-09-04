@@ -17,6 +17,8 @@
 import json
 import re
 import shutil
+import unicodedata
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -82,6 +84,33 @@ class MapListNode(Node):
         self.publisher = self.create_publisher(String, "/map_list", 10)
 
         self._setup_delete_service()
+        self._setup_rename_service()
+
+    def _setup_rename_service(self) -> None:
+        """표시 이름 바꾸기 서비스. 삭제와 같은 사정으로 import 를 감쌉니다."""
+        try:
+            from vica_interfaces.srv import RenameMap
+        except ImportError as error:
+            self.get_logger().warn(
+                f"vica_interfaces/RenameMap import 실패: {error}. "
+                "이름 바꾸기 서비스를 열지 않습니다(vica_interfaces 재빌드 필요)."
+            )
+            return
+        self.create_service(RenameMap, "/rename_map", self.handle_rename_map)
+        self.get_logger().info("/rename_map 서비스 준비 완료")
+
+    def handle_rename_map(self, request, response):
+        """표시 이름만 바꿉니다. 파일·URL·장소는 map_id 로 묶여 있어 그대로입니다."""
+        ok, message = apply_display_name(
+            self.maps_root, request.map_id or "", request.display_name or ""
+        )
+        response.accepted = ok
+        response.message = message
+        if ok:
+            self.get_logger().info(message)
+            # 목록을 곧바로 다시 보내 드롭다운이 새 이름을 보이게 합니다.
+            self.publish_maps(String())
+        return response
 
     def _setup_delete_service(self) -> None:
         """지도 삭제 서비스를 엽니다.
@@ -228,6 +257,72 @@ def build_map_list(maps_root: Path, current_map_id: str) -> dict[str, Any]:
             }
         )
     return {"maps": maps, "current_map_id": current_map_id}
+
+
+# 표시 이름 규칙. ros2 mapping_session.plan_map_save(저장 때)와 같아야 한다 —
+# 저장소가 달라 import 할 수 없어 여기 두 줄을 같은 값으로 둔다.
+DISPLAY_NAME_MAX = 40
+_DISPLAY_NAME_FORBIDDEN = re.compile(r"[\x00-\x1f/\\]")
+
+
+def apply_display_name(maps_root: Path, map_id: str, display_name: str) -> tuple[bool, str]:
+    """표시 이름을 maps/<id>.meta.json 에 적는다(비우면 지운다). (성공 여부, 사람 문구).
+
+    파일·URL·목적지·금지구역은 map_id 로 묶여 있어 하나도 움직이지 않는다. 다른
+    지도가 이미 쓰는 이름은 거부한다 — 겹치면 터미네이터에서 이름으로 고를 때
+    (scripts/vica_map_resolve.py) 어느 지도인지 정할 수 없다.
+    """
+    map_id = (map_id or "").strip()
+    if not MAP_ID_PATTERN.match(map_id):
+        return False, "지도 id 가 올바르지 않습니다."
+    if not any((maps_root / f"{map_id}{suffix}").exists() for suffix in (".yaml", ".png")):
+        return False, f"'{map_id}' 지도를 찾지 못했습니다."
+
+    name = unicodedata.normalize("NFC", display_name or "").strip()
+    meta_path = maps_root / f"{map_id}.meta.json"
+    if not name or name == map_id:
+        try:
+            meta_path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError as error:
+            return False, f"{meta_path} 를 지우지 못했습니다: {error}"
+        return True, f"'{map_id}' 의 표시 이름을 지웠습니다. 이제 id 가 이름입니다."
+    if _DISPLAY_NAME_FORBIDDEN.search(name):
+        return False, "이름에 슬래시(/, \\)나 제어 문자는 쓸 수 없습니다."
+    if len(name) > DISPLAY_NAME_MAX:
+        return False, f"이름이 너무 깁니다({len(name)}자). {DISPLAY_NAME_MAX}자 이내로 해주세요."
+    for other in maps_root.glob("*.meta.json"):
+        other_id = other.name[: -len(".meta.json")]
+        if other_id == map_id:
+            continue
+        if unicodedata.normalize("NFC", read_display_name(other)) == name:
+            return False, f"'{name}' 은 이미 '{other_id}' 지도의 이름입니다. 다른 이름을 쓰세요."
+    if name != map_id and (maps_root / f"{name}.yaml").exists():
+        # 이름표 없는 옛 지도는 id 가 곧 이름이다. 그것과 겹쳐도 같은 사고다.
+        return False, f"'{name}' 은 이미 있는 지도의 id 입니다. 다른 이름을 쓰세요."
+
+    previous = {}
+    try:
+        previous = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    now = datetime.now().isoformat(timespec="seconds")
+    document = {
+        "map_id": map_id,
+        "display_name": name,
+        "saved_at": previous.get("saved_at") if isinstance(previous, dict) else None,
+        "renamed_at": now,
+    }
+    if not document["saved_at"]:
+        document["saved_at"] = now
+    try:
+        meta_path.write_text(
+            json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+    except OSError as error:
+        return False, f"{meta_path} 를 쓰지 못했습니다: {error}"
+    return True, f"'{map_id}' 의 이름을 '{name}' 으로 바꿨습니다."
 
 
 def read_display_name(path: Path) -> str:

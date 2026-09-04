@@ -23,6 +23,7 @@ class AppSettings {
     this.missionPauseService = '/vica/mission/pause_navigation',
     this.missionResumeService = '/vica/mission/resume_navigation',
     this.deleteMapService = '/delete_map',
+    this.renameMapService = '/rename_map',
     this.mappingStatusTopic = '/vica/mapping_status',
     this.mapPreviewTopic = '/vica/map_preview',
     this.mappingStartService = '/vica/mapping/start',
@@ -71,6 +72,7 @@ class AppSettings {
   final String deleteLocationRequestTopic;
   // 지도 삭제. map_list_node 가 제공합니다.
   final String deleteMapService;
+  final String renameMapService;
 
   // 매핑 세션 제어. mapping_supervisor_node 가 제공합니다.
   final String mappingStatusTopic;
@@ -153,6 +155,7 @@ class AppSettings {
     String? saveLocationTopic,
     String? deleteLocationRequestTopic,
     String? deleteMapService,
+    String? renameMapService,
     String? mappingStatusTopic,
     String? mapPreviewTopic,
     String? mappingStartService,
@@ -204,6 +207,7 @@ class AppSettings {
       deleteLocationRequestTopic:
           deleteLocationRequestTopic ?? this.deleteLocationRequestTopic,
       deleteMapService: deleteMapService ?? this.deleteMapService,
+      renameMapService: renameMapService ?? this.renameMapService,
       mappingStatusTopic: mappingStatusTopic ?? this.mappingStatusTopic,
       mapPreviewTopic: mapPreviewTopic ?? this.mapPreviewTopic,
       mappingStartService: mappingStartService ?? this.mappingStartService,
@@ -265,6 +269,7 @@ class AppSettings {
       'saveLocationTopic': saveLocationTopic,
       'deleteLocationRequestTopic': deleteLocationRequestTopic,
       'deleteMapService': deleteMapService,
+      'renameMapService': renameMapService,
       'mappingStatusTopic': mappingStatusTopic,
       'mapPreviewTopic': mapPreviewTopic,
       'mappingStartService': mappingStartService,
@@ -316,6 +321,8 @@ class AppSettings {
               defaults.deleteLocationRequestTopic,
       deleteMapService:
           json['deleteMapService'] as String? ?? defaults.deleteMapService,
+      renameMapService:
+          json['renameMapService'] as String? ?? defaults.renameMapService,
       mappingStatusTopic:
           json['mappingStatusTopic'] as String? ?? defaults.mappingStatusTopic,
       mapPreviewTopic:

@@ -32,6 +32,12 @@ class _FakeSupervisor extends SupervisorProvider {
     calls.add('$mapId:$deleteDestinations');
     return '지웠습니다.';
   }
+
+  @override
+  Future<String> renameMap(settings, String mapId, String displayName) async {
+    calls.add('rename:$mapId:$displayName');
+    return '바꿨습니다.';
+  }
 }
 
 void main() {
@@ -98,7 +104,7 @@ void main() {
   testWidgets('되돌릴 수 없다는 것을 미리 알린다', (tester) async {
     await pump(tester);
     expect(find.textContaining('되돌릴 수 없습니다'), findsOneWidget);
-    expect(find.textContaining('지금 쓰는 지도는 지울 수 없습니다'), findsOneWidget);
+    expect(find.textContaining('현재 주행하는 지도는 삭제할 수 없습니다'), findsOneWidget);
   });
 
   testWidgets('확인 창에서 그만두면 아무것도 안 지운다', (tester) async {
@@ -113,7 +119,7 @@ void main() {
 
     await tester.tap(find.widgetWithText(OutlinedButton, '지도 삭제'));
     await tester.pumpAndSettle();
-    expect(find.text('지도를 지웁니다'), findsOneWidget);
+    expect(find.text('지도를 삭제합니다'), findsOneWidget);
 
     await tester.tap(find.widgetWithText(TextButton, '그만두기'));
     await tester.pumpAndSettle();
@@ -153,11 +159,45 @@ void main() {
 
     await tester.tap(find.widgetWithText(OutlinedButton, '지도 삭제'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('저장한 장소를 지웁니다'), findsOneWidget);
+    expect(find.textContaining('저장한 장소를 삭제합니다'), findsOneWidget);
     expect(find.textContaining('되돌릴 수 없습니다'), findsWidgets);
     await tester.tap(find.widgetWithText(FilledButton, '지우기'));
     await tester.pumpAndSettle();
 
     expect(supervisor.calls, ['lobby_0821:true']);
+  });
+
+  testWidgets('지도를 고르면 지금 이름이 채워지고 그대로면 바꾸기 버튼이 닫혀 있다',
+      (tester) async {
+    await pump(tester);
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('hall_0820').last);
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        'hall_0820');
+    final button = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, '이름 바꾸기'),
+    );
+    expect(button.onPressed, isNull);
+  });
+
+  testWidgets('이름을 고치고 누르면 표시 이름만 바꾸는 요청이 나간다', (tester) async {
+    // 파일·URL·장소는 map_id 로 묶여 있어 그대로다 — 노드가 meta.json 만 고친다.
+    final supervisor = await pump(tester);
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('hall_0820').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '병원 2층');
+    await tester.pump();
+
+    await tester.tap(find.widgetWithText(OutlinedButton, '이름 바꾸기'));
+    await tester.pumpAndSettle();
+
+    expect(supervisor.calls, ['rename:hall_0820:병원 2층']);
   });
 }
