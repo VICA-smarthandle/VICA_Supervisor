@@ -79,7 +79,7 @@ class SupervisorProvider extends ChangeNotifier {
     'not_paused': '다시 출발할 주행이 없습니다.',
     'no_home': '홈 위치가 지정되지 않았습니다. 지도 설정 화면에서 먼저 지정하세요.',
     'already_home_bound': '이미 홈으로 돌아가는 중입니다.',
-    'busy_approaching': '사람에게 다가가는 중이라 지금은 홈으로 부를 수 없습니다.',
+    'busy_approaching': '사용자에게 다가가는 중이라 지금은 홈으로 부를 수 없습니다.',
   };
 
   final _uuid = const Uuid();
@@ -598,7 +598,7 @@ class SupervisorProvider extends ChangeNotifier {
       topic: settings.saveLocationTopic,
       payload: _locationPayload(location),
     );
-    _addLog(LogFilter.coordinateTransfer, '${location.name} 장소 수정 저장 요청 전송');
+    _addLog(LogFilter.coordinateTransfer, '${location.name} 수정 저장 요청 전송');
     notifyListeners();
     return (true, '${location.name} 수정을 저장했습니다.');
   }
@@ -789,7 +789,7 @@ class SupervisorProvider extends ChangeNotifier {
         },
       );
       final message = response.message.isEmpty
-          ? (response.accepted ? '지도를 지웠습니다.' : '삭제가 거부되었습니다.')
+          ? (response.accepted ? '지도가 삭제되었습니다.' : '삭제가 거부되었습니다.')
           : response.message;
       _addLog(LogFilter.coordinateTransfer, message);
       if (response.accepted && _selectedMapId == mapId) {
@@ -897,7 +897,7 @@ class SupervisorProvider extends ChangeNotifier {
         },
       );
       final message = response.message.isEmpty
-          ? (response.accepted ? '홈을 저장했습니다.' : '홈을 저장하지 못했습니다.')
+          ? (response.accepted ? '홈 위치가 삭제되었습니다.' : '홈 위치 삭제가 거부되었습니다.')
           : response.message;
       _addLog(LogFilter.coordinateTransfer, message);
       if (response.accepted) {
@@ -938,7 +938,7 @@ class SupervisorProvider extends ChangeNotifier {
         args: {'map_id': mapId},
       );
       final message = response.message.isEmpty
-          ? (response.accepted ? '홈을 지웠습니다.' : '홈을 지우지 못했습니다.')
+          ? (response.accepted ? '홈 위치가 삭제되었습니다.' : '홈 위치 삭제가 거부되었습니다.')
           : response.message;
       _addLog(LogFilter.coordinateTransfer, message);
       if (response.accepted) {
@@ -1095,7 +1095,7 @@ class SupervisorProvider extends ChangeNotifier {
         _setDelivery(job.copyWith(
           phase: DeliveryPhase.arrived,
           clearReturnAt: true,
-          returnNote: '앱이 꺼진 사이 홈 복귀가 끝났거나 멈췄습니다. 로봇 위치를 보고 지우거나 다시 보내세요.',
+          returnNote: '앱이 꺼진 사이 홈 복귀가 끝났거나 멈췄습니다. 로봇 위치 확인 후 복귀를 삭제하거나 다시 보내세요.',
         ));
         _addLog(LogFilter.delivery, '$name 배송 홈 복귀 결과를 확인하지 못했습니다');
       default:
@@ -1311,7 +1311,7 @@ class SupervisorProvider extends ChangeNotifier {
     _setDelivery(arrived);
     _addLog(
       LogFilter.delivery,
-      '${job.destination.name} 배송 도착 — ${sendText ? '문자 발송 시도' : '문자는 이미 보냄'}, '
+      '${job.destination.name} 배송 도착 — ${sendText ? '문자 발송 시도' : '문자 발송 완료'}, '
       '${deliveryReturnDelay.inMinutes}분 뒤 홈 복귀',
     );
     _scheduleDeliveryReturn(arrived);

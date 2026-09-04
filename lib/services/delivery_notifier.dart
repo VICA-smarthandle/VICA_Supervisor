@@ -52,7 +52,7 @@ class PreviewDeliveryNotifier implements DeliveryNotifier {
   }) async {
     return const DeliveryNotifyResult(
       sent: false,
-      detail: '미리보기입니다. 실제 문자는 보내지 않았습니다 — 직접 연락하세요.',
+      detail: '유심이 없습니다. 실제 문자는 보내지 않았습니다 — 직접 연락하세요.',
     );
   }
 }

@@ -384,7 +384,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: const Text('저장하지 않은 금지구역이 있습니다'),
-          content: const Text('편집을 버리고 다른 칸으로 넘어갈까요?'),
+          content: const Text('편집을 취소하고 넘어갈까요?'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -392,7 +392,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
             ),
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('편집 버리기'),
+              child: const Text('편집 취소'),
             ),
           ],
         ),
@@ -644,7 +644,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
         x: result.x,
         y: result.y,
         yawDegrees: result.yawDegrees,
-        label: '찾아낸 자세',
+        label: '확인된 위치',
       );
     }
     return null;

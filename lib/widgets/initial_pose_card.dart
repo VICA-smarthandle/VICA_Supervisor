@@ -100,7 +100,7 @@ class InitialPoseCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           const Text(
-            'Nav2 를 켜면 로봇은 자기가 어디 있는지 모릅니다. 지도에서 지금 로봇이 서 있는 자리를 짚어 주세요.',
+            'Nav2 를 켜면 로봇은 자기가 어디 있는지 모릅니다. 지도에서 로봇이 현재 위치를 선택해 주세요.',
             style: TextStyle(color: VicaColors.muted, fontSize: 13),
           ),
           const SizedBox(height: 16),
@@ -108,8 +108,8 @@ class InitialPoseCard extends StatelessWidget {
             context,
             number: '1',
             title: spot == null
-                ? '지도를 눌러 로봇이 있는 자리를 짚으세요'
-                : '짚은 자리 (${spot.dx.toStringAsFixed(2)}, ${spot.dy.toStringAsFixed(2)})',
+                ? '지도를 눌러 로봇이 있는 위치를 선택해주세요'
+                : '선택한 위치 (${spot.dx.toStringAsFixed(2)}, ${spot.dy.toStringAsFixed(2)})',
             done: spot != null,
           ),
           const SizedBox(height: 12),
@@ -207,7 +207,7 @@ class InitialPoseCard extends StatelessWidget {
                       child: OutlinedButton.icon(
                         onPressed: busy ? null : onReset,
                         icon: const Icon(Icons.refresh),
-                        label: const Text('다시 짚기'),
+                        label: const Text('다시 선택'),
                       ),
                     ),
                   ],

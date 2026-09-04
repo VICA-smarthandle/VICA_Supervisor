@@ -154,7 +154,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                 ? LocationPoint(
                     locationId: '_initial_pose',
                     mapId: map.mapId,
-                    name: '짚은 자리',
+                    name: '선택 위치',
                     x: _picked!.dx,
                     y: _picked!.dy,
                     yaw: 0,
@@ -165,7 +165,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                     x: supervisor.poseCheck!.x,
                     y: supervisor.poseCheck!.y,
                     yawDegrees: supervisor.poseCheck!.yawDegrees,
-                    label: '찾아낸 자세',
+                    label: '확인된 위치',
                   )
                 : null,
             // 확인한 자세에서 본 라이다 점. 확정 뒤에는 AMCL 자세의 점으로
@@ -297,7 +297,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                   if (!supervisor.home!.visitedOk) ...[
                     const SizedBox(height: 6),
                     const Text(
-                      '홈에 아직 가 본 적이 없습니다. 지도 설정 화면에서 먼저 확인하세요.',
+                      '홈에 아직 가 본 적이 없습니다. 지도 설정 화면에서 확인해주세요.',
                       style: TextStyle(color: VicaColors.muted, fontSize: 12),
                     ),
                   ],
@@ -406,7 +406,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     final fresh = supervisor.stackStatus;
     if (fresh != null && !fresh.nav2Running) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('주행(Nav2)이 꺼져 있습니다. 먼저 시작하세요.')),
+        const SnackBar(content: Text('주행(Nav2)이 꺼져 있습니다. 확인해주세요.')),
       );
       return;
     }
@@ -423,8 +423,8 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     final stack = supervisor.stackStatus;
     final nav2Down = stack != null && !stack.nav2Running;
     final blocked = busyDriving
-        ? '주행 중에는 초기 위치를 바꿀 수 없습니다. 먼저 주행을 멈추세요.'
-        : (nav2Down ? '주행(Nav2)이 꺼져 있습니다. 먼저 시작하세요.' : '');
+        ? '주행 중에는 초기 위치를 변경할 수 없습니다. 변경하시려면 주행을 멈추세요.'
+        : (nav2Down ? '주행(Nav2)이 꺼져 있습니다. 확인해주세요.' : '');
     return VicaCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -445,7 +445,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
           const SizedBox(height: 6),
           Text(
             blocked.isEmpty
-                ? 'Nav2 를 켠 직후에는 로봇이 자기 위치를 모릅니다. 지도에서 짚어 알려 주세요.'
+                ? 'Nav2 를 켠 직후에는 로봇이 자기 위치를 모릅니다. 초기위치를 설정해주세요.'
                 : blocked,
             style: const TextStyle(color: VicaColors.muted, fontSize: 13),
           ),

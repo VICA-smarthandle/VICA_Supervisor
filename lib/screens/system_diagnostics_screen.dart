@@ -253,9 +253,9 @@ class _Readiness extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle('부품 상태'),
+        const _SectionTitle('항목별 준비 상태'),
         if (readiness == null || readiness.isEmpty)
-          const VicaCard(child: Text('아직 부품 상태를 받지 못했습니다.'))
+          const VicaCard(child: Text('아직 준비되지 않았습니다.'))
         else
           VicaCard(
             child: Column(
@@ -298,7 +298,7 @@ class _Readiness extends StatelessWidget {
                       Expanded(
                         child: Text(
                           '관측 불가는 고장이 아니라 상태를 확인할 수단이 없다는 '
-                          '뜻입니다. 정상이라고 볼 수 없습니다.',
+                          '뜻입니다. 정상은 아닙니다.',
                           style:
                               TextStyle(color: VicaColors.muted, fontSize: 12),
                         ),

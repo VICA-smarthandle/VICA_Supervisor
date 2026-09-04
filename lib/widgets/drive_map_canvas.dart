@@ -100,7 +100,7 @@ class CurrentMapNotice extends StatelessWidget {
           const SizedBox(width: 6),
           Expanded(
             child: Text(
-              '로봇은 지금 "$current" 지도로 달립니다. 이 화면의 "$shown" 과 다릅니다 — '
+              '로봇은 지금 "$current" 지도로 주행합니다. 이 화면의 "$shown" 과 다릅니다 — '
               '장소·홈이 로봇 위치와 어긋나 보일 수 있습니다.',
               style: const TextStyle(color: VicaColors.red, fontSize: 13),
             ),

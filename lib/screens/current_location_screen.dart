@@ -82,7 +82,7 @@ class _CurrentLocationScreenState extends State<CurrentLocationScreen> {
         ),
         const SizedBox(height: 16),
         if (robot == null)
-          const VicaCard(child: Text('로봇 상태를 아직 수신하지 않았습니다.'))
+          const VicaCard(child: Text('아직 로봇 상태를 수신하지 않았습니다.'))
         else
           VicaCard(
             child: Column(

@@ -36,7 +36,7 @@ class TeleopPad extends StatelessWidget {
               const SizedBox(width: 8),
               const Expanded(
                 child: Text(
-                  '로봇 끌고 다니기',
+                  '원격 조종',
                   style: TextStyle(fontWeight: FontWeight.w700),
                 ),
               ),
@@ -53,7 +53,7 @@ class TeleopPad extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           const Text(
-            '버튼을 누르고 있는 동안만 움직입니다. 손을 떼면 곧바로 멈춥니다. '
+            '버튼을 누르고 있는 동안만 움직입니다. 손을 떼면 바로 멈춥니다. '
             '최대 ${SupervisorProvider.teleopMaxLinear} m/s · '
             '${SupervisorProvider.teleopMaxAngular} rad/s.',
             style: TextStyle(color: VicaColors.muted, fontSize: 12),

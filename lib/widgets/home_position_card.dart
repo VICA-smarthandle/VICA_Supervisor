@@ -128,7 +128,7 @@ class HomePositionCard extends StatelessWidget {
           const SizedBox(height: 4),
         ],
         const Text(
-          '안내가 끝나면 로봇이 이 자리로 돌아옵니다. 지도마다 하나만 정할 수 있습니다.',
+          '안내가 끝나면 로봇이 이 자리로 돌아옵니다. 지도당 하나만 설정 가능합니다.',
           style: TextStyle(color: VicaColors.muted, fontSize: 13),
         ),
         const SizedBox(height: 14),
@@ -183,7 +183,7 @@ class HomePositionCard extends StatelessWidget {
       FilledButton.icon(
         onPressed: busy || !canSendRobot ? null : onGoHome,
         icon: const Icon(Icons.navigation_outlined),
-        label: Text(saved.visitedOk ? '홈으로 가보기 (다시 확인)' : '홈으로 가보기'),
+        label: Text(saved.visitedOk ? '홈으로 주행(다시 확인)' : '홈으로 주행'),
       ),
       const SizedBox(height: 10),
       _pickButtons(context, relabel: true),
@@ -203,13 +203,13 @@ class HomePositionCard extends StatelessWidget {
         OutlinedButton.icon(
           onPressed: busy ? null : onStartPicking,
           icon: const Icon(Icons.touch_app_outlined, size: 18),
-          label: Text(relabel ? '지도에서 다시 찍기' : '지도에서 찍기'),
+          label: Text(relabel ? '지도에서 다시 선택' : '지도에서 선택'),
         ),
         const SizedBox(height: 8),
         OutlinedButton.icon(
           onPressed: busy ? null : onStartStanding,
           icon: const Icon(Icons.adjust, size: 18),
-          label: Text(relabel ? '지금 선 자리로 갱신' : '지금 로봇이 선 자리로'),
+          label: Text(relabel ? '지금 위치로 갱신' : '지금 로봇이 있는 위치로'),
         ),
       ],
     );
@@ -224,15 +224,15 @@ class HomePositionCard extends StatelessWidget {
     return [
       const _InfoBox(
         icon: Icons.touch_app_outlined,
-        text: '지도를 눌러 홈으로 쓸 자리를 짚고, 로봇이 바라볼 방향을 고르세요. '
-            '저장한 뒤 \'홈으로 가보기\'로 실제로 갈 수 있는지 확인합니다.',
+        text: '지도에서 홈 위치를 선택하고, 로봇이 바라볼 방향을 고르세요. '
+            '저장한 뒤 \'홈으로 주행\'으로 실제로 갈 수 있는지 확인합니다.',
       ),
       const SizedBox(height: 14),
       _Step(
         number: '1',
         title: spot == null
-            ? '지도를 눌러 자리를 짚으세요'
-            : '짚은 자리 (${spot.dx.toStringAsFixed(2)}, ${spot.dy.toStringAsFixed(2)})',
+            ? '지도에서 홈 위치를 선택하세요'
+            : '선택한 위치 (${spot.dx.toStringAsFixed(2)}, ${spot.dy.toStringAsFixed(2)})',
         done: spot != null,
       ),
       const SizedBox(height: 12),

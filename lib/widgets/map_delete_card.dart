@@ -59,7 +59,7 @@ class _MapDeleteCardState extends State<MapDeleteCard> {
             const SizedBox(height: 6),
           ],
           const Text(
-            '지운 지도는 되돌릴 수 없습니다. 지금 쓰는 지도는 지울 수 없습니다.',
+            '삭제한 지도는 되돌릴 수 없습니다. 현재 주행하는 지도는 삭제할 수 없습니다.',
             style: TextStyle(color: VicaColors.muted, fontSize: 12),
           ),
           const SizedBox(height: 12),
@@ -99,11 +99,11 @@ class _MapDeleteCardState extends State<MapDeleteCard> {
               controlAffinity: ListTileControlAffinity.leading,
               dense: true,
               title: const Text(
-                '이 지도에 저장한 장소도 함께 지웁니다',
+                '이 지도에 저장한 장소도 함께 삭제합니다',
                 style: TextStyle(fontSize: 13),
               ),
               subtitle: const Text(
-                '지도만 지우고 장소를 남길 수는 없습니다. 확인하셨으면 체크해 주세요.',
+                '지도만 삭제하고 장소를 남길 수는 없습니다. 확인하셨으면 체크해 주세요.',
                 style: TextStyle(fontSize: 11, color: VicaColors.muted),
               ),
             ),
@@ -135,9 +135,9 @@ class _MapDeleteCardState extends State<MapDeleteCard> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('지도를 지웁니다'),
+        title: const Text('지도를 삭제합니다'),
         content: Text(
-          "'$mapId' 의 지도 파일과 이 지도에 저장한 장소를 지웁니다.\n"
+          "'$mapId'의 지도 파일과 이 지도에 저장한 장소를 삭제합니다.\n"
           '되돌릴 수 없습니다.',
         ),
         actions: [

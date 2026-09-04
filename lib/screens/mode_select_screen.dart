@@ -66,7 +66,7 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('무엇을 하시겠어요?'),
+        title: const Text('모드를 선택해주세요'),
         actions: [
           IconButton(
             onPressed: supervisor.stackStatusLoading
@@ -92,7 +92,7 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
       ),
       body: SafeArea(
         child: VicaPage(
-          title: '$username 님, 모드를 고르세요',
+          title: '$username 님, 모드를 선택해주세요',
           children: [
             const VicaRosConnectionTile(),
             if (status != null && (status.duplicated || status.conflicting))
@@ -167,7 +167,7 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
         color: VicaColors.red,
         label: '이미 충돌 중',
         enabled: false,
-        hint: '같은 스택이 두 벌 돌고 있습니다.',
+        hint: '동일 노드가 동시에 실행되고 있습니다.',
       );
     }
     if (status.mappingRunning) {
@@ -181,7 +181,7 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
     if (status.nav2Running) {
       return const _CardState(
         color: VicaColors.primary,
-        label: '주행 스택 실행 중',
+        label: '주행 노드 실행 중',
         enabled: true,
       );
     }
@@ -205,7 +205,7 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
         color: VicaColors.red,
         label: '이미 충돌 중',
         enabled: false,
-        hint: '같은 스택이 두 벌 돌고 있습니다.',
+        hint: '동일 노드가 동시에 실행되고 있습니다.',
       );
     }
     if (status.nav2Running) {
@@ -213,7 +213,7 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
         color: VicaColors.red,
         label: 'Nav2 실행 중',
         enabled: false,
-        hint: 'Nav2 를 먼저 내려야 지도를 그릴 수 있습니다.',
+        hint: 'Nav2를 먼저 내려야 지도를 그릴 수 있습니다.',
       );
     }
     if (status.mappingRunning) {
@@ -340,7 +340,7 @@ class _ConflictNotice extends StatelessWidget {
     final lines = <String>[
       if (status.conflicting) 'Nav2 와 매핑이 동시에 떠 있습니다.',
       if (status.duplicatedNodeNames.isNotEmpty)
-        '같은 노드가 두 번 떠 있습니다: ${status.duplicatedNodeNames.join(", ")}',
+        '같은 노드가 중복으로 떠 있습니다: ${status.duplicatedNodeNames.join(", ")}',
       if (status.odomPublishers.length > 1)
         '/odom 발행자가 ${status.odomPublishers.length}개입니다.',
     ];
@@ -377,7 +377,7 @@ class _ConflictNotice extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           const Text(
-            '이 상태로는 위치추정이 깨집니다. 젯슨 터미널에서 한쪽을 내린 뒤 '
+            '이 상태로는 위치추정이 깨집니다. 실행 터미널에서 한쪽을 내린 뒤 '
             '다시 확인해 주세요.',
             style: TextStyle(color: VicaColors.muted, fontSize: 12),
           ),
@@ -409,7 +409,7 @@ class _UnknownNotice extends StatelessWidget {
           Expanded(
             child: Text(
               'ROS 에 연결하지 않아 로봇 상태를 확인할 수 없습니다. '
-              '모드는 고를 수 있지만 중복 실행 여부는 알 수 없습니다.',
+              '모드 선택은 가능하지만 중복 실행 여부는 확인되지 않은 상태입니다.',
               style: TextStyle(fontSize: 12),
             ),
           ),

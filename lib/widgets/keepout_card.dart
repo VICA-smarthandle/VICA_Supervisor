@@ -70,10 +70,10 @@ class KeepoutCard extends StatelessWidget {
       children: [
         Text(
           editing
-              ? '끌어서 사각형을 그리세요. 다시 끌면 그리던 사각형이 새로 그려지고, [이 사각형 확정]을 눌러야 목록에 들어갑니다. 편집 중에는 지도 이동·확대가 잠깁니다.'
+              ? '드래그해서 사각형을 그리세요. 다시 드래그하면 그리던 사각형이 새로 그려지고, [이 사각형 확정]을 눌러야 목록에 들어갑니다. 편집 중에는 지도 이동·확대가 잠깁니다.'
               : drivingHold
                   ? '로봇이 목적지로 가는 중에는 금지구역을 편집할 수 없습니다. 주행이 끝나면 열립니다.'
-                  : '로봇이 들어가지 않을 자리입니다. 편집을 누르면 지도에 사각형을 그릴 수 있습니다.',
+                  : '로봇이 접근하지 않을 자리입니다. 편집을 누르면 다시 그릴 수 있습니다.',
           style: const TextStyle(
               fontSize: 13, color: VicaColors.muted, height: 1.5),
         ),
@@ -94,7 +94,7 @@ class KeepoutCard extends StatelessWidget {
               SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  '로봇은 사각형 경계선까지 붙을 수 있습니다. 실제로 막고 싶은 범위보다 '
+                  '로봇은 금지구역의 경계선까지 붙을 수 있습니다. 실제로 막고 싶은 범위보다 '
                   '20~30 cm 크게 그리세요.',
                   style: TextStyle(
                     fontSize: 12.5,
@@ -146,7 +146,7 @@ class KeepoutCard extends StatelessWidget {
         else if (drivingHold)
           const _Badge(text: '주행 중 · 편집 잠김', color: VicaColors.muted)
         else if (maskApplied)
-          const _Badge(text: '로봇에 적용됨', color: VicaColors.green)
+          const _Badge(text: '금지구역 적용됨', color: VicaColors.green)
         else
           const _Badge(text: '적용 대기', color: VicaColors.muted),
       ],

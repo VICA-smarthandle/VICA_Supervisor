@@ -223,8 +223,8 @@ class _MappingShellState extends State<MappingShell> {
         builder: (dialogContext) => AlertDialog(
           title: const Text('매핑이 진행 중입니다'),
           content: Text(
-            '${status.state.label} 상태입니다. 모드를 바꾸면 종료·저장 버튼에 '
-            '닿을 수 없으니 먼저 저장하거나 종료해 주세요.',
+            '${status.state.label} 상태입니다. 모드를 바꾸면 종료·저장 버튼이 '
+            '보이지 않을 수 있으니 먼저 저장하거나 종료해 주세요.',
           ),
           actions: [
             FilledButton(
@@ -381,7 +381,7 @@ class _EmergencyResetCard extends StatelessWidget {
             // 특정 모드의 절차를 지시하지 않는다 — 비상정지는 모드와 무관한
             // 안전 장치라, 여기서는 그 사실만 말한다 (2026-08-25 실기 피드백).
             supervisor.emergencyStopMessage.isEmpty
-                ? '풀기 전에는 로봇이 움직이지 않습니다. 해제하려면 safety 와 '
+                ? '해제 전에는 로봇이 움직이지 않습니다. 해제하려면 safety 와 '
                     'motor 가 먼저 떠 있어야 합니다.'
                 : supervisor.emergencyStopMessage,
             style: const TextStyle(fontSize: 12),
@@ -400,8 +400,7 @@ class _EmergencyResetCard extends StatelessWidget {
           const SizedBox(height: 8),
           const Text(
             '거부되면 아직 남은 원인이 있는 것입니다. safety 와 motor 가 먼저 떠 '
-            '있어야 합니다 — /motor/can_ok 가 래치 원인의 하나라, 동력 상태를 모르는 '
-            '채로는 풀지 않습니다.',
+            '있어야 합니다.',
             style: TextStyle(fontSize: 11, color: VicaColors.muted),
           ),
         ],
@@ -431,7 +430,7 @@ class _WaitingForSupervisor extends StatelessWidget {
           Expanded(
             child: Text(
               'mapping_supervisor_node 에서 상태를 아직 받지 못했습니다. '
-              '젯슨에서 그 노드가 실행 중인지 확인해 주세요.',
+              '노드가 실행 중인지 확인해 주세요.',
               style: TextStyle(fontSize: 12),
             ),
           ),
@@ -462,7 +461,7 @@ class _PrepareStep extends StatelessWidget {
       if (status != null && status!.nav2Running)
         'Nav2 가 실행 중입니다. 동시에 뜨면 /odom 발행자가 둘이 되어 위치추정이 깨집니다.',
       if (status != null && status!.duplicated.isNotEmpty)
-        '같은 노드가 두 번 떠 있습니다: ${status!.duplicated.join(", ")}',
+        '동일 노드가 동시에 떠 있습니다: ${status!.duplicated.join(", ")}',
       if (status != null && status!.prerequisitesMissing.isNotEmpty)
         '먼저 띄워야 할 것이 있습니다: ${status!.prerequisitesMissing.join(", ")}',
     ];
@@ -525,8 +524,8 @@ class _PrepareStep extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         const Text(
-          'd455(Docker)와 IMU 는 앱이 띄우지 않습니다. IMU 를 띄운 뒤 20초 동안 '
-          '로봇을 완전히 세워 자이로 보정이 끝난 것을 확인하고 시작하세요.',
+          'd455(Docker)와 IMU 는 앱이 실행하지 않습니다.'
+          'IMU 를 띄운 뒤 20초 동안 로봇을 완전히 세워 자이로 보정이 끝난 것을 확인하고 시작하세요.',
           style: TextStyle(fontSize: 11, color: VicaColors.muted),
         ),
       ],
@@ -557,7 +556,7 @@ class _MappingStep extends StatelessWidget {
       children: [
         if (preview == null)
           const Text(
-            '아직 지도가 오지 않았습니다. 로봇을 조금 움직이면 그려지기 시작합니다.',
+            '지도를 띄우는 중입니다. 로봇을 조금 움직이면 그려지기 시작합니다.',
             style: TextStyle(fontSize: 12, color: VicaColors.muted),
           )
         else ...[
@@ -625,10 +624,10 @@ class _SaveStep extends StatelessWidget {
           controller: controller,
           decoration: const InputDecoration(
             labelText: '지도 이름',
-            hintText: '예: lobby',
+            hintText: '예: 본관 2층',
             // 스크립트가 ^[A-Za-z0-9_-]+$ 를 강제합니다. 저장 버튼을 누른 뒤에
             // 거부당하면 지도를 날리므로 여기서 미리 알려 줍니다.
-            helperText: '영문·숫자·밑줄(_)·붙임표(-)만. 날짜는 자동으로 붙습니다.',
+            helperText: '날짜는 자동으로 붙습니다. 영문,숫자,밑줄,붙임표 허용.',
           ),
         ),
         const SizedBox(height: 12),
@@ -646,7 +645,7 @@ class _SaveStep extends StatelessWidget {
         ],
         const SizedBox(height: 8),
         const Text(
-          '저장은 젯슨에서 따로 돕니다. 최대 2분까지 걸릴 수 있고, 끝나면 위에 '
+          '저장 중입니다. 최대 2분까지 걸릴 수 있고, 끝나면 위에 '
           '결과가 표시됩니다.',
           style: TextStyle(fontSize: 11, color: VicaColors.muted),
         ),

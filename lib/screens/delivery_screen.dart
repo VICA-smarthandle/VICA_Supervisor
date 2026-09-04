@@ -253,7 +253,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
           ),
           const SizedBox(height: 6),
           const Text(
-            '도착 문자 연락처가 저장된 장소만 보입니다. 없는 장소는 지도 설정에서 연락처를 넣으세요.',
+            '연락처가 저장된 장소만 보입니다. 배송을 원하시는 장소는 연락처를 넣어주세요.',
             style: TextStyle(color: VicaColors.muted, fontSize: 13),
           ),
           const SizedBox(height: 14),
@@ -500,7 +500,7 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
                 paused: paused,
                 cancelLabel: '배송 취소',
                 cancelTitle: '배송 취소',
-                cancelBody: '진행 중인 배송 주행을 취소합니다. 도착 문자는 보내지 않습니다.',
+                cancelBody: '진행 중인 배송을 취소합니다. 도착 문자는 보내지 않습니다.',
               ),
             DeliveryPhase.arrived => _arrivedButtons(context),
             DeliveryPhase.returning => DriveControlBar(
@@ -508,7 +508,7 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
                 paused: paused,
                 cancelLabel: '복귀 취소',
                 cancelTitle: '홈 복귀 취소',
-                cancelBody: '홈으로 가던 주행을 취소합니다. 로봇은 그 자리에 섭니다.',
+                cancelBody: '홈 복귀를 취소합니다. 로봇은 그 자리에 섭니다.',
               ),
             DeliveryPhase.unconfirmed => _unconfirmedButtons(context),
             DeliveryPhase.completed || DeliveryPhase.aborted =>
