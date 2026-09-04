@@ -37,6 +37,20 @@ class _FakeSupervisor extends SupervisorProvider {
   }
 }
 
+Map<String, Object?> previewJson({bool withRobot = false}) {
+  return {
+    'image_url': '/maps/_live/preview.png',
+    'seq': 1,
+    'width': 40,
+    'height': 30,
+    'resolution': 0.05,
+    'origin_x': -1.5,
+    'origin_y': -2.5,
+    'bytes': 4533,
+    if (withRobot) ...{'robot_x': 0.5, 'robot_y': 0.25, 'robot_yaw': 90.0},
+  };
+}
+
 Map<String, Object?> statusJson({
   String state = 'idle',
   bool nav2 = false,
@@ -162,10 +176,32 @@ void main() {
   testWidgets('그리는 중이면 2단계로 넘어가고 조작판이 열린다', (tester) async {
     await pump(tester, status: statusJson(state: 'mapping'));
 
-    expect(find.textContaining('아직 지도가 오지 않았습니다'), findsOneWidget);
+    expect(find.textContaining('지도를 띄우는 중입니다'), findsOneWidget);
     expect(find.bySemanticsLabel('앞으로'), findsOneWidget);
     // 1단계 내용은 접혀 있어야 한다.
     expect(find.widgetWithText(FilledButton, '매핑 시작'), findsNothing);
+  });
+
+  testWidgets('미리보기에 로봇 자세가 실려 오면 화살표를 그린다', (tester) async {
+    // RViz 처럼 어디를 그리고 있는지 보이게 한다. 자세는 /robot_status 가 아니라
+    // 미리보기 JSON 에서 온다 — 매핑 중엔 그쪽 위치가 /odom 좌표라 못 쓴다.
+    final supervisor = await pump(tester, status: statusJson(state: 'mapping'));
+    supervisor.injectPreview(previewJson(withRobot: true));
+    await tester.pump();
+
+    expect(find.byTooltip('로봇 위치'), findsOneWidget);
+    expect(find.textContaining('로봇 위치 없음'), findsNothing);
+  });
+
+  testWidgets('로봇 자세가 없으면 화살표 대신 그 사실을 적는다', (tester) async {
+    // Cartographer 가 아직 안 떴거나 /tracked_pose 가 꺼져 있을 때. 화살표만
+    // 조용히 빠지면 관리자가 지도 문제로 오해한다.
+    final supervisor = await pump(tester, status: statusJson(state: 'mapping'));
+    supervisor.injectPreview(previewJson());
+    await tester.pump();
+
+    expect(find.byTooltip('로봇 위치'), findsNothing);
+    expect(find.textContaining('로봇 위치 없음'), findsOneWidget);
   });
 
   testWidgets('매핑 중에는 모드를 바꿀 수 없다', (tester) async {

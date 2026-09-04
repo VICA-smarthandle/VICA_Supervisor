@@ -134,5 +134,25 @@ void main() {
     test('저장된 지도 목록과 섞이지 않게 별도 id 를 쓴다', () {
       expect(MapPreview.fromJson(previewJson()).toVicaMap().mapId, 'preview');
     });
+
+    test('로봇 자세가 없으면 없다고 말한다', () {
+      // map_preview_node 는 /tracked_pose 를 못 받았거나 끊기면 필드를 뺀다.
+      final preview = MapPreview.fromJson(previewJson());
+      expect(preview.hasRobotPose, isFalse);
+      expect(preview.robotX, isNull);
+    });
+
+    test('로봇 자세를 도 단위 그대로 옮긴다', () {
+      final preview = MapPreview.fromJson({
+        ...previewJson(),
+        'robot_x': 1.235,
+        'robot_y': -2.346,
+        'robot_yaw': 91.23,
+      });
+      expect(preview.hasRobotPose, isTrue);
+      expect(preview.robotX, 1.235);
+      expect(preview.robotY, -2.346);
+      expect(preview.robotYaw, 91.23);
+    });
   });
 }

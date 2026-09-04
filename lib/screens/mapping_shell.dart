@@ -505,15 +505,23 @@ class _PrepareStep extends StatelessWidget {
         // 문구는 2026-08-25 실기 피드백으로 짧게 다듬었습니다. motor 를 여기서
         // 띄운다던 부제는 소유권이 터미네이터로 고정되며 사실이 아니게 되어
         // 뺐습니다.
-        CheckboxListTile(
-          value: estopConfirmed,
-          onChanged: onEstopChanged,
-          contentPadding: EdgeInsets.zero,
-          controlAffinity: ListTileControlAffinity.leading,
-          dense: true,
-          title: const Text(
-            '비상시를 대비한 비상정지 버튼을 확인했습니다',
-            style: TextStyle(fontSize: 13),
+        // Material 로 감싸는 이유: ListTile 은 잉크 효과를 가장 가까운 Material 에
+        // 그리는데, 카드(VicaCard)가 색 있는 Container 라 그 사이에 Material 이
+        // 없으면 효과가 카드 뒤에 숨습니다. Flutter 3.44 는 이를 assertion 으로
+        // 잡아 이 화면의 위젯 시험 전부가 첫 프레임에서 죽었습니다(2026-09-04).
+        // transparency 라 보이는 모양은 그대로입니다.
+        Material(
+          type: MaterialType.transparency,
+          child: CheckboxListTile(
+            value: estopConfirmed,
+            onChanged: onEstopChanged,
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            dense: true,
+            title: const Text(
+              '비상시를 대비한 비상정지 버튼을 확인했습니다',
+              style: TextStyle(fontSize: 13),
+            ),
           ),
         ),
         const SizedBox(height: 6),
@@ -568,14 +576,27 @@ class _MappingStep extends StatelessWidget {
               map: preview.toVicaMap(),
               settings: settings,
               locations: const [],
-              robot: supervisor.primaryRobot,
+              // 로봇 위치는 미리보기 JSON 에 함께 실려 옵니다(map_preview_node 가
+              // Cartographer 의 /tracked_pose 를 동봉). /robot_status 를 넘기면
+              // 매핑 중엔 map_id 가 비어 그려지지 않고, 위치도 /odom 좌표라
+              // 엉뚱한 자리에 찍힙니다(2026-09-04). poseArrow 는 지도 id 를 따지지
+              // 않아 초기위치·홈 화면과 같은 방식으로 씁니다.
+              poseArrow: preview.hasRobotPose
+                  ? MapPoseArrow(
+                      x: preview.robotX!,
+                      y: preview.robotY!,
+                      yawDegrees: preview.robotYaw!,
+                      label: '로봇 위치',
+                    )
+                  : null,
             ),
           ),
           const SizedBox(height: 6),
           Text(
             '${preview.width}×${preview.height} 칸 · '
             '${(preview.bytes / 1024).toStringAsFixed(1)} KB · '
-            '${preview.seq}회 갱신',
+            '${preview.seq}회 갱신'
+            '${preview.hasRobotPose ? '' : ' · 로봇 위치 없음'}',
             style: const TextStyle(fontSize: 11, color: VicaColors.muted),
           ),
         ],

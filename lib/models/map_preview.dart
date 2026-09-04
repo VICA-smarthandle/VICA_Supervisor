@@ -17,6 +17,9 @@ class MapPreview {
     required this.originY,
     required this.bytes,
     required this.receivedAt,
+    this.robotX,
+    this.robotY,
+    this.robotYaw,
   });
 
   final String imageUrl;
@@ -32,6 +35,19 @@ class MapPreview {
   final double originY;
   final int bytes;
   final DateTime receivedAt;
+
+  /// 지도 위 로봇 자세(ROS map 좌표, yaw 는 도 단위·반시계 양수).
+  ///
+  /// map_preview_node 가 Cartographer 의 /tracked_pose 를 받아 두었다가 같은
+  /// 메시지에 동봉합니다(2026-09-04). 매핑 중에는 AMCL 이 없어 /robot_status 의
+  /// 위치가 /odom 좌표로 대체되고 map_id 도 비기 때문에, 그쪽으로는 미리보기 위에
+  /// 로봇을 그릴 수 없습니다. 아직 자세를 못 받았거나 5초 넘게 끊겼으면 null 이고,
+  /// 그때 화면은 화살표 대신 "로봇 위치 없음"을 적습니다.
+  final double? robotX;
+  final double? robotY;
+  final double? robotYaw;
+
+  bool get hasRobotPose => robotX != null && robotY != null && robotYaw != null;
 
   /// MapCanvas 가 그대로 쓸 수 있게 저장된 지도와 같은 형태로 바꿉니다.
   VicaMap toVicaMap() {
@@ -58,6 +74,9 @@ class MapPreview {
       originY: (json['origin_y'] as num?)?.toDouble() ?? 0,
       bytes: (json['bytes'] as num?)?.toInt() ?? 0,
       receivedAt: DateTime.now(),
+      robotX: (json['robot_x'] as num?)?.toDouble(),
+      robotY: (json['robot_y'] as num?)?.toDouble(),
+      robotYaw: (json['robot_yaw'] as num?)?.toDouble(),
     );
   }
 }
