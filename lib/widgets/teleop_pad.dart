@@ -67,6 +67,10 @@ class TeleopPad extends StatelessWidget {
                   _PadButton(
                     icon: Icons.keyboard_arrow_up,
                     label: '앞으로',
+                    pressed: supervisor.isTeleopHeld(
+                      linear: SupervisorProvider.teleopMaxLinear,
+                      angular: 0,
+                    ),
                     enabled: enabled,
                     linear: SupervisorProvider.teleopMaxLinear,
                     angular: 0,
@@ -78,6 +82,10 @@ class TeleopPad extends StatelessWidget {
                       _PadButton(
                         icon: Icons.rotate_left,
                         label: '왼쪽',
+                        pressed: supervisor.isTeleopHeld(
+                          linear: 0,
+                          angular: SupervisorProvider.teleopMaxAngular,
+                        ),
                         enabled: enabled,
                         linear: 0,
                         angular: SupervisorProvider.teleopMaxAngular,
@@ -88,6 +96,10 @@ class TeleopPad extends StatelessWidget {
                       _PadButton(
                         icon: Icons.rotate_right,
                         label: '오른쪽',
+                        pressed: supervisor.isTeleopHeld(
+                          linear: 0,
+                          angular: -SupervisorProvider.teleopMaxAngular,
+                        ),
                         enabled: enabled,
                         linear: 0,
                         angular: -SupervisorProvider.teleopMaxAngular,
@@ -98,6 +110,10 @@ class TeleopPad extends StatelessWidget {
                   _PadButton(
                     icon: Icons.keyboard_arrow_down,
                     label: '뒤로',
+                    pressed: supervisor.isTeleopHeld(
+                      linear: -SupervisorProvider.teleopMaxLinear,
+                      angular: 0,
+                    ),
                     enabled: enabled,
                     linear: -SupervisorProvider.teleopMaxLinear,
                     angular: 0,
@@ -117,6 +133,7 @@ class _PadButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.enabled,
+    required this.pressed,
     required this.linear,
     required this.angular,
   });
@@ -124,6 +141,8 @@ class _PadButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool enabled;
+  // 이 버튼의 명령이 실제로 나가고 있는가(provider 가 판정). 눌림 표시용.
+  final bool pressed;
   final double linear;
   final double angular;
 
@@ -149,11 +168,20 @@ class _PadButton extends StatelessWidget {
             height: 56,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: VicaColors.softBlue,
+              // 눌려서 명령이 나가는 동안만 진하게(2026-09-04). 근거는 버튼의
+              // 눌림이 아니라 provider 의 실제 명령값(isTeleopHeld)이라, 연결이
+              // 끊겨 명령이 안 나가면 색도 꺼집니다.
+              color: pressed ? VicaColors.primary : VicaColors.softBlue,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: VicaColors.border),
+              border: Border.all(
+                color: pressed ? VicaColors.primaryDark : VicaColors.border,
+              ),
             ),
-            child: Icon(icon, size: 26, color: VicaColors.primaryDark),
+            child: Icon(
+              icon,
+              size: 26,
+              color: pressed ? Colors.white : VicaColors.primaryDark,
+            ),
           ),
         ),
       ),

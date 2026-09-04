@@ -103,6 +103,23 @@ void main() {
     });
   });
 
+  group('MappingStatus 표시 이름', () {
+    test('map_name 이 오면 그것을, 없으면 id 를 보여준다', () {
+      // 한글 이름은 감독 노드가 표시용으로만 보낸다. 파일·URL 은 계속 id 다.
+      final named = MappingStatus.fromJson({
+        ...statusJson(state: 'mapping', mapId: 'map_0904_151230'),
+        'map_name': '병원 2층',
+      });
+      expect(named.displayName, '병원 2층');
+      expect(named.mapId, 'map_0904_151230');
+
+      final legacy = MappingStatus.fromJson(
+        statusJson(state: 'mapping', mapId: 'lobby_0904'),
+      );
+      expect(legacy.displayName, 'lobby_0904');
+    });
+  });
+
   group('MapPreview', () {
     Map<String, Object?> previewJson({int seq = 3}) => {
           'image_url': '/maps/_live/preview.png',

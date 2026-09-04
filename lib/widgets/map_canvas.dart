@@ -1,4 +1,5 @@
 // 이 파일은 지도 이미지, 저장된 장소 마커, 선택 마커, 현재 로봇 위치를 한 화면에 표시합니다.
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../core/app_settings.dart';
@@ -9,10 +10,26 @@ import '../models/robot_status.dart';
 import '../models/vica_map.dart';
 import 'vica_ui.dart';
 
+// 플랫폼 배율. 점·테두리·화살표가 모두 이 값을 곱합니다.
+//
+// 폰 앱은 화면이 작아 확대해서 찍는데, 점이 지도 그림과 함께 커져 밑을 가렸습니다
+// (2026-09-04 실기 피드백). 웹(노트북)은 그대로 두고 앱만 2/3 로 줄입니다.
+// 세 크기(점 5 · 로봇 화살표 7 · 자세 화살표 10)의 비율은 2026-08-26 실기에서
+// 맞춘 것이라, 한 배율로 같이 줄여 그 비율을 지킵니다. 1/2 은 확대 안 한 전체
+// 보기에서 점이 2.5 px 라 보이지 않아 쓰지 않습니다. 폰에서 브라우저로 여는
+// 경우는 없다는 전제(사용자 확인)라 kIsWeb 이면 충분합니다.
+const double _markerScale = kIsWeb ? 1.0 : 2 / 3;
+
 // 지도 위 점의 지름(px). 저장된 장소·임시 저장 장소·선택 위치가 같은 크기여야
 // 색만으로 구분되고 크기 차이가 의미로 오해되지 않습니다.
 // 7/8 -> 5 로 줄였습니다. 장소가 늘어나면 점이 서로 겹쳐 지도가 안 보였습니다.
-const double _markerSize = 5;
+const double _markerSize = 5 * _markerScale;
+const double _markerBorder = 1.0 * _markerScale;
+
+// 누를 수 있는 점(저장 장소)의 손가락 판(px). 점은 작아도 눌리는 자리는 이만큼
+// 둡니다 — 엘리베이터 버튼의 불빛과 판처럼. 지도와 함께 확대되므로 확대할수록
+// 지도 위 실제 범위는 좁아집니다.
+const double _markerHitSize = 16;
 
 class ResponsiveMapFrame extends StatelessWidget {
   const ResponsiveMapFrame({
@@ -478,24 +495,36 @@ class _Marker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 누를 수 있는 점(저장 장소)만 손가락 판을 넓힙니다. 홈·임시·선택 위치처럼
+    // 누를 일이 없는 점은 판을 넓히면 그 아래 지도를 눌러 자리를 옮기는 손가락을
+    // 가로챕니다 — "위치를 조금 옮기기"가 바로 그 동작입니다.
+    final hit = onTap == null ? size : _markerHitSize;
+    final dot = DecoratedBox(
+      decoration: BoxDecoration(
+        color: filled ? color : Colors.white,
+        shape: BoxShape.circle,
+        // 지름 5 에서 1.4 는 점의 절반을 넘게 먹어 속이 안 보였습니다. 배율로
+        // 줄일 때도 같은 비율(1/5)을 지킵니다.
+        border: Border.all(
+          color: filled ? Colors.white : color,
+          width: _markerBorder,
+        ),
+      ),
+      child: SizedBox(width: size, height: size),
+    );
     return Positioned(
-      left: offset.dx - size / 2,
-      top: offset.dy - size / 2,
+      left: offset.dx - hit / 2,
+      top: offset.dy - hit / 2,
       child: Tooltip(
         message: label,
         child: GestureDetector(
           onTap: onTap,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: filled ? color : Colors.white,
-              shape: BoxShape.circle,
-              // 지름 5 에서 1.4 는 점의 절반을 넘게 먹어 속이 안 보였습니다.
-              border: Border.all(
-                color: filled ? Colors.white : color,
-                width: 1.0,
-              ),
-            ),
-            child: SizedBox(width: size, height: size),
+          // 투명한 판 전체가 눌리게 합니다. 기본값이면 그림이 있는 점만 눌립니다.
+          behavior: onTap == null ? null : HitTestBehavior.opaque,
+          child: SizedBox(
+            width: hit,
+            height: hit,
+            child: Center(child: dot),
           ),
         ),
       ),
@@ -516,7 +545,7 @@ class _RobotMarker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const markerSize = 7.0;
+    const markerSize = 7.0 * _markerScale;
     return Positioned(
       left: offset.dx - markerSize / 2,
       top: offset.dy - markerSize / 2,
@@ -552,7 +581,7 @@ class _PoseArrowMarker extends StatelessWidget {
     // 로봇 화살표(7)보다 조금만 크게 둡니다. 지금 고르는 것이라 구분은 되어야
     // 하지만, 18 이었을 때 로봇 화살표와 균형이 안 맞아 보기 싫다는 실기
     // 피드백(2026-08-26)으로 줄였습니다.
-    const markerSize = 10.0;
+    const markerSize = 10.0 * _markerScale;
     return Positioned(
       left: offset.dx - markerSize / 2,
       top: offset.dy - markerSize / 2,

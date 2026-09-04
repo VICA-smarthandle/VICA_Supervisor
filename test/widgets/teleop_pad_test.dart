@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/widgets/teleop_pad.dart';
+import 'package:vica_supervisor/widgets/vica_ui.dart';
 
 class _RecordingSupervisor extends SupervisorProvider {
   final calls = <String>[];
@@ -19,6 +20,37 @@ class _RecordingSupervisor extends SupervisorProvider {
 
   @override
   void releaseTeleop() => calls.add('release');
+}
+
+// 명령을 실제로 "들고 있는" 척하는 provider. 버튼 색은 이 판정을 따른다.
+class _HoldingSupervisor extends SupervisorProvider {
+  double? heldLinear;
+  double? heldAngular;
+
+  @override
+  void holdTeleop({required double linear, required double angular}) {
+    heldLinear = linear;
+    heldAngular = angular;
+    notifyListeners();
+  }
+
+  @override
+  void releaseTeleop() {
+    heldLinear = null;
+    heldAngular = null;
+    notifyListeners();
+  }
+
+  @override
+  bool isTeleopHeld({required double linear, required double angular}) =>
+      heldLinear == linear && heldAngular == angular;
+}
+
+Color _buttonColor(WidgetTester tester, IconData icon) {
+  final container = tester.widget<Container>(
+    find.ancestor(of: find.byIcon(icon), matching: find.byType(Container)).first,
+  );
+  return (container.decoration! as BoxDecoration).color!;
 }
 
 // ignore: library_private_types_in_public_api - 테스트 안에서만 쓰는 도우미다.
@@ -105,5 +137,31 @@ void main() {
       find.textContaining('${SupervisorProvider.teleopMaxLinear} m/s'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('누르고 있는 동안만 그 버튼이 진해진다', (tester) async {
+    // 색의 근거는 버튼의 눌림이 아니라 provider 가 실제로 보내는 명령이다.
+    final supervisor = _HoldingSupervisor();
+    await tester.pumpWidget(
+      ChangeNotifierProvider<SupervisorProvider>.value(
+        value: supervisor,
+        child: const MaterialApp(
+          home: Scaffold(body: TeleopPad(enabled: true)),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(_buttonColor(tester, Icons.keyboard_arrow_up), VicaColors.softBlue);
+
+    final gesture = await tester
+        .startGesture(tester.getCenter(find.bySemanticsLabel('앞으로')));
+    await tester.pump();
+    expect(_buttonColor(tester, Icons.keyboard_arrow_up), VicaColors.primary);
+    // 다른 버튼은 그대로다 — 명령이 하나뿐이라 하나만 빛난다.
+    expect(_buttonColor(tester, Icons.keyboard_arrow_down), VicaColors.softBlue);
+
+    await gesture.up();
+    await tester.pump();
+    expect(_buttonColor(tester, Icons.keyboard_arrow_up), VicaColors.softBlue);
   });
 }

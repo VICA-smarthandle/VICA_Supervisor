@@ -31,6 +31,7 @@ class MappingStatus {
     required this.state,
     required this.detail,
     required this.mapId,
+    this.mapName = '',
     required this.nav2Running,
     required this.mappingRunning,
     required this.duplicated,
@@ -41,6 +42,12 @@ class MappingStatus {
   final MappingState state;
   final String detail;
   final String mapId;
+
+  /// 사람이 적은 지도 이름(한글 가능). 감독 노드가 저장할 때 함께 보냅니다
+  /// (2026-09-04). 옛 노드는 안 보내며 그때는 빈 값이라 id 를 보여줍니다.
+  final String mapName;
+
+  String get displayName => mapName.isEmpty ? mapId : mapName;
   final bool nav2Running;
   final bool mappingRunning;
   final List<String> duplicated;
@@ -77,6 +84,7 @@ class MappingStatus {
       state: MappingState.fromValue(json['state'] as String? ?? ''),
       detail: json['detail'] as String? ?? '',
       mapId: json['map_id'] as String? ?? '',
+      mapName: json['map_name'] as String? ?? '',
       nav2Running: json['nav2_running'] == true,
       mappingRunning: json['mapping_running'] == true,
       duplicated: _stringList(json['duplicated']),

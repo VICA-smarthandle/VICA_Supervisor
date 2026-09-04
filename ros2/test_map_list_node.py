@@ -49,3 +49,18 @@ def test_no_current_map_file_means_nothing_flagged(tmp_path: Path) -> None:
     payload = build_map_list(tmp_path, "")
     assert payload["current_map_id"] == ""
     assert all(m["is_current"] is False for m in payload["maps"])
+
+
+def test_display_name_comes_from_meta_json(tmp_path: Path) -> None:
+    # 한글 이름은 옆 파일(meta.json)에만 있고 파일 이름·URL 은 영문 id 다.
+    _png(tmp_path / "map_0904_151230.png", 1, 1)
+    (tmp_path / "map_0904_151230.meta.json").write_text(
+        '{"map_id": "map_0904_151230", "display_name": "병원 2층"}', encoding="utf-8"
+    )
+    _png(tmp_path / "vica_map_00.png", 1, 1)
+    (tmp_path / "vica_map_00.meta.json").write_text("{broken", encoding="utf-8")
+
+    by_id = {m["map_id"]: m for m in build_map_list(tmp_path, "")["maps"]}
+    assert by_id["map_0904_151230"]["map_name"] == "병원 2층"
+    assert by_id["map_0904_151230"]["image_url"] == "/maps/map_0904_151230.png"
+    assert by_id["vica_map_00"]["map_name"] == "vica_map_00"

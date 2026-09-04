@@ -150,6 +150,11 @@ class _MappingShellState extends State<MappingShell> {
               isLast: true,
               child: _DoneStep(
                 mapId: savedMapId,
+                mapName: status != null &&
+                        status.mapId == savedMapId &&
+                        status.mapName.isNotEmpty
+                    ? status.mapName
+                    : savedMapId,
                 onRefreshMaps: () => supervisor.requestMapList(settings),
                 onFinish: () => _stop(context, settings, thenIdle: true),
               ),
@@ -645,10 +650,12 @@ class _SaveStep extends StatelessWidget {
           controller: controller,
           decoration: const InputDecoration(
             labelText: '지도 이름',
-            hintText: '예: 본관 2층',
-            // 스크립트가 ^[A-Za-z0-9_-]+$ 를 강제합니다. 저장 버튼을 누른 뒤에
-            // 거부당하면 지도를 날리므로 여기서 미리 알려 줍니다.
-            helperText: '날짜는 자동으로 붙습니다. 영문,숫자,밑줄,붙임표 허용.',
+            hintText: '예: 병원 2층',
+            // 한글도 됩니다(2026-09-04). 파일·URL 에는 영문 id 만 들어가고 한글은
+            // 표시 이름으로만 남습니다 — 규칙은 감독 노드(plan_map_save)가 정하고
+            // 거부 사유는 저장 응답으로 옵니다.
+            helperText: '한글도 됩니다. 영문 이름은 날짜가 붙고, 한글 이름은 '
+                '파일 이름(map_날짜_시각)이 자동으로 만들어집니다.',
           ),
         ),
         const SizedBox(height: 12),
@@ -679,11 +686,15 @@ class _SaveStep extends StatelessWidget {
 class _DoneStep extends StatelessWidget {
   const _DoneStep({
     required this.mapId,
+    required this.mapName,
     required this.onRefreshMaps,
     required this.onFinish,
   });
 
   final String mapId;
+  // 사람이 적은 이름. 한글이면 id 와 다르므로 파일 이름을 한 줄 더 보여 줍니다 —
+  // 터미네이터에서 지도를 고를 때 둘 다 통하지만, 로그·파일에는 id 만 보입니다.
+  final String mapName;
   final VoidCallback onRefreshMaps;
   final VoidCallback onFinish;
 
@@ -693,9 +704,16 @@ class _DoneStep extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '$mapId 로 저장했습니다.',
+          '저장했습니다: $mapName',
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
+        if (mapName != mapId) ...[
+          const SizedBox(height: 4),
+          Text(
+            '파일 이름: $mapId',
+            style: const TextStyle(fontSize: 12, color: VicaColors.muted),
+          ),
+        ],
         const SizedBox(height: 10),
         Row(
           children: [

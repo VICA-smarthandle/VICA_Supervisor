@@ -2002,6 +2002,13 @@ class SupervisorProvider extends ChangeNotifier {
 
   bool get teleopActive => _teleopTimer != null;
 
+  /// 이 명령이 지금 실제로 나가고 있는가. 조작판 버튼이 "누르는 동안" 색을
+  /// 바꿀 때 씁니다(2026-09-04). 버튼 안에 눌림 상태를 따로 두지 않고 이 값을
+  /// 보는 이유는, 연결이 끊겨 명령이 안 나가는데 버튼만 빛나는 거짓 신호를
+  /// 막기 위해서입니다 — 데드맨 조작판에서 색은 "로봇에 명령이 가고 있다"는 뜻입니다.
+  bool isTeleopHeld({required double linear, required double angular}) =>
+      teleopActive && _teleopLinear == linear && _teleopAngular == angular;
+
   /// 누르고 있는 동안 부릅니다. 값이 바뀌면 다시 부르면 됩니다.
   void holdTeleop({required double linear, required double angular}) {
     final client = _client;
@@ -2043,6 +2050,9 @@ class SupervisorProvider extends ChangeNotifier {
       _teleopTimer?.cancel();
       _teleopTimer = null;
       _teleopAdvertised = false;
+      // 타이머만 끄고 알리지 않으면 '이동 중' 표시와 버튼 색이 다음 갱신까지
+      // 남습니다(2026-09-04).
+      notifyListeners();
       return;
     }
     client.publishMessage(

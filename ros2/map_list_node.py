@@ -42,6 +42,8 @@ MAP_SUFFIXES = (
     "_keepout.pgm",
     "_keepout.yaml",
     "_keepout.json",
+    # 표시 이름(한글) 옆 파일. 지도를 지우면 같이 지운다(2026-09-04).
+    ".meta.json",
 )
 
 
@@ -209,10 +211,13 @@ def build_map_list(maps_root: Path, current_map_id: str) -> dict[str, Any]:
     for image_path in sorted(maps_root.glob("*.png")):
         metadata = read_yaml_like_metadata(image_path.with_suffix(".yaml"))
         width, height = png_size(image_path)
+        display_name = read_display_name(image_path.with_suffix(".meta.json"))
         maps.append(
             {
                 "map_id": image_path.stem,
-                "map_name": image_path.stem,
+                # 사람이 적은 이름(한글 가능). 없으면 id 가 그대로 이름이다. 파일·URL 은
+                # 계속 map_id 를 쓴다 — 앱도 map_id 로만 장소·홈·금지구역을 찾는다.
+                "map_name": display_name or image_path.stem,
                 "image_url": f"/maps/{image_path.name}",
                 "resolution": float(metadata.get("resolution", 0.05)),
                 "origin_x": float(metadata.get("origin_x", 0.0)),
@@ -223,6 +228,20 @@ def build_map_list(maps_root: Path, current_map_id: str) -> dict[str, Any]:
             }
         )
     return {"maps": maps, "current_map_id": current_map_id}
+
+
+def read_display_name(path: Path) -> str:
+    """maps/<id>.meta.json 의 display_name. 없거나 깨졌으면 빈 문자열.
+
+    mapping_supervisor_node 가 저장 성공 뒤에 남기는 파일이다(한글 이름일 때만).
+    scripts/vica_map_resolve.py 도 같은 파일로 이름 -> id 를 찾는다.
+    """
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    name = document.get("display_name") if isinstance(document, dict) else None
+    return name.strip() if isinstance(name, str) else ""
 
 
 def read_yaml_like_metadata(path: Path) -> dict[str, Any]:
