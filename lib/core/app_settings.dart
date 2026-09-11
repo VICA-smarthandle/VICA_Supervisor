@@ -1,27 +1,27 @@
-// 이 파일은 앱 설정값과 ROS topic 이름, 지도 서버 주소 같은 기본 구성을 보관합니다.
 import 'package:flutter/foundation.dart';
 
 @immutable
 class AppSettings {
   const AppSettings({
-    // 기존 로컬 테스트 주소. 리눅스 데스크탑으로 동작 확인해 볼 때 사용
     this.rosBridgeUrl = 'ws://127.0.0.1:9090',
     this.mapHttpBaseUrl = 'http://127.0.0.1:8000',
-    //
-    // Android 기기처럼 Jetson 밖에서 접속하는 실행 환경은 Jetson host IP를 사용합니다.
-    // this.rosBridgeUrl = 'ws://192.168.0.10:9090',
-    // this.mapHttpBaseUrl = 'http://192.168.0.10:8000',
-    this.locationStorageRoot = '~/ros2_ws/location',
     this.mapListRequestTopic = '/map_list_request',
     this.mapListTopic = '/map_list',
     this.locationListRequestTopic = '/location_list_request',
     this.locationListTopic = '/location_list',
     this.saveLocationTopic = '/save_location',
     this.deleteLocationRequestTopic = '/delete_location_request',
+    this.missionRequestService = '/vica/mission/request_destination',
+    this.missionCancelService = '/vica/mission/cancel_destination',
+    this.missionPauseService = '/vica/mission/pause_navigation',
+    this.missionResumeService = '/vica/mission/resume_navigation',
     this.robotStatusTopic = '/robot_status',
     this.emergencyActivateService = '/app_estop_activate',
     this.emergencyResetService = '/app_estop_reset',
     this.emergencyStateTopic = '/app_estop_state',
+    this.robotHealthTopic = '/robot/health',
+    this.robotEventsTopic = '/robot/events',
+    this.robotHealthTimeoutSeconds = 5,
     this.emergencyServiceTimeoutSeconds = 8,
     this.maxLogs = 200,
     this.maxReconnectAttempts = 5,
@@ -37,17 +37,23 @@ class AppSettings {
 
   final String rosBridgeUrl;
   final String mapHttpBaseUrl;
-  final String locationStorageRoot;
   final String mapListRequestTopic;
   final String mapListTopic;
   final String locationListRequestTopic;
   final String locationListTopic;
   final String saveLocationTopic;
   final String deleteLocationRequestTopic;
+  final String missionRequestService;
+  final String missionCancelService;
+  final String missionPauseService;
+  final String missionResumeService;
   final String robotStatusTopic;
   final String emergencyActivateService;
   final String emergencyResetService;
   final String emergencyStateTopic;
+  final String robotHealthTopic;
+  final String robotEventsTopic;
+  final int robotHealthTimeoutSeconds;
   final int emergencyServiceTimeoutSeconds;
   final int maxLogs;
   final int maxReconnectAttempts;
@@ -63,17 +69,23 @@ class AppSettings {
   AppSettings copyWith({
     String? rosBridgeUrl,
     String? mapHttpBaseUrl,
-    String? locationStorageRoot,
     String? mapListRequestTopic,
     String? mapListTopic,
     String? locationListRequestTopic,
     String? locationListTopic,
     String? saveLocationTopic,
     String? deleteLocationRequestTopic,
+    String? missionRequestService,
+    String? missionCancelService,
+    String? missionPauseService,
+    String? missionResumeService,
     String? robotStatusTopic,
     String? emergencyActivateService,
     String? emergencyResetService,
     String? emergencyStateTopic,
+    String? robotHealthTopic,
+    String? robotEventsTopic,
+    int? robotHealthTimeoutSeconds,
     int? emergencyServiceTimeoutSeconds,
     int? maxLogs,
     int? maxReconnectAttempts,
@@ -89,7 +101,6 @@ class AppSettings {
     return AppSettings(
       rosBridgeUrl: rosBridgeUrl ?? this.rosBridgeUrl,
       mapHttpBaseUrl: mapHttpBaseUrl ?? this.mapHttpBaseUrl,
-      locationStorageRoot: locationStorageRoot ?? this.locationStorageRoot,
       mapListRequestTopic: mapListRequestTopic ?? this.mapListRequestTopic,
       mapListTopic: mapListTopic ?? this.mapListTopic,
       locationListRequestTopic:
@@ -98,12 +109,21 @@ class AppSettings {
       saveLocationTopic: saveLocationTopic ?? this.saveLocationTopic,
       deleteLocationRequestTopic:
           deleteLocationRequestTopic ?? this.deleteLocationRequestTopic,
+      missionRequestService:
+          missionRequestService ?? this.missionRequestService,
+      missionCancelService: missionCancelService ?? this.missionCancelService,
+      missionPauseService: missionPauseService ?? this.missionPauseService,
+      missionResumeService: missionResumeService ?? this.missionResumeService,
       robotStatusTopic: robotStatusTopic ?? this.robotStatusTopic,
       emergencyActivateService:
           emergencyActivateService ?? this.emergencyActivateService,
       emergencyResetService:
           emergencyResetService ?? this.emergencyResetService,
       emergencyStateTopic: emergencyStateTopic ?? this.emergencyStateTopic,
+      robotHealthTopic: robotHealthTopic ?? this.robotHealthTopic,
+      robotEventsTopic: robotEventsTopic ?? this.robotEventsTopic,
+      robotHealthTimeoutSeconds:
+          robotHealthTimeoutSeconds ?? this.robotHealthTimeoutSeconds,
       emergencyServiceTimeoutSeconds:
           emergencyServiceTimeoutSeconds ?? this.emergencyServiceTimeoutSeconds,
       maxLogs: maxLogs ?? this.maxLogs,
@@ -125,17 +145,23 @@ class AppSettings {
     return {
       'rosBridgeUrl': rosBridgeUrl,
       'mapHttpBaseUrl': mapHttpBaseUrl,
-      'locationStorageRoot': locationStorageRoot,
       'mapListRequestTopic': mapListRequestTopic,
       'mapListTopic': mapListTopic,
       'locationListRequestTopic': locationListRequestTopic,
       'locationListTopic': locationListTopic,
       'saveLocationTopic': saveLocationTopic,
       'deleteLocationRequestTopic': deleteLocationRequestTopic,
+      'missionRequestService': missionRequestService,
+      'missionCancelService': missionCancelService,
+      'missionPauseService': missionPauseService,
+      'missionResumeService': missionResumeService,
       'robotStatusTopic': robotStatusTopic,
       'emergencyActivateService': emergencyActivateService,
       'emergencyResetService': emergencyResetService,
       'emergencyStateTopic': emergencyStateTopic,
+      'robotHealthTopic': robotHealthTopic,
+      'robotEventsTopic': robotEventsTopic,
+      'robotHealthTimeoutSeconds': robotHealthTimeoutSeconds,
       'emergencyServiceTimeoutSeconds': emergencyServiceTimeoutSeconds,
       'maxLogs': maxLogs,
       'maxReconnectAttempts': maxReconnectAttempts,
@@ -156,8 +182,6 @@ class AppSettings {
       rosBridgeUrl: json['rosBridgeUrl'] as String? ?? defaults.rosBridgeUrl,
       mapHttpBaseUrl:
           json['mapHttpBaseUrl'] as String? ?? defaults.mapHttpBaseUrl,
-      locationStorageRoot: json['locationStorageRoot'] as String? ??
-          defaults.locationStorageRoot,
       mapListRequestTopic: json['mapListRequestTopic'] as String? ??
           defaults.mapListRequestTopic,
       mapListTopic: json['mapListTopic'] as String? ?? defaults.mapListTopic,
@@ -170,6 +194,14 @@ class AppSettings {
       deleteLocationRequestTopic:
           json['deleteLocationRequestTopic'] as String? ??
               defaults.deleteLocationRequestTopic,
+      missionRequestService: json['missionRequestService'] as String? ??
+          defaults.missionRequestService,
+      missionCancelService: json['missionCancelService'] as String? ??
+          defaults.missionCancelService,
+      missionPauseService: json['missionPauseService'] as String? ??
+          defaults.missionPauseService,
+      missionResumeService: json['missionResumeService'] as String? ??
+          defaults.missionResumeService,
       robotStatusTopic:
           json['robotStatusTopic'] as String? ?? defaults.robotStatusTopic,
       emergencyActivateService: json['emergencyActivateService'] as String? ??
@@ -178,6 +210,13 @@ class AppSettings {
           defaults.emergencyResetService,
       emergencyStateTopic: json['emergencyStateTopic'] as String? ??
           defaults.emergencyStateTopic,
+      robotHealthTopic:
+          json['robotHealthTopic'] as String? ?? defaults.robotHealthTopic,
+      robotEventsTopic:
+          json['robotEventsTopic'] as String? ?? defaults.robotEventsTopic,
+      robotHealthTimeoutSeconds:
+          (json['robotHealthTimeoutSeconds'] as num?)?.toInt() ??
+              defaults.robotHealthTimeoutSeconds,
       emergencyServiceTimeoutSeconds:
           (json['emergencyServiceTimeoutSeconds'] as num?)?.toInt() ??
               defaults.emergencyServiceTimeoutSeconds,

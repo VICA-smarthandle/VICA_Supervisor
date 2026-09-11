@@ -1,15 +1,19 @@
-// 이 파일은 ROS 연결, 지도 연결, 로봇 요약, 최근 알림을 카드형 대시보드로 보여줍니다.
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/layout_breakpoints.dart';
 import '../models/robot_status.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../ros/ros_bridge_client.dart';
+import '../widgets/health_banner.dart';
 import '../widgets/vica_ui.dart';
 
 class DashboardScreen extends StatelessWidget {
-  const DashboardScreen({super.key});
+  const DashboardScreen({super.key, this.onOpenDiagnostics});
+
+  /// 상단 배너를 탭하면 시스템 진단 화면으로 보냅니다.
+  final VoidCallback? onOpenDiagnostics;
 
   static const double metricLabelFontSize = 14;
   static const double errorMetricLabelFontSize = 12;
@@ -22,8 +26,13 @@ class DashboardScreen extends StatelessWidget {
         supervisor.connectionState == RosConnectionState.connected;
     final robots = supervisor.robots;
     final moving = robots.where((robot) => robot.status == 'moving').length;
-    final errors = robots.where((robot) => robot.hasError).length;
-    final waiting = robots.where((robot) => robot.status != 'moving').length;
+    final errorRobots = robots.where((robot) => robot.hasError).length;
+    final emergencyActive =
+        supervisor.emergencyStopState == EmergencyStopState.active;
+    final errors = emergencyActive && errorRobots == 0 ? 1 : errorRobots;
+    final waiting = robots
+        .where((robot) => robot.status != 'moving' && !robot.hasError)
+        .length;
     final robot = supervisor.primaryRobot ?? _waitingRobot();
     final metricCards = [
       VicaMetricCard(
@@ -49,7 +58,7 @@ class DashboardScreen extends StatelessWidget {
       ),
       VicaMetricCard(
         icon: Icons.warning,
-        label: '오류/긴급 정지',
+        label: '오류/\n긴급 정지',
         value: errors.toString(),
         color: VicaColors.red,
         labelMaxLines: 2,
@@ -60,45 +69,33 @@ class DashboardScreen extends StatelessWidget {
     return VicaPage(
       title: '로봇 현황',
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: connected
-                    ? supervisor.disconnect
-                    : () => supervisor.connect(settings),
-                icon: Icon(
-                  connected ? Icons.check_circle : Icons.radio_button_unchecked,
-                ),
-                label: Text(connected ? 'ROS 연결됨' : 'ROS 연결'),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: connected
-                    ? () => supervisor.requestMapList(settings)
-                    : null,
-                icon: Icon(
-                  supervisor.maps.isEmpty
-                      ? Icons.radio_button_unchecked
-                      : Icons.check_circle,
-                ),
-                label: Text(
-                  supervisor.maps.isEmpty ? '지도 미연결' : '지도 연결됨',
-                ),
-              ),
-            ),
-          ],
+        if (!connected)
+          VicaDisconnectedNotice(detail: supervisor.connectionDetail),
+        HealthBanner(onTap: onOpenDiagnostics),
+        _ConnectionButtons(
+          connected: connected,
+          hasMaps: supervisor.maps.isNotEmpty,
+          onToggleRos: connected
+              ? supervisor.disconnect
+              : () => supervisor.connect(settings),
+          onRequestMaps:
+              connected ? () => supervisor.requestMapList(settings) : null,
         ),
         const SizedBox(height: 18),
         Align(
           alignment: Alignment.topCenter,
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1040),
+            constraints: const BoxConstraints(
+              maxWidth: VicaBreakpoints.metricGridMaxWidth,
+            ),
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final columnCount = constraints.maxWidth >= 720 ? 4 : 2;
+                final columnCount =
+                    constraints.maxWidth >= VicaBreakpoints.metricGridWide
+                        ? 4
+                        : 2;
+                final cellHeight = MediaQuery.textScalerOf(context)
+                    .scale(VicaMetricCard.baseHeight);
                 return GridView.builder(
                   itemCount: metricCards.length,
                   shrinkWrap: true,
@@ -107,7 +104,7 @@ class DashboardScreen extends StatelessWidget {
                     crossAxisCount: columnCount,
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 4,
-                    mainAxisExtent: 116,
+                    mainAxisExtent: cellHeight,
                   ),
                   itemBuilder: (context, index) => metricCards[index],
                 );
@@ -140,6 +137,60 @@ class DashboardScreen extends StatelessWidget {
       waitingReason: '로봇 상태 메시지 수신 대기',
       mapId: '',
       timestamp: DateTime.now().subtract(const Duration(minutes: 1)),
+    );
+  }
+}
+
+class _ConnectionButtons extends StatelessWidget {
+  const _ConnectionButtons({
+    required this.connected,
+    required this.hasMaps,
+    required this.onToggleRos,
+    required this.onRequestMaps,
+  });
+
+  final bool connected;
+  final bool hasMaps;
+  final VoidCallback onToggleRos;
+  final VoidCallback? onRequestMaps;
+
+  @override
+  Widget build(BuildContext context) {
+    final rosButton = OutlinedButton.icon(
+      onPressed: onToggleRos,
+      icon: Icon(
+        connected ? Icons.check_circle : Icons.radio_button_unchecked,
+      ),
+      label: Text(connected ? 'ROS 연결됨' : 'ROS 연결'),
+    );
+    final mapButton = OutlinedButton.icon(
+      onPressed: onRequestMaps,
+      icon: Icon(
+        hasMaps ? Icons.check_circle : Icons.radio_button_unchecked,
+      ),
+      label: Text(hasMaps ? '지도 연결됨' : '지도 미연결'),
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (VicaBreakpoints.isCompact(constraints.maxWidth)) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              rosButton,
+              const SizedBox(height: 10),
+              mapButton,
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: rosButton),
+            const SizedBox(width: 10),
+            Expanded(child: mapButton),
+          ],
+        );
+      },
     );
   }
 }

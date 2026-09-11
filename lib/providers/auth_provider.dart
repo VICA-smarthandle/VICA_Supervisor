@@ -1,4 +1,3 @@
-// 이 파일은 로컬 로그인 검증과 로그인 상태 저장/삭제를 담당합니다.
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

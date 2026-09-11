@@ -1,4 +1,3 @@
-// 이 파일은 rosbridge WebSocket 연결, topic 구독, std_msgs/String JSON publish를 담당합니다.
 import 'dart:async';
 import 'dart:convert';
 
@@ -12,10 +11,9 @@ enum RosConnectionState {
 }
 
 typedef RosTopicHandler = void Function(Map<String, Object?> message);
-typedef RosStateHandler = void Function(RosConnectionState state, String detail);
+typedef RosStateHandler = void Function(
+    RosConnectionState state, String detail);
 
-// rosbridge call_service 응답. result=false 이면 서비스 호출 자체가 실패한 것이고,
-// values 에는 서비스가 돌려준 필드(std_srvs/Trigger 라면 success, message)가 담긴다.
 class RosServiceResponse {
   const RosServiceResponse({required this.result, required this.values});
 
@@ -23,6 +21,7 @@ class RosServiceResponse {
   final Map<String, Object?> values;
 
   bool get success => values['success'] == true;
+  bool get accepted => values['accepted'] == true;
   String get message => values['message'] as String? ?? '';
 }
 
@@ -39,7 +38,6 @@ class RosBridgeClient {
 
   RosConnectionState get state => _state;
 
-  // 기존 channel을 확실히 닫고 새 WebSocket 연결을 하나만 생성합니다.
   Future<void> connect(String url) async {
     await close();
     _setState(RosConnectionState.connecting, 'ROS 연결 시도: $url');
@@ -59,7 +57,6 @@ class RosBridgeClient {
     }
   }
 
-  // 화면이나 앱이 연결을 해제할 때 subscription과 channel을 함께 정리합니다.
   Future<void> close() async {
     _failPendingServiceCalls();
     await _subscription?.cancel();
@@ -71,7 +68,6 @@ class RosBridgeClient {
     }
   }
 
-  // rosbridge subscribe 명령을 보내고 topic별 handler를 등록합니다.
   void subscribe({
     required String topic,
     required RosTopicHandler handler,
@@ -93,7 +89,6 @@ class RosBridgeClient {
     });
   }
 
-  // std_msgs/String의 data 필드에 JSON 문자열을 넣어서 publish합니다.
   void publishJsonString({
     required String topic,
     required Map<String, Object?> payload,
@@ -107,8 +102,6 @@ class RosBridgeClient {
     });
   }
 
-  // rosbridge call_service 로 서비스를 호출하고 응답을 Future 로 돌려줍니다.
-  // 채널이 없거나 timeout 이면 예외를 던집니다.
   Future<RosServiceResponse> callService({
     required String service,
     String type = 'std_srvs/Trigger',

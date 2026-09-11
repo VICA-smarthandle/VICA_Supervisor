@@ -1,4 +1,3 @@
-// 이 파일은 지도 이미지, 저장된 장소 마커, 선택 마커, 현재 로봇 위치를 한 화면에 표시합니다.
 import 'package:flutter/material.dart';
 
 import '../core/app_settings.dart';
@@ -174,7 +173,6 @@ class MapCanvas extends StatelessWidget {
     );
   }
 
-  // 지도 이미지가 화면 안에 들어오도록 초기 표시 크기를 계산합니다.
   double _fitScale(
       double maxWidth, double maxHeight, double width, double height) {
     if (maxWidth.isInfinite || maxHeight.isInfinite) {
@@ -313,7 +311,6 @@ class _RobotMarker extends StatelessWidget {
       child: Tooltip(
         message: label,
         child: Transform.rotate(
-          // ROS yaw는 y축이 위인 좌표계라 화면 좌표계에서는 회전 방향을 반대로 적용합니다.
           angle: yaw * 3.1415926535 / 180.0,
           child: const Icon(
             Icons.navigation,

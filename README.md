@@ -1,29 +1,50 @@
 # VICA_Supervisor
 
-VICA 로봇 관리자용 Flutter 앱입니다. ROS2/nav2가 동작 중인 Jetson과 같은 네트워크에 있는 Android 기기에서 실행하는 것을 기준으로 합니다.
+VICA 로봇 관리자용 Flutter 앱이다.
 
-## 핵심 연결 방식
+앱 시작 시 로컬 관리자 로그인을 거치며 로그인 상태를 저장한다. 이는 앱 화면 진입
+제어이고 ROS service 호출자 인증은 아니므로 reset 접근 통제는 아직 `[GAP]`이다.
+
+## 핵심 연결
 
 - ROS 연결: rosbridge WebSocket
-- 지도 이미지: 설정 화면의 지도 HTTP 서버 주소 + ROS2가 내려준 `image_url`
-- 좌표 저장: 앱이 `/save_location`, `/delete_location_request`에 JSON 요청을 보내고 ROS2 저장 노드가 `~/ros2_ws/location/<map_id>/locations.json`을 갱신
+- 지도 이미지: 지도 HTTP 서버 주소 + `/map_list`의 `image_url`
+- 목적지 관리: `/save_location`, `/delete_location_request`,
+  `/location_list_request`, `/location_list`
+- 목적지 정본: `~/vica_data/destinations/<map_id>/destinations.yaml`
+- 원격 안내 요청: `/vica/mission/request_destination`
+- 비상정지: `/app_estop_activate`, `/app_estop_reset`
+
+앱은 저장 경로나 Nav2 action을 직접 소유하지 않는다. 저장 경로는
+`vica_destination_manager`의 ROS 파라미터이고, Nav2 Goal은 Mission Manager만 생성한다.
 
 ## 실행
 
 ```bash
-cd ~/VICA_Supervisor
 flutter pub get
-dart run flutter_launcher_icons
 flutter run
 ```
 
-## ROS2 연동 테스트 순서
+ROS 쪽에서는 다음 구성요소를 별도로 실행한다.
 
-1. Jetson에서 rosbridge WebSocket 서버를 실행합니다.
-2. 지도 이미지 HTTP 서버가 `~/ros2_ws/maps`를 제공하도록 실행합니다.
-3. 필요하면 `ros2/map_list_node.py`, `ros2/location_storage_node.py`를 ROS2 환경에서 실행합니다.
-4. 앱 설정에서 WebSocket 주소와 지도 HTTP 서버 주소를 입력합니다.
-5. 대시보드에서 ROS 연결 후 지도 목록 요청을 확인합니다.
-6. 지도 화면에서 지도 이미지와 장소 목록이 표시되는지 확인합니다.
-7. 장소 저장 화면에서 좌표를 찍고 임시 저장 후 ROS2 저장 요청을 보냅니다.
-8. `~/ros2_ws/location/<map_id>/locations.json`에 저장 결과가 반영되는지 확인합니다.
+```bash
+ros2 launch vica_destination_manager destination_manager.launch.py
+ros2 launch vica_mission_manager mission_manager.launch.py \
+  map_id:=vica_map_0630 \
+  map_yaml:=/path/to/vica_map_0630.yaml
+```
+
+터미널 시험 도구는 선택한 지도의 정본 YAML에서 목적지 이름을 정확히 찾아 UUID로
+변환한 뒤 Mission Manager에 요청한다. 요청 수락 뒤에는 같은 목적지의
+`/vica_goal_event`를 기다리고 도착·실패·취소 결과를 출력한 뒤 종료한다. 이름에 공백이
+있으면 따옴표로 감싼다.
+
+```bash
+python3 ros2/vica_goto_goal.py vica_map_0630 "별빛관 1층 화장실"
+```
+
+기본 주행 결과 대기시간은 600초다. `--navigation-timeout 0`은 제한 없이 기다린다.
+CLI에서 `Ctrl+C`로 모니터링을 종료해도 진행 중인 Goal을 직접 취소하지 않는다.
+
+`ros2/location_storage_node.py`는 기존 JSON 저장 노드의 보호용 진입점이며 더 이상
+사용하지 않는다. 기존 JSON 장소는 새 YAML로 자동 이관하지 않는다.

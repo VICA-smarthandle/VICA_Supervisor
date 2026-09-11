@@ -1,4 +1,3 @@
-// 이 파일은 전체, 긴급 정지, 좌표 전송, 연결 상태 로그 필터와 삭제 기능을 제공합니다.
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 

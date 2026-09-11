@@ -1,7 +1,7 @@
-// 이 파일은 VICA_Supervisor 화면들이 공통으로 사용하는 모바일 카드형 UI 위젯을 제공합니다.
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../core/layout_breakpoints.dart';
 import '../models/robot_status.dart';
 import '../models/supervisor_log.dart';
 
@@ -36,7 +36,8 @@ class VicaPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final horizontalPadding = constraints.maxWidth >= 900 ? 32.0 : 24.0;
+        final horizontalPadding =
+            VicaBreakpoints.horizontalPadding(constraints.maxWidth);
         return ListView(
           padding: EdgeInsets.fromLTRB(
             horizontalPadding,
@@ -48,7 +49,9 @@ class VicaPage extends StatelessWidget {
             Align(
               alignment: Alignment.topCenter,
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1280),
+                constraints: const BoxConstraints(
+                  maxWidth: VicaBreakpoints.contentMaxWidth,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -122,6 +125,51 @@ class VicaSectionTitle extends StatelessWidget {
   }
 }
 
+class VicaDisconnectedNotice extends StatelessWidget {
+  const VicaDisconnectedNotice({super.key, this.detail = ''});
+
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        color: VicaColors.red.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: VicaColors.red.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.link_off, color: VicaColors.red, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'ROS 연결 안 됨',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: VicaColors.red,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  detail.isEmpty ? '로봇 상태를 받을 수 없습니다.' : detail,
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class VicaMetricCard extends StatelessWidget {
   const VicaMetricCard({
     super.key,
@@ -132,6 +180,9 @@ class VicaMetricCard extends StatelessWidget {
     this.labelMaxLines = 1,
     this.labelFontSize = 12,
   });
+
+  /// 글자 배율 1.0에서 카드 한 장이 차지하는 높이입니다.
+  static const double baseHeight = 116;
 
   final IconData icon;
   final String label;
@@ -163,11 +214,17 @@ class VicaMetricCard extends StatelessWidget {
                       ),
                 ),
                 const SizedBox(height: 3),
-                Text(
-                  value,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontSize: 25,
-                      ),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    maxLines: 1,
+                    softWrap: false,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          fontSize: 25,
+                        ),
+                  ),
                 ),
               ],
             ),
@@ -223,50 +280,157 @@ class VicaRobotCard extends StatelessWidget {
                 icon: Icons.smart_toy, color: VicaColors.primaryDark),
             const SizedBox(width: 14),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final contentWidth = constraints.maxWidth;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Text(
-                          robot.robotName,
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          ConstrainedBox(
+                            constraints: BoxConstraints(maxWidth: contentWidth),
+                            child: Text(
+                              robot.robotName,
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ),
+                          _Pill(
+                            text: _statusLabel(robot.status),
+                            color: robot.hasError
+                                ? VicaColors.red
+                                : VicaColors.primary,
+                          ),
+                        ],
                       ),
-                      _Pill(
-                        text: _statusLabel(robot.status),
-                        color: robot.hasError
-                            ? VicaColors.red
-                            : VicaColors.primary,
+                      const SizedBox(height: 4),
+                      Text('ID: ${robot.robotId}',
+                          style: Theme.of(context).textTheme.bodySmall),
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 14,
+                        runSpacing: 8,
+                        children: [
+                          _InfoChip(
+                              icon: Icons.location_on_outlined,
+                              maxWidth: contentWidth,
+                              text:
+                                  '현재 위치: ${_empty(robot.currentLocation, '수신 대기')}'),
+                          _InfoChip(
+                              icon: Icons.flag_outlined,
+                              maxWidth: contentWidth,
+                              text: '목적지: ${_empty(robot.currentGoal, '없음')}'),
+                          _InfoChip(
+                              icon: Icons.schedule,
+                              maxWidth: contentWidth,
+                              text:
+                                  '마지막 통신: ${_relativeTime(robot.timestamp)}'),
+                          _InfoChip(
+                              icon: Icons.my_location_outlined,
+                              maxWidth: contentWidth,
+                              text:
+                                  '좌표: ${robot.x.toStringAsFixed(2)}, ${robot.y.toStringAsFixed(2)}'),
+                        ],
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text('ID: ${robot.robotId}',
-                      style: Theme.of(context).textTheme.bodySmall),
-                  const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 14,
-                    runSpacing: 8,
-                    children: [
-                      _InfoChip(
-                          icon: Icons.location_on_outlined,
-                          text:
-                              '현재 위치: ${_empty(robot.currentLocation, '수신 대기')}'),
-                      _InfoChip(
-                          icon: Icons.flag_outlined,
-                          text: '목적지: ${_empty(robot.currentGoal, '없음')}'),
-                      _InfoChip(
-                          icon: Icons.schedule,
-                          text: '마지막 통신: ${_relativeTime(robot.timestamp)}'),
-                    ],
-                  ),
-                ],
+                  );
+                },
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class VicaFieldWithAction extends StatelessWidget {
+  const VicaFieldWithAction({
+    super.key,
+    required this.field,
+    required this.action,
+    this.actionWidth = 132,
+  });
+
+  final Widget field;
+  final Widget action;
+
+  /// 넓은 창에서 버튼이 차지할 폭입니다.
+  final double actionWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (VicaBreakpoints.isCompact(constraints.maxWidth)) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              field,
+              const SizedBox(height: 10),
+              action,
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: field),
+            const SizedBox(width: 10),
+            SizedBox(width: actionWidth, child: action),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class VicaInfoRow extends StatelessWidget {
+  const VicaInfoRow({
+    super.key,
+    required this.label,
+    required this.value,
+  });
+
+  final String label;
+  final String value;
+
+  /// 라벨 열의 폭입니다. '마지막 통신'까지 한 줄에 들어가는 값으로 잡았습니다.
+  static const double _labelWidth = 100;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = value.isEmpty ? '-' : value;
+    const labelStyle = TextStyle(fontWeight: FontWeight.w800);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final stack = constraints.maxWidth < _labelWidth * 2.4;
+          if (stack) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: labelStyle),
+                const SizedBox(height: 2),
+                Text(text),
+              ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: _labelWidth,
+                child: Text(label, style: labelStyle),
+              ),
+              Expanded(child: Text(text)),
+            ],
+          );
+        },
       ),
     );
   }
@@ -372,20 +536,36 @@ class _IconBox extends StatelessWidget {
 }
 
 class _InfoChip extends StatelessWidget {
-  const _InfoChip({required this.icon, required this.text});
+  const _InfoChip({
+    required this.icon,
+    required this.text,
+    required this.maxWidth,
+  });
 
   final IconData icon;
   final String text;
 
+  /// 이 항목이 차지해도 되는 최대 폭입니다. Wrap 자식은 폭 제한을 받지 못하므로
+  final double maxWidth;
+
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 16, color: const Color(0xFF758198)),
-        const SizedBox(width: 4),
-        Text(text, style: Theme.of(context).textTheme.bodySmall),
-      ],
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Icon(icon, size: 16, color: const Color(0xFF758198)),
+          ),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(text, style: Theme.of(context).textTheme.bodySmall),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -427,8 +607,11 @@ String _statusLabel(String status) {
 
 String _relativeTime(DateTime time) {
   final diff = DateTime.now().difference(time);
-  if (diff.inMinutes < 1) {
+  if (diff.isNegative) {
     return '방금 전';
+  }
+  if (diff.inSeconds < 60) {
+    return '${diff.inSeconds}초 전';
   }
   if (diff.inHours < 1) {
     return '${diff.inMinutes}분 전';

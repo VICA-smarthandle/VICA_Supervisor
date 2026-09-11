@@ -4,6 +4,8 @@
 .flutter-plugins-dependencies
 .packages
 build/
+install/
+log/
 android/.gradle/
 android/local.properties
 android/app/debug

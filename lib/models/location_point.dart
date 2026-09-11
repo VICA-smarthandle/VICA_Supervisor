@@ -1,4 +1,3 @@
-// 이 파일은 지도 위 목적지와 destinations.yaml에 대응할 상세 데이터를 표현합니다.
 class LocationPoint {
   const LocationPoint({
     required this.locationId,

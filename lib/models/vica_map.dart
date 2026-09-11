@@ -1,4 +1,3 @@
-// 이 파일은 ROS2에서 받은 지도 메타데이터와 지도 이미지 URL 정보를 표현합니다.
 class VicaMap {
   const VicaMap({
     required this.mapId,

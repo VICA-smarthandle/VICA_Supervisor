@@ -1,116 +1,65 @@
 # app_emergency_node 배포 및 연동 점검
 
-## VICA ros2_ws에 배치
+`app_emergency_node`의 정본은 ROS workspace의
+`vica_ros2_ws/src/vica_safety/vica_safety/app_emergency_node.py`다. 앱 저장소의 과거 ROS
+보조 파일을 별도 node로 실행하지 않는다.
 
-이 저장소의 `ros2/app_emergency_node.py`를 VICA의 실제 ROS2 Python
-패키지에 넣고 실행 파일 이름과 node 이름을 모두 `app_emergency_node`로
-사용합니다.
-
-예시 패키지 구조:
-
-```text
-~/ros2_ws/src/vica_app_nodes/
-├── package.xml
-├── setup.py
-└── vica_app_nodes/
-    ├── __init__.py
-    └── app_emergency_node.py
-```
-
-`setup.py`의 `console_scripts`에는 다음 entry point를 추가합니다.
-
-```python
-"app_emergency_node = vica_app_nodes.app_emergency_node:main"
-```
-
-`package.xml`에는 최소한 다음 실행 의존성이 필요합니다.
-
-```xml
-<exec_depend>rclpy</exec_depend>
-<exec_depend>std_msgs</exec_depend>
-<exec_depend>geometry_msgs</exec_depend>
-<exec_depend>action_msgs</exec_depend>
-```
-
-빌드 및 실행:
+## 실행 경계
 
 ```bash
-cd ~/ros2_ws
-colcon build --packages-select vica_app_nodes
-source install/setup.bash
-ros2 run vica_app_nodes app_emergency_node
+ros2 launch vica_safety safety_bringup.launch.py
 ```
 
-## 주행 및 E-stop 연결
-
-기본 연결은 다음과 같습니다.
-
-```text
-Nav2 /cmd_vel -> keyboard_knob -> CAN motor command
-app_emergency_node -> /app_emergency_stop -> emergency_stop_node -> /emergency_stop
-```
-
-Nav2 controller server의 속도 출력은 `/cmd_vel`로 유지합니다.
-`/cmd_vel`은 `keyboard_knob`만 구독해야 하며, `app_emergency_node`는
-`/cmd_vel`을 구독하거나 발행하지 않습니다. 앱 비상정지 입력은
-`/app_emergency_stop`으로 `emergency_stop_node`에 전달되고, 물리 버튼 상태와
-합쳐진 최종 `/emergency_stop`이 `keyboard_knob`을 래치시킵니다.
-
-현장 topic이 다르면 node parameter로 변경합니다.
+이 launch는 `emergency_stop_node`, `safety_supervisor_node`, `app_emergency_node`를
+실행하며 motor node는 포함하지 않는다. motor는 안전 계층 확인 뒤 별도 실행한다.
 
 ```bash
-ros2 run vica_app_nodes app_emergency_node --ros-args \
-  -p app_emergency_stop_topic:=/app_emergency_stop \
-  -p estop_reset_service:=/estop_reset \
-  -p navigate_action_name:=/navigate_to_pose
+ros2 launch mdrobot_can_control motor_bringup.launch.py
 ```
 
-## 실제 연결 전 확인
+## 앱 계약
+
+| 방향 | 인터페이스 | 타입 |
+| --- | --- | --- |
+| 앱 → ROS | `/app_estop_activate` | `std_srvs/srv/Trigger` |
+| 앱 → ROS | `/app_estop_reset` | `std_srvs/srv/Trigger` |
+| ROS → 앱 | `/app_estop_state` | `std_msgs/msg/String` JSON |
+
+`/app_estop_reset`은 Nav2 실행 여부 확인, 필요한 경우의 활성 Goal 전체 취소, 중앙 E-stop
+latch 내부 reset, Supervisor 내부 reset, `READY_TO_GO` 확인을 하나의 절차로 수행한다.
+마지막 action status가 terminal이면 cancel 호출을 생략하고, 활성 상태이면 전체 취소 후
+요청 이후의 새 terminal 상태를 확인한다. Goal 이력이 없거나 Nav2가 미실행이면 Goal
+검사를 생략한다. 앱은 내부 서비스를 직접 호출하지 않으며 터미널 유지보수용
+`/safety_reset`도 같은 절차를 사용한다.
+
+## 읽기 전용 확인
 
 ```bash
 ros2 node list
 ros2 node info /app_emergency_node
-ros2 topic info -v /cmd_vel
-ros2 topic echo /app_emergency_stop
+ros2 topic echo /app_estop_state
 ros2 topic echo /emergency_stop
-ros2 service type /estop_reset
+ros2 topic echo /safety_state
+ros2 service type /app_estop_activate
+ros2 service type /app_estop_reset
+ros2 service type /safety_reset
 ros2 action info /navigate_to_pose
-ros2 topic echo /safety/emergency_stop_state
 ```
 
-반드시 확인할 사항:
+다음을 확인한다.
 
-1. `/app_emergency_node`가 한 개만 실행 중인지 확인합니다.
-2. `/cmd_vel` publisher는 Nav2 계열 노드만 있는지 확인합니다.
-3. `/cmd_vel` subscriber는 `keyboard_knob` 하나만 있는지 확인합니다.
-4. `app_emergency_node`가 `/cmd_vel` publisher/subscriber 목록에 없는지 확인합니다.
-5. 앱과 VICA의 ROS Domain ID 및 네트워크 연결이 같은지 확인합니다.
-6. rosbridge가 `/safety/emergency_stop_request`와
-   `/safety/emergency_stop_state`를 전달하는지 확인합니다.
-7. `emergency_stop_node`가 `/app_emergency_stop`을 구독하고 `/emergency_stop`을
-   발행하는지 확인합니다.
-8. `keyboard_knob`의 `/estop_reset` 서비스가 보이는지 확인합니다.
+1. `app_emergency_node`가 한 개만 실행 중이다.
+2. 앱이 `/cmd_vel*`, Nav2 action, 내부 reset 서비스를 직접 사용하지 않는다.
+3. `/app_estop_state.active`가 앱 source가 아니라 중앙 `/emergency_stop`과 일치한다.
+4. 앱과 ROS의 Domain ID, rosbridge 연결, 서비스 이름이 일치한다.
+5. reset 실패 응답에 `step`과 `reason`이 표시된다.
+6. reset 뒤 이전 Goal이 자동 재개되지 않는다.
 
-## 단계별 시험
+## 실기 시험 조건
 
-처음에는 바퀴를 지면에서 띄우거나 모터 전원을 분리한 상태에서 시험합니다.
+CAN·motor·Nav2와 함께 시험하기 전에 바퀴를 띄우고 주변을 통제하며, 물리 E-stop과 즉시
+전원 차단 수단을 확보한다. 물리 버튼 active, F1 stale, 비영 `/cmd_vel_req`, Nav2 취소
+실패에서 reset이 거부되는지 각각 확인한다.
 
-1. 정지 상태에서 앱 버튼을 눌러 성공 팝업과 `active: true`를 확인합니다.
-2. 앱 비상정지 중 `/app_emergency_stop=true`와 `/emergency_stop=true`를 확인합니다.
-3. `keyboard_knob`이 E-stop 래치 상태에서 0rpm/brake를 반복 송신하는지 확인합니다.
-4. Nav2 주행 중 정지를 눌러 action goal이 canceled 상태가 되는지 확인합니다.
-5. 앱의 reset 버튼을 누른 뒤 `/app_emergency_stop=false`와 `/estop_reset`
-   성공을 확인합니다.
-6. reset 후 기존 목적지가 다시 시작되지 않는지 확인합니다.
-7. `/cmd_vel`에 앱 노드가 0 명령을 섞지 않는지 확인합니다.
-8. 새로운 목적지를 보낸 뒤 주행이 다시 시작되는지 확인합니다.
-9. `app_emergency_node`를 종료한 뒤 앱에서 정지를 눌러 실패 팝업과 재시도를 확인합니다.
-10. rosbridge 연결을 끊고 동일한 실패/재연결/재시도 흐름을 확인합니다.
-11. 앱을 종료했다 다시 열어도 node가 active이면 정지 팝업이 복구되는지 확인합니다.
-12. reset 요청 중 연결을 끊으면 팝업이 유지되고 reset 재시도가 나타나는지 확인합니다.
-13. 배열 payload, 빈 `request_id`, 잘못된 `command`를 보내도 node가
-    종료되지 않고 `/safety/emergency_stop_state`에 `state: failed`가
-    발행되는지 확인합니다.
-
-소프트웨어 node는 물리 비상정지 회로를 대체하지 않습니다. 실제 사람과
-장비가 있는 환경에서는 독립된 하드웨어 비상정지를 함께 사용해야 합니다.
+관리자 인증은 아직 구현되지 않았다. `/app_estop_reset`과 유지보수 `/safety_reset`의
+호출자 접근 통제는 `[GAP]`이며 소프트웨어 node는 물리 비상정지 회로를 대체하지 않는다.

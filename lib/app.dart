@@ -1,8 +1,8 @@
-// 이 파일은 앱 테마, 로그인 분기, 화면 크기별 Navigation 구성을 담당합니다.
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'core/app_settings.dart';
+import 'core/layout_breakpoints.dart';
 import 'providers/auth_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/supervisor_provider.dart';
@@ -16,6 +16,10 @@ import 'screens/map_locations_screen.dart';
 import 'screens/robot_management_screen.dart';
 import 'screens/save_location_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/system_diagnostics_screen.dart';
+
+/// 앱 전체가 쓰는 글꼴. pubspec.yaml의 `fonts: family:`와 반드시 같아야 한다.
+const String kVicaFontFamily = 'NanumGothic';
 
 class VicaSupervisorApp extends StatelessWidget {
   const VicaSupervisorApp({super.key});
@@ -26,7 +30,7 @@ class VicaSupervisorApp extends StatelessWidget {
       title: 'VICA_Supervisor',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        fontFamily: 'NanumGothic',
+        fontFamily: kVicaFontFamily,
         scaffoldBackgroundColor: VicaColors.background,
         colorScheme: ColorScheme.fromSeed(
           seedColor: VicaColors.primary,
@@ -39,6 +43,7 @@ class VicaSupervisorApp extends StatelessWidget {
           elevation: 0,
           centerTitle: false,
           titleTextStyle: TextStyle(
+            fontFamily: kVicaFontFamily,
             color: VicaColors.text,
             fontSize: 17,
             fontWeight: FontWeight.w900,
@@ -120,22 +125,32 @@ class SupervisorShell extends StatefulWidget {
 class _SupervisorShellState extends State<SupervisorShell> {
   int _index = 0;
 
-  static const _screens = [
-    DashboardScreen(),
-    SaveLocationScreen(),
-    MapLocationsScreen(),
-    CurrentLocationScreen(),
-    RobotManagementScreen(),
-    LogsScreen(),
-    SettingsScreen(),
-  ];
+  List<Widget> get _screens => [
+        DashboardScreen(
+          onOpenDiagnostics: () =>
+              setState(() => _index = _systemDiagnosticsIndex),
+        ),
+        const SaveLocationScreen(),
+        const MapLocationsScreen(),
+        const CurrentLocationScreen(),
+        const RobotManagementScreen(),
+        const SystemDiagnosticsScreen(),
+        const LogsScreen(),
+        const SettingsScreen(),
+      ];
+
+  static const _dashboardIndex = 0;
+  static const _saveLocationIndex = 1;
+  static const _systemDiagnosticsIndex = 5;
+  static const _settingsIndex = 7;
 
   static const _titles = [
     '대시보드',
     '장소 저장',
-    '지도별 장소 보기',
+    '원격 주행',
     '현재 위치',
     '로봇 관리',
+    '시스템 진단',
     '알림 및 로그',
     '설정',
   ];
@@ -150,7 +165,8 @@ class _SupervisorShellState extends State<SupervisorShell> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final useNavigationRail = constraints.maxWidth >= 900;
+        final useNavigationRail =
+            constraints.maxWidth >= VicaBreakpoints.medium;
 
         return PopScope(
           canPop: !supervisor.emergencyOverlayVisible,
@@ -168,40 +184,51 @@ class _SupervisorShellState extends State<SupervisorShell> {
                           ),
                         ),
                   actions: [
+                    IconButton(
+                      onPressed: () =>
+                          setState(() => _index = _saveLocationIndex),
+                      icon: const Icon(Icons.add_location_alt_outlined),
+                      tooltip: '장소 저장',
+                    ),
                     Padding(
-                      padding: const EdgeInsets.only(right: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: Tooltip(
                         message: '비상정지',
-                        child: FilledButton.icon(
-                          onPressed: supervisor.emergencyOverlayVisible
-                              ? null
-                              : () =>
-                                  supervisor.activateEmergencyStop(settings),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.red.shade700,
-                            foregroundColor: Colors.white,
-                            minimumSize: const Size(0, 36),
-                            padding: const EdgeInsets.symmetric(horizontal: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(18),
+                        child: SizedBox(
+                          width: 40,
+                          height: 40,
+                          child: FilledButton(
+                            onPressed: supervisor.emergencyOverlayVisible
+                                ? null
+                                : () =>
+                                    supervisor.activateEmergencyStop(settings),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.red.shade700,
+                              foregroundColor: Colors.white,
+                              disabledBackgroundColor: Colors.red.shade200,
+                              shape: const CircleBorder(),
+                              padding: EdgeInsets.zero,
+                              minimumSize: const Size(40, 40),
                             ),
-                          ),
-                          icon: const Icon(Icons.warning_rounded, size: 18),
-                          label: const Text(
-                            '비상정지',
-                            style: TextStyle(fontWeight: FontWeight.w900),
+                            child: const Icon(
+                              Icons.warning_rounded,
+                              size: 20,
+                              semanticLabel: '비상정지',
+                            ),
                           ),
                         ),
                       ),
                     ),
                     if (useNavigationRail) ...[
                       IconButton(
-                        onPressed: () => setState(() => _index = 0),
+                        onPressed: () =>
+                            setState(() => _index = _dashboardIndex),
                         icon: const Icon(Icons.home_outlined),
                         tooltip: '대시보드',
                       ),
                       IconButton(
-                        onPressed: () => setState(() => _index = 6),
+                        onPressed: () =>
+                            setState(() => _index = _settingsIndex),
                         icon: const Icon(Icons.settings_outlined),
                         tooltip: '설정',
                       ),
@@ -546,8 +573,8 @@ class _SupervisorShellState extends State<SupervisorShell> {
       label: Text('장소 저장'),
     ),
     NavigationDrawerDestination(
-      icon: Icon(Icons.map),
-      label: Text('지도별 장소 보기'),
+      icon: Icon(Icons.navigation),
+      label: Text('원격 주행'),
     ),
     NavigationDrawerDestination(
       icon: Icon(Icons.my_location),
@@ -556,6 +583,10 @@ class _SupervisorShellState extends State<SupervisorShell> {
     NavigationDrawerDestination(
       icon: Icon(Icons.precision_manufacturing),
       label: Text('로봇 관리'),
+    ),
+    NavigationDrawerDestination(
+      icon: Icon(Icons.monitor_heart),
+      label: Text('시스템 진단'),
     ),
     NavigationDrawerDestination(
       icon: Icon(Icons.notifications),
@@ -579,9 +610,9 @@ class _SupervisorShellState extends State<SupervisorShell> {
       label: '장소 저장',
     ),
     _SidebarNavigationItem(
-      icon: Icons.map_outlined,
-      selectedIcon: Icons.map,
-      label: '지도별 장소 보기',
+      icon: Icons.navigation_outlined,
+      selectedIcon: Icons.navigation,
+      label: '원격 주행',
     ),
     _SidebarNavigationItem(
       icon: Icons.my_location_outlined,
@@ -592,6 +623,11 @@ class _SupervisorShellState extends State<SupervisorShell> {
       icon: Icons.precision_manufacturing_outlined,
       selectedIcon: Icons.precision_manufacturing,
       label: '로봇 관리',
+    ),
+    _SidebarNavigationItem(
+      icon: Icons.monitor_heart_outlined,
+      selectedIcon: Icons.monitor_heart,
+      label: '시스템 진단',
     ),
     _SidebarNavigationItem(
       icon: Icons.notifications_outlined,

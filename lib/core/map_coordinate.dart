@@ -1,4 +1,3 @@
-// 이 파일은 ROS map 좌표와 Flutter 이미지 픽셀 좌표 사이의 변환을 담당합니다.
 import 'dart:ui';
 
 import '../models/vica_map.dart';
@@ -6,7 +5,6 @@ import '../models/vica_map.dart';
 class MapCoordinate {
   const MapCoordinate._();
 
-  // ROS map 좌표(x, y)를 지도 이미지 픽셀 좌표로 변환합니다.
   static Offset rosToPixel({
     required VicaMap map,
     required double x,
@@ -23,7 +21,6 @@ class MapCoordinate {
     return Offset(pixelX, flipY ? map.height - rawPixelY : rawPixelY);
   }
 
-  // 사용자가 지도 이미지에서 찍은 픽셀 위치를 ROS map 좌표(x, y)로 되돌립니다.
   static Offset pixelToRos({
     required VicaMap map,
     required Offset pixel,

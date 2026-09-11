@@ -1,4 +1,3 @@
-// 이 파일은 사이드 메뉴 펼침 상태 같은 화면 환경설정을 저장합니다.
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
