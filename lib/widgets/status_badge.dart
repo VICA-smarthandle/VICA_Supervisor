@@ -1,4 +1,3 @@
-// 이 파일은 연결 상태나 로봇 상태를 짧게 보여주는 공통 배지 위젯입니다.
 import 'package:flutter/material.dart';
 
 class StatusBadge extends StatelessWidget {

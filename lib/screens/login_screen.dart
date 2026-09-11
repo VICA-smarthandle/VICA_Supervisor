@@ -1,4 +1,3 @@
-// 이 파일은 로컬 관리자 계정으로 앱 진입 여부를 확인하는 로그인 화면입니다.
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 

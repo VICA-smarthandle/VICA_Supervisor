@@ -1,4 +1,3 @@
-# 이 파일은 VICA_Supervisor Flutter 코드의 정적 분석 규칙을 정의합니다.
 include: package:flutter_lints/flutter.yaml
 
 linter:

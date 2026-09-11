@@ -26,6 +26,14 @@ flutter:
   assets:
     - assets/icon/app_icon.png
 
+  fonts:
+    - family: NanumGothic
+      fonts:
+        - asset: assets/fonts/NanumGothic.ttf
+          weight: 400
+        - asset: assets/fonts/NanumGothicBold.ttf
+          weight: 700
+
 flutter_launcher_icons:
   android: true
   ios: false

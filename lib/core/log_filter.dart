@@ -1,4 +1,3 @@
-// 이 파일은 알림 및 로그 화면에서 사용하는 필터 종류를 정의합니다.
 enum LogFilter {
   all('전체'),
   emergencyStop('긴급 정지'),

@@ -1,4 +1,3 @@
-// 이 파일은 /robot_status topic에서 수신한 VICA 로봇 상태 JSON을 표현합니다.
 class RobotStatus {
   const RobotStatus({
     required this.robotId,

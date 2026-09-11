@@ -1,4 +1,3 @@
-// 이 파일은 OmniClass Table 13의 기능별 공간 분류 방식을 참고한 VICA 목적지 카테고리를 정의합니다.
 class DestinationSubcategory {
   const DestinationSubcategory({required this.value, required this.label});
 

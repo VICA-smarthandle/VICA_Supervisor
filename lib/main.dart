@@ -1,4 +1,3 @@
-// 이 파일은 VICA_Supervisor 앱의 진입점이며 provider들을 앱 전체에 등록합니다.
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
