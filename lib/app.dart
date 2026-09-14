@@ -2,8 +2,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'core/app_mode.dart';
 import 'core/app_settings.dart';
 import 'core/layout_breakpoints.dart';
+import 'providers/app_mode_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/supervisor_provider.dart';
@@ -11,10 +13,12 @@ import 'providers/ui_preferences_provider.dart';
 import 'widgets/vica_ui.dart';
 import 'screens/current_location_screen.dart';
 import 'screens/dashboard_screen.dart';
+import 'screens/delivery_screen.dart';
 import 'screens/logs_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/map_locations_screen.dart';
-import 'screens/robot_management_screen.dart';
+import 'screens/mapping_shell.dart';
+import 'screens/mode_select_screen.dart';
 import 'screens/save_location_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/system_diagnostics_screen.dart';
@@ -120,7 +124,25 @@ class AuthGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isLoggedIn = context.watch<AuthProvider>().isLoggedIn;
-    return isLoggedIn ? const SupervisorShell() : const LoginScreen();
+    final modeProvider = context.watch<AppModeProvider>();
+
+    if (!isLoggedIn) {
+      // 로그아웃하면 모드도 함께 비웁니다. 안 비우면 다시 로그인했을 때 모드 선택을
+      // 건너뛰고 지난번 모드로 바로 들어갑니다. build 중에 상태를 바꿀 수 없어
+      // 프레임이 끝난 뒤로 미룹니다.
+      if (modeProvider.isSelected) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          modeProvider.clear();
+        });
+      }
+      return const LoginScreen();
+    }
+
+    return switch (modeProvider.mode) {
+      null => const ModeSelectScreen(),
+      AppMode.drive => const SupervisorShell(),
+      AppMode.mapping => const MappingShell(),
+    };
   }
 }
 
@@ -142,26 +164,30 @@ class _SupervisorShellState extends State<SupervisorShell> {
         ),
         const SaveLocationScreen(),
         const MapLocationsScreen(),
+        const DeliveryScreen(),
         const CurrentLocationScreen(),
-        const RobotManagementScreen(),
         const SystemDiagnosticsScreen(),
         const LogsScreen(),
         const SettingsScreen(),
       ];
 
-  // AppBar 바로가기와 배너가 참조하는 인덱스입니다. 화면 순서를 바꿀 때 함께 바꿔야
-  // 하므로 숫자를 코드에 직접 쓰지 않습니다.
-  static const _dashboardIndex = 0;
-  static const _saveLocationIndex = 1;
-  static const _systemDiagnosticsIndex = 5;
-  static const _settingsIndex = 7;
+  // AppBar 바로가기와 배너가 참조하는 인덱스입니다.
+  //
+  // 숫자를 직접 쓰지 않고 _titles 에서 찾습니다. 종전에는 5, 7 처럼 박아 두고
+  // "화면 순서를 바꿀 때 함께 바꾼다"고 주석으로 약속했는데, 2026-08-21 에 화면
+  // 하나(로봇 관리)를 지우면서 그 약속이 실제로 깨질 뻔했습니다. 손으로 맞추는
+  // 약속은 언젠가 어긋납니다 — 찾게 하면 어긋날 수가 없습니다.
+  static int get _dashboardIndex => _titles.indexOf('대시보드');
+  static int get _saveLocationIndex => _titles.indexOf('지도 설정');
+  static int get _systemDiagnosticsIndex => _titles.indexOf('시스템 진단');
+  static int get _settingsIndex => _titles.indexOf('설정');
 
   static const _titles = [
     '대시보드',
-    '장소 저장',
+    '지도 설정',
     '원격 주행',
+    '물류 배송',
     '현재 위치',
-    '로봇 관리',
     '시스템 진단',
     '알림 및 로그',
     '설정',
@@ -196,12 +222,17 @@ class _SupervisorShellState extends State<SupervisorShell> {
                           ),
                         ),
                   actions: [
-                    // 어느 화면에서든 장소 저장으로 한 번에 이동합니다.
+                    IconButton(
+                      onPressed: () => _changeMode(context),
+                      icon: const Icon(Icons.swap_horiz),
+                      tooltip: '모드 바꾸기',
+                    ),
+                    // 어느 화면에서든 지도 설정으로 한 번에 이동합니다.
                     IconButton(
                       onPressed: () =>
                           setState(() => _index = _saveLocationIndex),
                       icon: const Icon(Icons.add_location_alt_outlined),
-                      tooltip: '장소 저장',
+                      tooltip: '지도 설정',
                     ),
                     // 비상정지는 라벨 없이 빨간 원형으로 두어 한눈에 구분되게 합니다.
                     // 라벨이 없으므로 Tooltip과 semanticLabel로 의미를 전달합니다.
@@ -279,6 +310,93 @@ class _SupervisorShellState extends State<SupervisorShell> {
           ),
         );
       },
+    );
+  }
+
+  /// 모드 선택 화면으로 돌아갑니다.
+  ///
+  /// 기준마다 근거가 따로 있습니다. 공통점은 "화면을 떠나면 그 일을 멈출 버튼에
+  /// 손이 닿지 않는다"입니다.
+  ///
+  /// 젯슨 스택이 떠 있는지는 여기서 막지 않습니다. 모드 선택 화면이 카드 상태 점
+  /// 으로 이미 보여주고, 돌아가는 것 자체는 위험하지 않기 때문입니다.
+  Future<void> _changeMode(BuildContext context) async {
+    final supervisor = context.read<SupervisorProvider>();
+
+    // ① 주행 중 — 취소·일시정지 버튼이 이 화면에만 있습니다.
+    final goal = supervisor.primaryRobot?.currentGoal.trim() ?? '';
+    if (goal.isNotEmpty) {
+      await _blockDialog(
+        context,
+        '주행 중입니다',
+        "'$goal'(으)로 주행 중입니다. 모드를 바꾸면 취소·일시정지 버튼에 "
+            '닿을 수 없으니 먼저 주행을 끝내거나 취소해 주세요.',
+      );
+      return;
+    }
+
+    // ② 매핑 중 — 지도를 그리다 말고 나가면 저장할 방법이 없습니다.
+    final mapping = supervisor.mappingStatus;
+    if (mapping != null && mapping.busy) {
+      await _blockDialog(
+        context,
+        '매핑이 진행 중입니다',
+        '${mapping.state.label} 상태입니다. 지도 모드에서 저장하거나 종료한 뒤에 '
+            '모드를 바꿔 주세요.',
+      );
+      return;
+    }
+
+    // ③ 저장 안 한 임시 장소 — 막지 않고 한 번 묻습니다. 사람이 버려도 되는
+    //    것인지 아는 유일한 주체입니다.
+    final draft = supervisor.draftLocation;
+    if (draft != null) {
+      final leave = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('저장하지 않은 장소가 있습니다'),
+          content: Text(
+            "'${draft.name}'을(를) 아직 ROS2에 저장하지 않았습니다. "
+            '모드를 바꾸면 사라집니다.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('남아서 저장'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('버리고 나가기'),
+            ),
+          ],
+        ),
+      );
+      if (leave != true || !context.mounted) {
+        return;
+      }
+      supervisor.setDraftLocation(null);
+    }
+
+    context.read<AppModeProvider>().clear();
+  }
+
+  Future<void> _blockDialog(
+    BuildContext context,
+    String title,
+    String body,
+  ) {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(body),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -585,19 +703,19 @@ class _SupervisorShellState extends State<SupervisorShell> {
     ),
     NavigationDrawerDestination(
       icon: Icon(Icons.add_location),
-      label: Text('장소 저장'),
+      label: Text('지도 설정'),
     ),
     NavigationDrawerDestination(
       icon: Icon(Icons.navigation),
       label: Text('원격 주행'),
     ),
     NavigationDrawerDestination(
-      icon: Icon(Icons.my_location),
-      label: Text('현재 위치'),
+      icon: Icon(Icons.local_shipping),
+      label: Text('물류 배송'),
     ),
     NavigationDrawerDestination(
-      icon: Icon(Icons.precision_manufacturing),
-      label: Text('로봇 관리'),
+      icon: Icon(Icons.my_location),
+      label: Text('현재 위치'),
     ),
     NavigationDrawerDestination(
       icon: Icon(Icons.monitor_heart),
@@ -622,7 +740,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
     _SidebarNavigationItem(
       icon: Icons.add_location_outlined,
       selectedIcon: Icons.add_location,
-      label: '장소 저장',
+      label: '지도 설정',
     ),
     _SidebarNavigationItem(
       icon: Icons.navigation_outlined,
@@ -630,14 +748,14 @@ class _SupervisorShellState extends State<SupervisorShell> {
       label: '원격 주행',
     ),
     _SidebarNavigationItem(
+      icon: Icons.local_shipping_outlined,
+      selectedIcon: Icons.local_shipping,
+      label: '물류 배송',
+    ),
+    _SidebarNavigationItem(
       icon: Icons.my_location_outlined,
       selectedIcon: Icons.my_location,
       label: '현재 위치',
-    ),
-    _SidebarNavigationItem(
-      icon: Icons.precision_manufacturing_outlined,
-      selectedIcon: Icons.precision_manufacturing,
-      label: '로봇 관리',
     ),
     _SidebarNavigationItem(
       icon: Icons.monitor_heart_outlined,
@@ -746,6 +864,35 @@ class _EmergencyStopOverlay extends StatelessWidget {
                         supervisor.emergencyStopMessage,
                         textAlign: TextAlign.center,
                       ),
+                      // 물리 버튼이나 음성으로 걸린 비상정지에만 붙입니다.
+                      // 그때 로봇이 이용자에게 "관리자를 부르겠다"고 말하므로,
+                      // 관리자 화면도 같은 사실을 알아야 현장으로 갑니다.
+                      // 관리자가 앱에서 직접 누른 경우에는 붙지 않습니다 —
+                      // 부른 사람과 받는 사람이 같습니다.
+                      if (supervisor.emergencyCalledAdmin) ...[
+                        const SizedBox(height: 14),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: VicaColors.softBlue,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text(
+                            '주행 중 비상정지로 비카가 관리자를 호출했습니다. '
+                            '확인이 필요합니다.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 14,
+                              height: 1.5,
+                              fontWeight: FontWeight.w800,
+                              color: VicaColors.primaryDark,
+                            ),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 24),
                       if (isBusy)
                         const CircularProgressIndicator()

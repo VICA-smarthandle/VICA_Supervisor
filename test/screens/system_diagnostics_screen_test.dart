@@ -182,6 +182,38 @@ void main() {
       expect(find.textContaining('· 해소'), findsWidgets);
       expect(find.textContaining('지속 중'), findsNothing);
     });
+
+    testWidgets('같은 결함의 같은 전이가 연달아 오면 한 줄로 접는다', (tester) async {
+      final supervisor = _FakeSupervisor()..injectHealth(healthMsg());
+      for (var i = 0; i < 4; i++) {
+        supervisor.injectEvent({'fault': faultMsg(), 'transition': 0});
+      }
+      await tester
+          .pumpWidget(wrap(const SystemDiagnosticsScreen(), supervisor));
+      await tester.pump();
+
+      // 네 줄이 아니라 한 줄이고, 몇 번인지와 언제부터인지가 남습니다.
+      expect(find.textContaining('· 발생  ×4회'), findsOneWidget);
+      expect(find.textContaining('처음 '), findsOneWidget);
+    });
+
+    testWidgets('다른 결함이 사이에 끼면 따로 접는다', (tester) async {
+      final supervisor = _FakeSupervisor()..injectHealth(healthMsg());
+      // 목록은 최신순이므로 아래 순서대로 넣으면 화면에서는 뒤집혀 보입니다.
+      supervisor.injectEvent({'fault': faultMsg(), 'transition': 0});
+      supervisor.injectEvent({
+        'fault': faultMsg(component: 'motor', faultCode: 'MOTOR_CAN_TIMEOUT'),
+        'transition': 0,
+      });
+      supervisor.injectEvent({'fault': faultMsg(), 'transition': 0});
+      await tester
+          .pumpWidget(wrap(const SystemDiagnosticsScreen(), supervisor));
+      await tester.pump();
+
+      // 같은 결함이지만 연달아 있지 않으므로 합치지 않습니다.
+      expect(find.textContaining('×'), findsNothing);
+      expect(find.textContaining('· 발생'), findsNWidgets(3));
+    });
   });
 
   group('HealthBanner', () {

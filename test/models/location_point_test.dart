@@ -58,4 +58,35 @@ void main() {
     expect(location.y, 5.0);
     expect(location.yaw, 180.0);
   });
+
+  // -- 연락처 (물류 배송 도착 문자) ------------------------------------------
+  //
+  // 파일 키는 contact_phone 하나이고 숫자만 들어 있습니다. 옛 파일에는 키가
+  // 없으니 없어도 읽혀야 합니다.
+  group('contactPhone', () {
+    test('JSON 왕복에서 살아남는다', () {
+      const location = LocationPoint(
+        locationId: '11111111-1111-4111-8111-111111111111',
+        mapId: 'm1',
+        name: '305호',
+        x: 0,
+        y: 0,
+        yaw: 0,
+        contactPhone: '01012345678',
+      );
+      final json = location.toJson();
+      expect(json['contact_phone'], '01012345678');
+      expect(LocationPoint.fromJson(json, 'm1').contactPhone, '01012345678');
+      expect(location.canReceiveDelivery, isTrue);
+    });
+
+    test('키가 없는 옛 파일은 빈 값으로 읽힌다', () {
+      final location = LocationPoint.fromJson(
+        {'id': 'x', 'name': '옛 장소', 'pose': {'x': 1, 'y': 2, 'yaw': 0}},
+        'm1',
+      );
+      expect(location.contactPhone, '');
+      expect(location.canReceiveDelivery, isFalse);
+    });
+  });
 }

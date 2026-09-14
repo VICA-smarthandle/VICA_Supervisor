@@ -1,14 +1,34 @@
 // 지도에서 목적지 좌표를 선택하고 destinations.yaml 스키마에 맞는 정보를 입력합니다.
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../core/app_settings.dart';
+import '../core/contact_phone.dart';
+import '../core/location_edit.dart';
 import '../core/destination_categories.dart';
+import '../models/home_position.dart';
 import '../models/location_point.dart';
+import '../models/pose_check_result.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
+import '../ros/ros_bridge_client.dart';
+import '../widgets/home_position_card.dart';
+import '../widgets/initial_pose_card.dart' show PoseDirection;
+import '../widgets/drive_map_canvas.dart';
+import '../widgets/keepout_card.dart';
 import '../widgets/map_canvas.dart';
+import '../widgets/map_delete_card.dart';
 import '../widgets/vica_ui.dart';
+
+/// 지도 설정 화면에서 한 번에 하나만 펼치는 칸입니다.
+///
+/// 셋 다 지도를 보면서 하는 일이라 모두 펼쳐 두면 지도가 손톱만 해집니다.
+/// 그리고 셋은 지도 터치를 서로 다르게 씁니다 — 장소 찍기·홈 찍기·사각형 끌기.
+/// 펼친 칸이 지도 조작권을 가지므로 지금 무엇을 찍는 중인지가 드러납니다.
+enum _SettingsPanel { none, location, home, keepout, mapDelete }
 
 class SaveLocationScreen extends StatefulWidget {
   const SaveLocationScreen({super.key});
@@ -23,7 +43,11 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     isDense: true,
     contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 9),
   );
-  static const _yawDirectionOptions = ['앞', '뒤', '우측', '좌측'];
+  // 표시 문구만 바꾼 것입니다. 저장되는 값은 문자열이 아니라 각도(double)라
+  // 기존에 저장된 장소는 손댈 필요가 없습니다. 다만 _yawFromDirection·
+  // _directionFromYaw 와 반드시 함께 바꿔야 합니다 — 역변환이 이 목록에 없는
+  // 문자열을 돌려주면 DropdownButtonFormField 가 그 자리에서 예외를 던집니다.
+  static const _yawDirectionOptions = ['정면', '후면', '우측', '좌측'];
 
   final _uuid = const Uuid();
   final _formKey = GlobalKey<FormState>();
@@ -32,13 +56,33 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   final _buildingController = TextEditingController();
   final _floorController = TextEditingController();
   final _ownerController = TextEditingController();
+  final _contactPhoneController = TextEditingController();
   final _unavailableReasonController = TextEditingController();
 
   Offset? _pickedRos;
   String? _deleteTargetId;
+
+  // 지금 펼쳐 둔 칸입니다. 처음에는 장소 저장이 열려 있습니다 — 가장 자주 하는
+  // 일이고, 아무것도 안 열려 있으면 지도를 눌러도 반응이 없어 고장으로 보입니다.
+  _SettingsPanel _panel = _SettingsPanel.location;
+
+  // ---- 홈 위치 ----------------------------------------------------------
+  //
+  // 홈 지정 중에는 지도 탭이 '장소 찍기'가 아니라 '홈 찍기'로 동작합니다.
+  // 한 화면에서 두 가지를 찍으므로 지금 무엇을 찍는 중인지가 상태로 필요합니다.
+  HomeCardMode _homeMode = HomeCardMode.idle;
+  Offset? _homePicked;
+  PoseDirection? _homeDirection;
+  PoseCheckResult? _homeStanding;
+  bool _homeSending = false;
   // 임시 저장 장소를 수정하는 중이면 그 id를 들고 있습니다. 새로 저장할 때 id가
   // 바뀌면 같은 장소가 둘로 늘어나므로, 수정 중에는 기존 id를 그대로 씁니다.
   String? _editingLocationId;
+  // 젯슨에 저장된 장소를 고치는 중이면 그 원본입니다(2026-09-03). 임시 저장 수정과
+  // 다른 점: 시트의 저장이 임시 저장이 아니라 **ROS 에 바로** 나가고, 이름이 그대로면
+  // 원본 멘트를 지킵니다(core/location_edit.dart). 시트를 닫아도 점과 폼은 남아
+  // 지도를 눌러 점을 옮긴 뒤 다시 열 수 있습니다.
+  LocationPoint? _editingSaved;
   String? _category1;
   String? _category2;
   String _authorization = 'public';
@@ -52,6 +96,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     _buildingController.dispose();
     _floorController.dispose();
     _ownerController.dispose();
+    _contactPhoneController.dispose();
     _unavailableReasonController.dispose();
     super.dispose();
   }
@@ -64,11 +109,13 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     final locations = supervisor.locationsFor(map?.mapId);
     final deleteTarget = _selectedLocation(locations);
     final draft = supervisor.draftLocation;
-    final previewLocation =
-        draft ?? (map == null ? null : _previewLocation(map.mapId));
+    // 지도를 누르면 임시 저장 장소를 버리므로(사용자 결정 2026-08-21) 초록 점과
+    // 주황 점이 동시에 뜨는 상태는 없습니다. draft 가 있으면 그쪽이 우선입니다.
+    final pickedLocation =
+        (draft != null || map == null) ? null : _previewLocation(map.mapId);
 
     return VicaPage(
-      title: '장소 저장',
+      title: '지도 설정',
       children: [
         VicaFieldWithAction(
           field: DropdownButtonFormField<String>(
@@ -82,7 +129,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                     value: item.mapId,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Text(item.mapName),
+                      child: Text(item.displayName),
                     ),
                   ),
                 )
@@ -92,7 +139,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                   (item) => Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      item.mapName,
+                      item.displayName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -104,11 +151,14 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
           action: OutlinedButton.icon(
             onPressed: map == null
                 ? null
-                : () => supervisor.requestLocationList(settings, map.mapId),
+                // 장소·홈·금지구역을 함께 받습니다. 홈은 이 버튼 말고는
+                // 수동 갱신 경로가 아예 없었습니다(2026-09-02).
+                : () => supervisor.refreshMapData(settings, map.mapId),
             icon: const Icon(Icons.refresh, size: 18),
             label: const Text('새로고침'),
           ),
         ),
+        CurrentMapNotice(supervisor: supervisor, map: map),
         const SizedBox(height: 18),
         if (map == null)
           const VicaCard(child: Text('지도 목록을 먼저 불러오세요.'))
@@ -119,98 +169,740 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               map: map,
               settings: settings,
               locations: locations,
-              draftLocation: previewLocation,
-              onTapMap: (ros) async {
+              draftLocation: draft,
+              // 금지구역은 어느 칸을 펼쳤든 항상 보입니다. 장소를 찍을 때도
+              // 로봇이 못 가는 자리를 알고 찍어야 합니다.
+              keepoutZones: supervisor.keepoutZonesFor(map.mapId),
+              draftKeepoutZone: supervisor.draftKeepoutZone,
+              selectedKeepoutZoneId: supervisor.selectedKeepoutZoneId,
+              // 금지구역 칸을 펼치고 '편집'을 눌렀을 때만 지도가 그림판이 됩니다.
+              keepoutEditMode:
+                  _panel == _SettingsPanel.keepout && supervisor.keepoutEditing,
+              onKeepoutPanStart: supervisor.startKeepoutDrag,
+              onKeepoutPanUpdate: supervisor.updateKeepoutDrag,
+              onKeepoutPanEnd: () {
+                final problem = supervisor.finishKeepoutDrag(map.mapId);
+                if (problem != null) {
+                  _showSnack(context, problem);
+                }
+              },
+              onSelectKeepoutZone: supervisor.selectKeepoutZone,
+              // 홈을 찍는 중이면 그 점을 보여준다. 장소 찍기와 같은 주황 원이라
+              // 관리자가 배울 것이 없다.
+              pickedLocation: _homeMode == HomeCardMode.picking
+                  ? _homePickedMarker(map.mapId)
+                  : pickedLocation,
+              // 방향을 고르면 화살표로 미리 보여준다. 어느 쪽을 보고 서게 될지
+              // 글자('위')보다 그림이 빠르다.
+              poseArrow: _homeArrow(settings),
+              // 저장된 홈은 어느 칸을 펼쳤든 늘 보인다. 장소를 찍을 때도 홈이
+              // 어디인지 알고 찍는 편이 낫다. 찍는 중(주황 원)과 저장된 것
+              // (남색 점)이 함께 보여야 얼마나 옮기는지도 눈에 보인다.
+              // 주행 화면(DriveMapCanvas)과 같은 provider 함수에서 받는다.
+              homePoint: supervisor.homePointFor(map.mapId),
+              // 여기서 정보 입력 시트를 띄우지 않습니다. 누르자마자 시트가 덮으면
+              // 점이 원하는 자리에 찍혔는지 볼 수가 없고, 시트를 닫으면 점까지
+              // 사라져 처음부터 다시 해야 했습니다. 이제 누르는 것은 '점 옮기기'
+              // 뿐이고, 시트는 아래 '장소 정보 입력' 버튼이 엽니다.
+              onTapMap: (ros) {
+                // 홈을 찍는 중이면 장소가 아니라 홈 좌표가 됩니다. 한 지도에서
+                // 두 가지를 찍으므로 지금 무엇을 찍는 중인지로 갈라야 합니다.
+                if (_homeMode == HomeCardMode.picking) {
+                  setState(() => _homePicked = ros);
+                  return;
+                }
+                // 장소 칸을 펼쳤을 때만 지도 탭이 '장소 찍기'입니다. 접혀 있는데도
+                // 점이 찍히면 관리자가 무엇을 하고 있었는지 화면에 드러나지 않습니다.
+                if (_panel != _SettingsPanel.location) {
+                  return;
+                }
+                // 저장된 장소를 고치는 중이면 점만 옮깁니다. 폼을 비우면 관리자가
+                // 적어 둔 것이 사라집니다.
+                if (_editingSaved != null) {
+                  setState(() => _pickedRos = ros);
+                  return;
+                }
+                // 임시 저장 장소를 버리는 것은 의도한 동작입니다. 최종 저장 전에
+                // 다른 자리를 새로 찍었다면 그 장소가 더 이상 필요 없어진 것으로
+                // 봅니다(사용자 판정 2026-08-21).
                 supervisor.setDraftLocation(null);
                 _resetLocationInput();
                 setState(() => _pickedRos = ros);
-                await _showLocationInfoSheet(
-                  context,
-                  supervisor,
-                  map.mapId,
-                  locations,
-                );
-                if (mounted) {
-                  _clearPickedLocation();
-                }
               },
             ),
           ),
-          const SizedBox(height: 20),
-          VicaCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '저장 장소',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                    ),
-                    OutlinedButton(
-                      onPressed: null,
-                      child: Text('${locations.length}개'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                DropdownButtonFormField<String>(
-                  initialValue: deleteTarget?.locationId,
-                  decoration: const InputDecoration(labelText: '장소 선택'),
-                  // isExpanded가 없으면 드롭다운이 장소 이름의 원래 폭을 그대로
-                  // 요구해 좁은 창에서 카드 밖으로 85px까지 삐져나갔습니다.
-                  isExpanded: true,
-                  items: locations
-                      .map(
-                        (location) => DropdownMenuItem(
-                          value: location.locationId,
-                          child: Text(
-                            location.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) => setState(() => _deleteTargetId = value),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: deleteTarget == null
-                      ? null
-                      : () => supervisor.deleteLocation(settings, deleteTarget),
-                  icon: const Icon(Icons.delete_outline),
-                  label: const Text('선택 장소 삭제'),
-                ),
-                if (draft != null) ...[
-                  const SizedBox(height: 14),
-                  _DraftSummary(location: draft),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    onPressed: () => _editDraft(
-                      context,
-                      supervisor,
-                      draft,
-                      map.mapId,
-                      locations,
-                    ),
-                    icon: const Icon(Icons.edit_outlined),
-                    label: const Text('임시 저장 장소 수정'),
-                  ),
-                  const SizedBox(height: 10),
-                  FilledButton.icon(
-                    onPressed: () => supervisor.saveDraftLocation(settings),
-                    icon: const Icon(Icons.cloud_upload),
-                    label: const Text('ROS2에 장소 저장'),
-                  ),
-                ],
-              ],
+          const SizedBox(height: 14),
+          // 세 가지 일을 접히는 칸으로 나눕니다. 셋을 모두 펼쳐 두면 지도가
+          // 화면 위로 밀려 손톱만 해지는데, 셋 다 지도를 보면서 하는 일입니다.
+          //
+          // 접는 이유가 보기 편해서만은 아닙니다. 세 칸은 지도 터치를 서로 다르게
+          // 씁니다 — 장소 찍기·홈 찍기·사각형 끌기. 펼친 칸이 지도 조작권을 가지므로
+          // 지금 무엇을 찍는 중인지가 화면에 늘 드러납니다.
+          VicaExpandPanel(
+            title: '장소 저장',
+            icon: Icons.add_location_alt_outlined,
+            summary: '${locations.length}개',
+            expanded: _panel == _SettingsPanel.location,
+            onTap: () =>
+                _openPanel(context, supervisor, _SettingsPanel.location),
+            child: _locationPanelBody(
+              context,
+              supervisor,
+              settings,
+              map.mapId,
+              locations,
+              draft,
+              deleteTarget,
             ),
+          ),
+          VicaExpandPanel(
+            title: '홈 위치',
+            icon: Icons.home_outlined,
+            summary:
+                supervisor.homeBelongsTo(map.mapId) && supervisor.home != null
+                    ? '지정됨'
+                    : '없음',
+            expanded: _panel == _SettingsPanel.home,
+            onTap: () => _openPanel(context, supervisor, _SettingsPanel.home),
+            // 홈 지정은 장소 저장과 성질이 같은 일입니다 — 지도 좌표를 다루고,
+            // 한 번 정하면 계속 쓰며, 가끔 고칩니다. 홈으로 '보내는' 일은
+            // 로봇이 실제로 움직이므로 원격 주행 화면에 있습니다.
+            child: HomePositionCard(
+              framed: false,
+              home:
+                  supervisor.homeBelongsTo(map.mapId) ? supervisor.home : null,
+              mode: _homeMode,
+              busy: supervisor.homeBusy || _homeSending,
+              picked: _homePicked,
+              direction: _homeDirection,
+              standingResult: _homeStanding,
+              canSendRobot: _canSendRobot(supervisor),
+              blockedReason: _blockedReason(supervisor),
+              onStartPicking: () => setState(() {
+                _homeMode = HomeCardMode.picking;
+                _homePicked = null;
+                _homeDirection = null;
+                _homeStanding = null;
+              }),
+              onStartStanding: () => setState(() {
+                _homeMode = HomeCardMode.standing;
+                _homePicked = null;
+                _homeDirection = null;
+                _homeStanding = null;
+              }),
+              onDirection: (value) => setState(() => _homeDirection = value),
+              onCheckStanding: () => _checkStandingHome(context, supervisor),
+              onSave: () => _saveHome(context, supervisor, map.mapId, settings),
+              onCancel: () => setState(() {
+                _homeMode = HomeCardMode.idle;
+                _homePicked = null;
+                _homeDirection = null;
+                _homeStanding = null;
+              }),
+              onGoHome: () => _goHome(context, supervisor),
+              onDelete: () =>
+                  _confirmDeleteHome(context, supervisor, map.mapId),
+            ),
+          ),
+          VicaExpandPanel(
+            title: '금지구역',
+            icon: Icons.block_outlined,
+            summary: '${supervisor.keepoutZonesFor(map.mapId).length}개',
+            summaryColor: supervisor.keepoutEditing ? VicaColors.primary : null,
+            expanded: _panel == _SettingsPanel.keepout,
+            onTap: () =>
+                _openPanel(context, supervisor, _SettingsPanel.keepout),
+            child: KeepoutCard(
+              zones: supervisor.keepoutZonesFor(map.mapId),
+              selectedZoneId: supervisor.selectedKeepoutZoneId,
+              editing: supervisor.keepoutEditing,
+              // 목적지가 살아 있으면(주행·일시정지 — current_goal은 일시정지에도
+              // 남습니다) 편집 시작을 잠급니다. 젯슨 쪽 유예 판정(hold_apply)과
+              // 같은 기준이라 화면과 로봇이 같은 말을 합니다.
+              drivingHold:
+                  (supervisor.primaryRobot?.currentGoal.trim() ?? '')
+                      .isNotEmpty,
+              state: supervisor.keepoutState,
+              message: supervisor.keepoutMessage,
+              maskApplied: supervisor.keepoutMaskApplied,
+              connected:
+                  supervisor.connectionState == RosConnectionState.connected,
+              hasPending: supervisor.hasPendingKeepoutZone,
+              onStartEdit: () => supervisor.enterKeepoutEdit(map.mapId),
+              onConfirmPending: () =>
+                  supervisor.confirmPendingKeepoutZone(map.mapId),
+              onCancel: () => supervisor.cancelKeepoutEdit(map.mapId),
+              onSave: () =>
+                  _saveKeepout(context, supervisor, settings, map.mapId),
+              onDeleteSelected: () =>
+                  supervisor.deleteSelectedKeepoutZone(map.mapId),
+              onClearAll: () => supervisor.clearKeepoutZones(map.mapId),
+              onReload: () =>
+                  supervisor.requestKeepoutList(settings, map.mapId),
+              onSelect: supervisor.selectKeepoutZone,
+            ),
+          ),
+          // 지도 삭제도 다른 셋과 같은 접히는 칸입니다. 되돌릴 수 없는 일이라
+          // 목록 맨 아래에 두고 **기본으로 접어** 둡니다 — 지도를 고르는
+          // 자리(맨 위)에서 멀고, 펼치는 손짓이 한 번 더 필요합니다.
+          VicaExpandPanel(
+            title: '지도 관리',
+            icon: Icons.delete_outline,
+            summary: '${supervisor.maps.length}개',
+            expanded: _panel == _SettingsPanel.mapDelete,
+            onTap: () =>
+                _openPanel(context, supervisor, _SettingsPanel.mapDelete),
+            child: const MapDeleteCard(framed: false),
           ),
         ],
       ],
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // 칸 열고 닫기
+  // ------------------------------------------------------------------
+
+  /// 칸을 펼치거나 접습니다. 한 번에 하나만 펼칩니다.
+  ///
+  /// 다른 칸으로 넘어갈 때 하던 일을 정리합니다. 정리하지 않으면 장소를 찍던
+  /// 점이 홈 칸에서도 그대로 보여 무엇을 찍는 중인지 알 수 없게 됩니다.
+  Future<void> _openPanel(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    _SettingsPanel next,
+  ) async {
+    final target = _panel == next ? _SettingsPanel.none : next;
+
+    // 저장하지 않은 금지구역 편집을 두고 나가려 할 때만 묻습니다. 물어야 하는
+    // 이유는 이 편집이 화면에만 있고 젯슨에 아직 없기 때문입니다.
+    if (_panel == _SettingsPanel.keepout &&
+        target != _SettingsPanel.keepout &&
+        supervisor.keepoutEditing) {
+      final mapId = supervisor.selectedMap?.mapId;
+      final leave = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('저장하지 않은 금지구역이 있습니다'),
+          content: const Text('편집을 취소하고 넘어갈까요?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('계속 편집'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('편집 취소'),
+            ),
+          ],
+        ),
+      );
+      if (leave != true) {
+        return;
+      }
+      if (mapId != null) {
+        supervisor.cancelKeepoutEdit(mapId);
+      }
+    }
+
+    setState(() {
+      _panel = target;
+      if (target != _SettingsPanel.location) {
+        _pickedRos = null;
+      }
+      if (target != _SettingsPanel.home) {
+        _homeMode = HomeCardMode.idle;
+        _homePicked = null;
+        _homeDirection = null;
+        _homeStanding = null;
+      }
+    });
+  }
+
+  void _showSnack(BuildContext context, String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  // ------------------------------------------------------------------
+  // 장소 저장 칸
+  // ------------------------------------------------------------------
+
+  Widget _locationPanelBody(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    AppSettings settings,
+    String mapId,
+    List<LocationPoint> locations,
+    LocationPoint? draft,
+    LocationPoint? deleteTarget,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 찍은 점을 확인하고 정보 입력을 '시작'하는 자리입니다. draft 가 생기면
+        // 아래 수정·저장 버튼이 그 역할을 이어받으므로 이 자리는 감춥니다.
+        if (draft == null) ...[
+          Text(
+            _pickedRos == null
+                ? '지도를 눌러 저장할 위치를 찍으세요. 다시 누르면 점이 옮겨갑니다.'
+                : _editingSaved != null
+                    ? '수정 중: ${_editingSaved!.name}   '
+                        'x ${_pickedRos!.dx.toStringAsFixed(2)}   '
+                        'y ${_pickedRos!.dy.toStringAsFixed(2)}   '
+                        '(지도를 누르면 점이 옮겨갑니다)'
+                    : '선택 위치   x ${_pickedRos!.dx.toStringAsFixed(2)}   '
+                        'y ${_pickedRos!.dy.toStringAsFixed(2)}',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _pickedRos == null
+                      ? null
+                      : () => _showLocationInfoSheet(
+                            context,
+                            supervisor,
+                            mapId,
+                            locations,
+                          ),
+                  icon: const Icon(Icons.edit_location_alt_outlined),
+                  label: Text(_editingSaved == null ? '장소 정보 입력' : '수정 내용 입력'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              OutlinedButton(
+                onPressed: _pickedRos == null ? null : _clearPickedLocation,
+                child: const Text('선택 취소'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          const Divider(height: 1, color: VicaColors.border),
+          const SizedBox(height: 14),
+        ],
+        Text(
+          '저장된 장소 ${locations.length}개',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(
+          initialValue: deleteTarget?.locationId,
+          decoration: const InputDecoration(labelText: '장소 선택'),
+          // isExpanded가 없으면 드롭다운이 장소 이름의 원래 폭을 그대로
+          // 요구해 좁은 창에서 카드 밖으로 85px까지 삐져나갔습니다.
+          isExpanded: true,
+          items: locations
+              .map(
+                (location) => DropdownMenuItem(
+                  value: location.locationId,
+                  child: Text(
+                    location.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              )
+              .toList(),
+          onChanged: (value) => setState(() => _deleteTargetId = value),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              // 저장된 장소를 고칩니다. 새 메뉴를 두지 않고 삭제와 같은 자리에 두는
+              // 이유: 저장·수정·삭제가 한 곳이라 배울 것이 없고, 어느 장소인지
+              // 지도에서 바로 보입니다(2026-09-03 사용자 결정). 임시 저장이 있는
+              // 동안은 잠급니다 — 두 장소를 동시에 편집하면 어느 쪽이 저장되는지
+              // 화면이 말해 주지 못합니다.
+              child: OutlinedButton.icon(
+                onPressed: deleteTarget == null || draft != null
+                    ? null
+                    : () => _editSavedLocation(
+                          context,
+                          supervisor,
+                          deleteTarget,
+                          mapId,
+                          locations,
+                        ),
+                icon: const Icon(Icons.edit_location_alt_outlined),
+                label: const Text('선택 장소 수정'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: deleteTarget == null
+                    ? null
+                    : () => supervisor.deleteLocation(settings, deleteTarget),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('선택 장소 삭제'),
+              ),
+            ),
+          ],
+        ),
+        if (draft != null) ...[
+          const SizedBox(height: 14),
+          _DraftSummary(location: draft),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: () => _editDraft(
+              context,
+              supervisor,
+              draft,
+              mapId,
+              locations,
+            ),
+            icon: const Icon(Icons.edit_outlined),
+            label: const Text('임시 저장 장소 수정'),
+          ),
+          const SizedBox(height: 10),
+          FilledButton.icon(
+            onPressed: () => supervisor.saveDraftLocation(settings),
+            icon: const Icon(Icons.cloud_upload),
+            label: const Text('ROS2에 장소 저장'),
+          ),
+        ],
+      ],
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // 금지구역
+  // ------------------------------------------------------------------
+
+  /// 사각형 전체 목록을 젯슨에 저장합니다.
+  ///
+  /// 결과는 팝업 한 번으로만 알립니다. 상시 표시는 칸 안의 배지가 맡습니다 —
+  /// 같은 상태를 반복해서 팝업으로 띄우면 화면을 덮어 버립니다.
+  Future<void> _saveKeepout(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    AppSettings settings,
+    String mapId,
+  ) async {
+    final message = await supervisor.saveKeepoutZones(settings, mapId);
+    if (!context.mounted) {
+      return;
+    }
+    _showSnack(context, message);
+  }
+
+  // ------------------------------------------------------------------
+  // 홈 위치
+  // ------------------------------------------------------------------
+
+  /// 홈을 찍는 중일 때 지도에 보여줄 점.
+  ///
+  /// 장소 찍기와 같은 `pickedLocation` 자리를 씁니다 — 한 화면에서 둘을 동시에
+  /// 찍는 일은 없고(홈 모드에서는 지도 탭이 홈으로만 갑니다), 같은 모양으로
+  /// 보여야 관리자가 새로 배울 것이 없습니다.
+  LocationPoint? _homePickedMarker(String mapId) {
+    final spot = _homePicked;
+    if (spot == null) {
+      return null;
+    }
+    return LocationPoint(
+      locationId: '_home_pick',
+      mapId: mapId,
+      name: '홈 후보',
+      x: spot.dx,
+      y: spot.dy,
+      yaw: 0,
+    );
+  }
+
+  /// 지도에 겹쳐 보여줄 방향 화살표.
+  ///
+  /// 두 경우에 나옵니다.
+  ///   - 홈을 찍는 중: 고른 방향을 미리 보여준다
+  ///   - 선 자리를 확인한 뒤: 채점이 바로잡은 자세를 보여준다
+  ///     (사람이 세운 자리와 다를 수 있어 "12 cm 옮겼습니다"가 눈으로 보인다)
+  MapPoseArrow? _homeArrow(AppSettings settings) {
+    if (_homeMode == HomeCardMode.picking) {
+      final spot = _homePicked;
+      final direction = _homeDirection;
+      if (spot == null || direction == null) {
+        return null;
+      }
+      return MapPoseArrow(
+        x: spot.dx,
+        y: spot.dy,
+        yawDegrees: direction.yawFor(settings) * 180.0 / math.pi,
+        label: '홈 방향',
+      );
+    }
+    if (_homeMode == HomeCardMode.standing) {
+      final result = _homeStanding;
+      if (result == null) {
+        return null;
+      }
+      return MapPoseArrow(
+        x: result.x,
+        y: result.y,
+        yawDegrees: result.yawDegrees,
+        label: '확인된 위치',
+      );
+    }
+    return null;
+  }
+
+  /// 로봇을 움직여도 되는 상황인가.
+  ///
+  /// 최종 판정은 Mission Manager 가 합니다. 여기서 미리 잠그는 것은 못 할
+  /// 상황에서 버튼을 눌러 거부 메시지를 받는 대신 **이유를 먼저 보여주기**
+  /// 위해서입니다.
+  bool _canSendRobot(SupervisorProvider supervisor) {
+    final robot = supervisor.primaryRobot;
+    if (robot == null) {
+      return false;
+    }
+    if (supervisor.emergencyOverlayVisible) {
+      return false;
+    }
+    final driving = robot.currentGoal.trim().isNotEmpty;
+    return !driving;
+  }
+
+  String _blockedReason(SupervisorProvider supervisor) {
+    if (supervisor.primaryRobot == null) {
+      return '로봇 상태를 받지 못했습니다. 연결을 확인하세요.';
+    }
+    if (supervisor.emergencyOverlayVisible) {
+      return '비상정지 상태에서는 로봇을 움직일 수 없습니다.';
+    }
+    if (supervisor.primaryRobot!.currentGoal.trim().isNotEmpty) {
+      return '안내 주행 중에는 홈을 다룰 수 없습니다. '
+          '사용자가 핸들을 잡고 따라 걷는 중이라 방향을 바꾸면 위험합니다. '
+          '먼저 주행을 취소하세요.';
+    }
+    return '';
+  }
+
+  Future<void> _checkStandingHome(
+    BuildContext context,
+    SupervisorProvider supervisor,
+  ) async {
+    final settings = context.read<SettingsProvider>().settings;
+    final robot = supervisor.primaryRobot;
+    if (robot == null) {
+      _toast('로봇 위치를 받지 못했습니다.');
+      return;
+    }
+    setState(() => _homeSending = true);
+    // 지금 AMCL 이 믿는 자리를 중심으로 채점합니다. 로봇이 실제로 그 방향을
+    // 보고 있으므로 방향 힌트도 함께 줍니다 — 힌트가 있으면 후보가 크게 줄고
+    // 대칭 복도에서 180도 뒤집힌 자세가 후보에 들어오지 않습니다.
+    final message = await supervisor.checkInitialPose(
+      settings,
+      x: robot.x,
+      y: robot.y,
+      yawHint: robot.yaw * math.pi / 180.0,
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _homeStanding = supervisor.poseCheck;
+      _homeSending = false;
+    });
+    if (supervisor.poseCheck == null) {
+      _toast(message);
+    }
+  }
+
+  Future<void> _saveHome(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    String mapId,
+    AppSettings settings,
+  ) async {
+    double x;
+    double y;
+    double yawDeg;
+    HomeSource source;
+    double score = 0;
+
+    if (_homeMode == HomeCardMode.picking) {
+      final spot = _homePicked;
+      final direction = _homeDirection;
+      if (spot == null || direction == null) {
+        return;
+      }
+      x = spot.dx;
+      y = spot.dy;
+      yawDeg = direction.yawFor(settings) * 180.0 / math.pi;
+      source = HomeSource.mapPick;
+    } else {
+      final result = _homeStanding;
+      if (result == null || !result.ok) {
+        return;
+      }
+      // 저장하는 값은 로봇이 선 자리가 아니라 **채점이 바로잡은 자세**입니다.
+      x = result.x;
+      y = result.y;
+      yawDeg = result.yawDegrees;
+      source = HomeSource.robotStanding;
+      score = result.score;
+    }
+
+    final label = await _askHomeLabel(context);
+    if (!mounted) {
+      return;
+    }
+
+    final message = await supervisor.saveHome(
+      settings,
+      mapId: mapId,
+      x: x,
+      y: y,
+      yawDeg: yawDeg,
+      source: source,
+      score: score,
+      label: label ?? '',
+    );
+    if (!mounted) {
+      return;
+    }
+    // 정리(패널 접기·점 지우기)를 다음 프레임으로 미룬다(2026-09-01 수리).
+    // 이름 대화상자가 닫히는 프레임과 저장 알림(notifyListeners) 재빌드,
+    // 그리고 이 setState 의 트리 철거가 한 찰나에 겹치면 프레임워크 단정
+    // "_dependents.isEmpty" 가 깨지며 빨간 화면이 떴다 — 실기 재현 2026-09-01.
+    // 좌표 저장 자체는 그 전에 이미 끝나 있다.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _homeMode = HomeCardMode.idle;
+        _homePicked = null;
+        _homeDirection = null;
+        _homeStanding = null;
+      });
+      supervisor.clearPoseCheck();
+      _toast(message);
+    });
+  }
+
+  /// 홈에 붙일 이름을 묻습니다. 비워도 됩니다 — 로봇은 쓰지 않습니다.
+  Future<String?> _askHomeLabel(BuildContext context) async {
+    final controller = TextEditingController();
+    final value = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('홈 이름'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: '예: 충전 스테이션 앞',
+            helperText: '앱에서만 보이는 이름입니다. 비워도 됩니다.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(''),
+            child: const Text('이름 없이 저장'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+            child: const Text('저장'),
+          ),
+        ],
+      ),
+    );
+    // showDialog 의 future 는 pop 순간 풀리지만, 대화상자의 퇴장 애니메이션
+    // (~0.2초)은 그 뒤에도 TextField 를 그린다. 여기서 바로 dispose 하면
+    // 죽은 컨트롤러를 그리다 프레임워크 단정이 깨진다(빨간 화면, 2026-09-01
+    // 실기 재현). 애니메이션이 끝난 뒤에 정리한다.
+    Future<void>.delayed(const Duration(milliseconds: 400), controller.dispose);
+    return value;
+  }
+
+  Future<void> _goHome(
+    BuildContext context,
+    SupervisorProvider supervisor,
+  ) async {
+    final settings = context.read<SettingsProvider>().settings;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('홈으로 가보기'),
+        content: const Text(
+          '로봇이 홈 위치로 이동합니다.\n'
+          '경로에 사람과 장애물이 없는지 확인하세요.\n\n'
+          '제대로 도착하면 이 홈은 "가 본 자리"로 기록됩니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('이동 시작'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) {
+      return;
+    }
+    final message = await supervisor.returnHome(settings);
+    if (context.mounted) {
+      _toast(message);
+    }
+  }
+
+  Future<void> _confirmDeleteHome(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    String mapId,
+  ) async {
+    final settings = context.read<SettingsProvider>().settings;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('홈 지우기'),
+        content: const Text(
+          '홈을 지우면 안내가 끝난 뒤 로봇이 자동으로 돌아가지 않습니다.\n'
+          '안내 기능 자체는 그대로 동작합니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('그대로 두기'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('지우기'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) {
+      return;
+    }
+    final message = await supervisor.deleteHome(settings, mapId);
+    if (context.mounted) {
+      _toast(message);
+    }
+  }
+
+  /// 결과 문구를 띄웁니다.
+  ///
+  /// context 를 인자로 받지 않는 것은 이 함수가 대부분 await 뒤에 불리기
+  /// 때문입니다. 그 사이에 화면이 사라졌을 수 있으므로 State 의 mounted 를
+  /// 직접 보고 State 의 context 를 씁니다.
+  void _toast(String message) {
+    if (!mounted || message.trim().isEmpty) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
     );
   }
 
@@ -375,6 +1067,22 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                             ),
                           ],
                           const SizedBox(height: 10),
+                          // 물류 배송이 도착하면 문자를 보낼 번호입니다. 어느 분류든
+                          // 받을 수 있어 담당자 칸과 달리 항상 보입니다. 비워도
+                          // 됩니다 — 그 장소는 배송 대상에서만 빠집니다.
+                          TextFormField(
+                            controller: _contactPhoneController,
+                            keyboardType: TextInputType.phone,
+                            decoration: const InputDecoration(
+                              labelText: '도착 문자 연락처 (선택)',
+                              hintText: '예: 010-1234-5678 · 비우면 배송 대상 제외',
+                            ),
+                            validator: (value) =>
+                                normalizeContactPhone(value ?? '') == null
+                                    ? '휴대폰 번호 모양이 아닙니다 (010-0000-0000).'
+                                    : null,
+                          ),
+                          const SizedBox(height: 10),
                           DropdownButtonFormField<String>(
                             initialValue: _authorization,
                             decoration:
@@ -463,18 +1171,35 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                                         false)) {
                                       return;
                                     }
+                                    if (_editingSaved != null) {
+                                      // 저장된 장소 수정은 바로 ROS 로 나간다.
+                                      final message = _saveEditedToRos(
+                                        supervisor,
+                                        sheetContext
+                                            .read<SettingsProvider>()
+                                            .settings,
+                                        mapId,
+                                      );
+                                      Navigator.of(sheetContext).pop();
+                                      _showSnack(context, message);
+                                      return;
+                                    }
                                     _saveDraft(supervisor, mapId);
                                     Navigator.of(sheetContext).pop();
                                   },
                             icon: Icon(
-                              _editingLocationId == null
-                                  ? Icons.add_location_alt
-                                  : Icons.save_outlined,
+                              _editingSaved != null
+                                  ? Icons.cloud_upload
+                                  : _editingLocationId == null
+                                      ? Icons.add_location_alt
+                                      : Icons.save_outlined,
                             ),
                             label: Text(
-                              _editingLocationId == null
-                                  ? '장소 임시 저장'
-                                  : '수정 내용 저장',
+                              _editingSaved != null
+                                  ? 'ROS2에 수정 저장'
+                                  : _editingLocationId == null
+                                      ? '장소 임시 저장'
+                                      : '수정 내용 저장',
                             ),
                           ),
                           const SizedBox(height: 10),
@@ -540,13 +1265,39 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     SupervisorProvider supervisor,
     String mapId,
   ) {
-    final picked = _pickedRos;
-    if (picked == null || _category1 == null || _category2 == null) {
+    final point = _locationFromForm(mapId);
+    if (point == null) {
       return;
     }
+    supervisor.setDraftLocation(point);
+  }
+
+  /// 저장된 장소를 고친 것을 바로 ROS 에 보냅니다. 보냈으면 점과 폼을 정리합니다.
+  String _saveEditedToRos(
+    SupervisorProvider supervisor,
+    AppSettings settings,
+    String mapId,
+  ) {
+    final point = _locationFromForm(mapId);
+    if (point == null) {
+      return '입력이 비어 저장하지 못했습니다.';
+    }
+    final merged = mergeEditedLocation(edited: point, original: _editingSaved);
+    final (sent, message) = supervisor.saveLocation(settings, merged);
+    if (sent) {
+      _clearPickedLocation();
+    }
+    return message;
+  }
+
+  /// 폼에 적힌 것으로 장소 한 건을 만듭니다. 좌표나 분류가 없으면 null 입니다.
+  LocationPoint? _locationFromForm(String mapId) {
+    final picked = _pickedRos;
+    if (picked == null || _category1 == null || _category2 == null) {
+      return null;
+    }
     final name = _nameController.text.trim();
-    supervisor.setDraftLocation(
-      LocationPoint(
+    return LocationPoint(
         // 수정 중이면 기존 id를 유지해야 같은 장소로 갱신됩니다.
         locationId: _editingLocationId ?? _uuid.v4(),
         mapId: mapId,
@@ -557,6 +1308,8 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
         building: _buildingController.text.trim(),
         floor: int.parse(_floorController.text.trim()),
         owner: _category1 == 'person' ? _ownerController.text.trim() : '',
+        // validator 를 통과한 뒤라 null 이 아닙니다. 파일에는 숫자만 남깁니다.
+        contactPhone: normalizeContactPhone(_contactPhoneController.text) ?? '',
         authorization: _authorization,
         isApproachable: _isApproachable,
         unavailableReason:
@@ -566,8 +1319,22 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
         yaw: _yawFromDirection(_yawDirection),
         confirmPrompt: '$name으로 안내해드릴까요?',
         arrivalMessage: '$name 앞에 도착했습니다.',
-      ),
     );
+  }
+
+  // 젯슨에 저장된 장소를 고칩니다. 폼에 원본을 채우고 시트를 엽니다. 시트를 닫아도
+  // 점과 폼은 남습니다 — 지도를 눌러 점을 옮긴 뒤 '수정 내용 입력'으로 다시 열 수
+  // 있습니다. '선택 취소'가 수정을 접습니다.
+  Future<void> _editSavedLocation(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    LocationPoint location,
+    String mapId,
+    List<LocationPoint> locations,
+  ) async {
+    _loadDraftIntoForm(location);
+    setState(() => _editingSaved = location);
+    await _showLocationInfoSheet(context, supervisor, mapId, locations);
   }
 
   // 임시 저장된 장소를 다시 편집합니다. 입력 폼은 임시 저장 직후 비워지므로
@@ -594,6 +1361,8 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     _buildingController.text = draft.building;
     _floorController.text = draft.floor.toString();
     _ownerController.text = draft.owner;
+    // 편집할 때만 번호 전체를 보여줍니다. 그 밖의 자리는 가립니다.
+    _contactPhoneController.text = formatContactPhone(draft.contactPhone);
     _unavailableReasonController.text = draft.unavailableReason;
     setState(() {
       _editingLocationId = draft.locationId;
@@ -624,6 +1393,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     _buildingController.clear();
     _floorController.clear();
     _ownerController.clear();
+    _contactPhoneController.clear();
     _unavailableReasonController.clear();
     _category1 = null;
     _category2 = null;
@@ -635,7 +1405,10 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
 
   void _clearPickedLocation() {
     _resetLocationInput();
-    setState(() => _pickedRos = null);
+    setState(() {
+      _pickedRos = null;
+      _editingSaved = null;
+    });
   }
 
   // _yawFromDirection의 역변환. 저장된 각도를 가장 가까운 방향으로 되돌립니다.
@@ -643,22 +1416,22 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     final normalized = yaw % 360.0;
     final degrees = normalized < 0 ? normalized + 360.0 : normalized;
     if (degrees >= 45 && degrees < 135) {
-      return '앞';
+      return '정면';
     }
     if (degrees >= 135 && degrees < 225) {
       return '좌측';
     }
     if (degrees >= 225 && degrees < 315) {
-      return '뒤';
+      return '후면';
     }
     return '우측';
   }
 
   double _yawFromDirection(String direction) {
     switch (direction) {
-      case '앞':
+      case '정면':
         return 90;
-      case '뒤':
+      case '후면':
         return 270;
       case '좌측':
         return 180;
@@ -699,6 +1472,8 @@ class _DraftSummary extends StatelessWidget {
           Text('접근 권한: ${location.authorization}'),
           Text('로봇 접근: ${location.isApproachable}'),
           if (location.owner.isNotEmpty) Text('담당자: ${location.owner}'),
+          if (location.canReceiveDelivery)
+            Text('도착 문자: ${maskContactPhone(location.contactPhone)}'),
           if (location.unavailableReason.isNotEmpty)
             Text('접근 불가 사유: ${location.unavailableReason}'),
           Text(

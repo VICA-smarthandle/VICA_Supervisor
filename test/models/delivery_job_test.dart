@@ -1,0 +1,127 @@
+// 배송 한 건이 로봇의 goal 이벤트를 어떻게 자기 것으로 알아보는지 고정합니다.
+//
+// **이 파일이 지키는 결함**: 이름으로 맞추면 같은 이름의 장소가 둘일 때 엉뚱한
+// 사람에게 "물건 왔습니다" 문자가 갑니다. id 가 정본이고 이름은 옛 로봇용
+// 대비책입니다.
+import 'package:flutter_test/flutter_test.dart';
+import 'package:vica_supervisor/models/delivery_job.dart';
+import 'package:vica_supervisor/models/location_point.dart';
+
+const _office = LocationPoint(
+  locationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  mapId: 'm1',
+  name: '305호',
+  x: 1,
+  y: 2,
+  yaw: 0,
+  contactPhone: '01012345678',
+);
+
+DeliveryJob job() => DeliveryJob(destination: _office, startedAt: DateTime(2026));
+
+void main() {
+  group('matches', () {
+    test('id 가 같으면 내 배송이다', () {
+      expect(job().matches(locationId: _office.locationId, name: '엉뚱한 이름'),
+          isTrue);
+    });
+
+    test('id 가 다르면 이름이 같아도 남의 주행이다', () {
+      expect(
+        job().matches(locationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', name: '305호'),
+        isFalse,
+      );
+    });
+
+    test('id 를 안 실어 보낸 옛 로봇이면 이름으로 물러선다', () {
+      expect(job().matches(locationId: '', name: '305호'), isTrue);
+      expect(job().matches(locationId: '', name: '306호'), isFalse);
+      expect(job().matches(locationId: '', name: ''), isFalse);
+    });
+  });
+
+  group('deliveryArrivalMessage', () {
+    test('짧은 이름은 앞에 붙는다', () {
+      expect(
+        deliveryArrivalMessage('305호'),
+        '[305호] 비카가 물건을 가지고 문 앞에 와 있습니다. 확인해주세요',
+      );
+    });
+
+    test('45자를 넘기면 이름을 뺀다 — 문자 한 통 한계', () {
+      final text = deliveryArrivalMessage('별빛관 3층 스마트로봇연구실 복도 끝');
+      expect(text, '비카가 물건을 가지고 문 앞에 와 있습니다. 확인해주세요');
+      expect(text.length, lessThanOrEqualTo(45));
+    });
+
+    test('이름이 없으면 본문만', () {
+      expect(deliveryArrivalMessage('  '), '비카가 물건을 가지고 문 앞에 와 있습니다. 확인해주세요');
+    });
+  });
+
+  test('copyWith 는 목적지·번호를 그대로 두고 복귀 예정만 지울 수 있다', () {
+    final started = DeliveryJob(destination: _office, startedAt: DateTime(2026));
+    final arrived = started.copyWith(
+      phase: DeliveryPhase.arrived,
+      notified: true,
+      returnAt: DateTime(2026, 1, 1, 0, 2),
+    );
+    expect(arrived.destination.contactPhone, '01012345678');
+    expect(arrived.isActive, isFalse);
+    expect(arrived.isWaitingToReturn, isTrue);
+
+    final canceled = arrived.copyWith(clearReturnAt: true);
+    expect(canceled.returnAt, isNull);
+    expect(canceled.isWaitingToReturn, isFalse);
+    expect(canceled.phase, DeliveryPhase.arrived);
+  });
+
+  test('끝난 단계만 지울 수 있다', () {
+    expect(DeliveryPhase.completed.isFinished, isTrue);
+    expect(DeliveryPhase.aborted.isFinished, isTrue);
+    expect(DeliveryPhase.driving.isFinished, isFalse);
+    expect(DeliveryPhase.arrived.isFinished, isFalse);
+    expect(DeliveryPhase.returning.isFinished, isFalse);
+  });
+
+  test('복귀 대기는 시험하기 좋게 2분이다', () {
+    expect(deliveryReturnDelay, const Duration(minutes: 2));
+  });
+  group('저장·되살리기 (2026-09-03)', () {
+    test('JSON 으로 나갔다 돌아와도 같은 배송이다', () {
+      final original = job().copyWith(
+        phase: DeliveryPhase.arrived,
+        arrivedAt: DateTime(2026, 9, 3, 14, 0),
+        notified: true,
+        returnAt: DateTime(2026, 9, 3, 14, 2),
+        returnNote: '관리자가 복귀를 취소했습니다.',
+      );
+      final restored = DeliveryJob.fromJson(original.toJson());
+      expect(restored, isNotNull);
+      expect(restored!.destination.locationId, _office.locationId);
+      expect(restored.destination.contactPhone, _office.contactPhone);
+      expect(restored.phase, DeliveryPhase.arrived);
+      expect(restored.arrivedAt, original.arrivedAt);
+      expect(restored.notified, isTrue);
+      expect(restored.returnAt, original.returnAt);
+      expect(restored.returnNote, original.returnNote);
+    });
+
+    test('목적지가 없거나 단계 이름이 낯설면 되살리지 않거나 중단으로 친다', () {
+      expect(DeliveryJob.fromJson({'phase': 'driving'}), isNull);
+      final odd = DeliveryJob.fromJson({
+        'destination': _office.toJson(),
+        'phase': 'flying',
+      });
+      // 모르는 단계로 로봇이 움직이는 일은 없어야 한다.
+      expect(odd?.phase, DeliveryPhase.aborted);
+    });
+
+    test('확인 필요는 끝난 것이 아니라 새 배송을 막지만, 지울 수는 있다', () {
+      expect(DeliveryPhase.unconfirmed.isFinished, isFalse);
+      final j = job().copyWith(phase: DeliveryPhase.unconfirmed);
+      expect(j.isActive, isFalse);
+      expect(j.isWaitingToReturn, isFalse);
+    });
+  });
+}

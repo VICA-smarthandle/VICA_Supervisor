@@ -95,6 +95,38 @@ class RosBridgeClient {
     });
   }
 
+  // rosbridge 에 발행할 토픽의 타입을 미리 알립니다.
+  //
+  // publish op 자체는 타입을 받지 않습니다. 그래프에 이미 같은 토픽의 발행자가
+  // 있으면 rosbridge 가 타입을 알아내지만, 매핑 중에는 /cmd_vel_req 를 아무도
+  // 발행하지 않으므로(Nav2 가 꺼져 있다) 미리 advertise 해야 합니다.
+  void advertise({required String topic, required String type}) {
+    _send({
+      'op': 'advertise',
+      'topic': topic,
+      'type': type,
+    });
+  }
+
+  void unadvertise(String topic) {
+    _send({
+      'op': 'unadvertise',
+      'topic': topic,
+    });
+  }
+
+  // 임의 타입 메시지를 발행합니다. advertise 를 먼저 해 두어야 합니다.
+  void publishMessage({
+    required String topic,
+    required Map<String, Object?> message,
+  }) {
+    _send({
+      'op': 'publish',
+      'topic': topic,
+      'msg': message,
+    });
+  }
+
   // std_msgs/String의 data 필드에 JSON 문자열을 넣어서 publish합니다.
   void publishJsonString({
     required String topic,
@@ -185,11 +217,21 @@ class RosBridgeClient {
       return;
     }
     final rawValues = decoded['values'];
+    // rosbridge 는 서비스가 없거나 죽으면 result:false 로 응답하고, values 에는
+    // 격자값 대신 오류 문자열이 실려 온다. 이걸 정상 완료로 넘기면 빈 값이
+    // 0점짜리 결과처럼 화면에 그려진다 -- 2026-08-25 실기에서 채점 노드가 안 떠
+    // 있는데 "어디를 찍어도 0%"로 보인 원인이다.
+    if (decoded['result'] != true) {
+      final detail =
+          rawValues is String && rawValues.isNotEmpty ? rawValues : '서비스 호출 실패';
+      completer.completeError(StateError(detail));
+      return;
+    }
     final values =
         rawValues is Map<String, Object?> ? rawValues : <String, Object?>{};
     completer.complete(
       RosServiceResponse(
-        result: decoded['result'] == true,
+        result: true,
         values: values,
       ),
     );

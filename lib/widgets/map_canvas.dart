@@ -1,11 +1,35 @@
 // 이 파일은 지도 이미지, 저장된 장소 마커, 선택 마커, 현재 로봇 위치를 한 화면에 표시합니다.
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../core/app_settings.dart';
 import '../core/map_coordinate.dart';
+import '../models/keepout_zone.dart';
 import '../models/location_point.dart';
 import '../models/robot_status.dart';
 import '../models/vica_map.dart';
+import 'vica_ui.dart';
+
+// 플랫폼 배율. 점·테두리·화살표가 모두 이 값을 곱합니다.
+//
+// 폰 앱은 화면이 작아 확대해서 찍는데, 점이 지도 그림과 함께 커져 밑을 가렸습니다
+// (2026-09-04 실기 피드백). 웹(노트북)은 그대로 두고 앱만 2/3 로 줄입니다.
+// 세 크기(점 5 · 로봇 화살표 7 · 자세 화살표 10)의 비율은 2026-08-26 실기에서
+// 맞춘 것이라, 한 배율로 같이 줄여 그 비율을 지킵니다. 1/2 은 확대 안 한 전체
+// 보기에서 점이 2.5 px 라 보이지 않아 쓰지 않습니다. 폰에서 브라우저로 여는
+// 경우는 없다는 전제(사용자 확인)라 kIsWeb 이면 충분합니다.
+const double _markerScale = kIsWeb ? 1.0 : 2 / 3;
+
+// 지도 위 점의 지름(px). 저장된 장소·임시 저장 장소·선택 위치가 같은 크기여야
+// 색만으로 구분되고 크기 차이가 의미로 오해되지 않습니다.
+// 7/8 -> 5 로 줄였습니다. 장소가 늘어나면 점이 서로 겹쳐 지도가 안 보였습니다.
+const double _markerSize = 5 * _markerScale;
+const double _markerBorder = 1.0 * _markerScale;
+
+// 누를 수 있는 점(저장 장소)의 손가락 판(px). 점은 작아도 눌리는 자리는 이만큼
+// 둡니다 — 엘리베이터 버튼의 불빛과 판처럼. 지도와 함께 확대되므로 확대할수록
+// 지도 위 실제 범위는 좁아집니다.
+const double _markerHitSize = 16;
 
 class ResponsiveMapFrame extends StatelessWidget {
   const ResponsiveMapFrame({
@@ -44,6 +68,25 @@ class ResponsiveMapFrame extends StatelessWidget {
   }
 }
 
+/// 지도 위에 그릴 자세 화살표입니다. 초기 위치 확인 결과를 보여줄 때 씁니다.
+///
+/// 로봇 화살표(_RobotMarker)와 따로 두는 이유는 둘이 동시에 보여야 하기
+/// 때문입니다. AMCL 이 아직 엉뚱한 곳을 가리키는 상태에서 "여기가 맞다"를
+/// 고르는 화면이라, 지금 믿고 있는 자리와 새로 고른 자리가 같이 보여야 합니다.
+class MapPoseArrow {
+  const MapPoseArrow({
+    required this.x,
+    required this.y,
+    required this.yawDegrees,
+    this.label = '',
+  });
+
+  final double x;
+  final double y;
+  final double yawDegrees;
+  final String label;
+}
+
 class MapCanvas extends StatelessWidget {
   const MapCanvas({
     super.key,
@@ -53,8 +96,20 @@ class MapCanvas extends StatelessWidget {
     this.selectedLocationId,
     this.robot,
     this.draftLocation,
+    this.pickedLocation,
+    this.poseArrow,
+    this.homePoint,
+    this.scanHits = const [],
     this.onTapMap,
     this.onSelectLocation,
+    this.keepoutZones = const [],
+    this.draftKeepoutZone,
+    this.selectedKeepoutZoneId,
+    this.keepoutEditMode = false,
+    this.onKeepoutPanStart,
+    this.onKeepoutPanUpdate,
+    this.onKeepoutPanEnd,
+    this.onSelectKeepoutZone,
   });
 
   final VicaMap map;
@@ -63,8 +118,46 @@ class MapCanvas extends StatelessWidget {
   final String? selectedLocationId;
   final RobotStatus? robot;
   final LocationPoint? draftLocation;
+  // 지도를 눌러 좌표만 찍어 둔 점입니다. 정보 입력을 마친 draftLocation과 달리
+  // 아직 아무 내용도 없으므로 속을 비운 원으로 그려 한눈에 구분되게 합니다.
+  final LocationPoint? pickedLocation;
+  // 초기 위치 확인이 찾아낸 자세입니다. 사람이 짚은 점(pickedLocation)과 함께
+  // 그려져야 얼마나 옮겨졌는지가 눈에 보입니다.
+  final MapPoseArrow? poseArrow;
+
+  /// 저장된 홈 위치(ROS 좌표). 없으면 null 이며 오류가 아닙니다.
+  ///
+  /// 관리자 앱이라 늘 보여 줍니다 — 장소를 찍을 때도 홈이 어디인지 알고 찍는
+  /// 편이 낫고, 사용자가 볼 화면이 아니라 가릴 이유가 없습니다(2026-09-02
+  /// 사용자 결정). 크기와 모양은 저장 장소와 같고 색만 다릅니다.
+  final Offset? homePoint;
+
+  /// 초기 위치를 확인한 뒤 그 자세에서 본 라이다 점입니다(ROS 좌표).
+  ///
+  /// **실시간이 아닙니다.** 확인 버튼을 누른 그 순간의 스캔 한 장이며, 서버가
+  /// 채점하면서 이미 만든 좌표를 그대로 받습니다. RViz 도 초기 위치를 잡기
+  /// 전에는 아무것도 보여주지 않고, 잡고 나면 그 자세 기준으로 점을 겹쳐
+  /// 그립니다 — 같은 방식입니다.
+  ///
+  /// 이 점들이 지도의 벽 위에 놓이면 자세가 맞은 것이고, 벽에서 밀려 있으면
+  /// 틀린 것입니다. 숫자 하나(82%)보다 눈으로 보는 편이 빠릅니다.
+  final List<Offset> scanHits;
+
   final ValueChanged<Offset>? onTapMap;
   final ValueChanged<LocationPoint>? onSelectLocation;
+
+  // 저장된 금지구역입니다. 편집 중이 아니어도 항상 보입니다 — 장소를 찍을 때
+  // 로봇이 못 가는 자리를 알고 찍어야 하기 때문입니다.
+  final List<KeepoutZone> keepoutZones;
+  // 손가락을 끄는 동안의 미리보기입니다. 아직 목록에 없습니다.
+  final KeepoutZone? draftKeepoutZone;
+  final String? selectedKeepoutZoneId;
+  // true 면 지도 이동·확대를 잠그고 드래그를 사각형 그리기에 씁니다.
+  final bool keepoutEditMode;
+  final ValueChanged<Offset>? onKeepoutPanStart;
+  final ValueChanged<Offset>? onKeepoutPanUpdate;
+  final VoidCallback? onKeepoutPanEnd;
+  final ValueChanged<String?>? onSelectKeepoutZone;
 
   String get _imageUrl {
     if (map.imageUrl.startsWith('http://') ||
@@ -93,22 +186,37 @@ class MapCanvas extends StatelessWidget {
             minScale: 0.5,
             maxScale: 6,
             boundaryMargin: const EdgeInsets.all(80),
+            // 금지구역을 그리는 동안에는 확대·이동을 잠급니다. 켜 두면 손가락을
+            // 끌 때 지도가 같이 움직여서, 사각형을 그리는 중인지 지도를 미는
+            // 중인지 Flutter 가 갈라낼 수 없습니다.
+            panEnabled: !keepoutEditMode,
+            scaleEnabled: !keepoutEditMode,
             child: GestureDetector(
-              onTapUp: onTapMap == null
-                  ? null
-                  : (details) {
-                      final local = details.localPosition;
-                      final pixel = Offset(local.dx / scale, local.dy / scale);
-                      final ros = MapCoordinate.pixelToRos(
-                        map: map,
-                        pixel: pixel,
-                        flipY: settings.flipMapY,
-                        xOffset: settings.xOffset,
-                        yOffset: settings.yOffset,
-                        scale: settings.mapScale,
-                      );
-                      onTapMap!(ros);
-                    },
+              // 이 GestureDetector 는 InteractiveViewer 의 **자식 안쪽**에
+              // 있습니다. 그래서 details.localPosition 은 확대·이동이 이미
+              // 되돌려진 '지도 그림 위의 좌표'입니다. TransformationController 로
+              // 한 번 더 되돌리면 두 번 되돌려서 어긋납니다.
+              onTapUp: (details) {
+                final ros = _rosFromLocal(details.localPosition, scale);
+                if (keepoutEditMode) {
+                  // 편집 중에는 탭이 '사각형 고르기'입니다. 빈 곳을 누르면
+                  // 선택이 풀립니다.
+                  onSelectKeepoutZone?.call(_zoneAt(ros)?.zoneId);
+                  return;
+                }
+                onTapMap?.call(ros);
+              },
+              onPanStart: keepoutEditMode
+                  ? (details) => onKeepoutPanStart?.call(
+                        _rosFromLocal(details.localPosition, scale),
+                      )
+                  : null,
+              onPanUpdate: keepoutEditMode
+                  ? (details) => onKeepoutPanUpdate?.call(
+                        _rosFromLocal(details.localPosition, scale),
+                      )
+                  : null,
+              onPanEnd: keepoutEditMode ? (_) => onKeepoutPanEnd?.call() : null,
               child: SizedBox(
                 width: displaySize.width,
                 height: displaySize.height,
@@ -129,6 +237,34 @@ class MapCanvas extends StatelessWidget {
                         },
                       ),
                     ),
+                    // 금지구역은 마커보다 **아래** 레이어입니다. 장소 마커와
+                    // 로봇 화살표가 사각형에 가려지면 안 됩니다.
+                    ...keepoutZones.map(
+                      (zone) => _KeepoutRect(
+                        rect: _zoneRect(zone, scale),
+                        selected: zone.zoneId == selectedKeepoutZoneId,
+                      ),
+                    ),
+                    if (draftKeepoutZone != null)
+                      _KeepoutRect(
+                        rect: _zoneRect(draftKeepoutZone!, scale),
+                        draft: true,
+                      ),
+                    // 라이다 점은 마커보다 **아래**입니다. 점 180개가 장소
+                    // 마커와 로봇 화살표를 덮으면 정작 봐야 할 것이 가립니다.
+                    if (scanHits.isNotEmpty)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: CustomPaint(
+                            painter: _ScanHitPainter(
+                              points: scanHits
+                                  .map((hit) =>
+                                      _scaledOffset(hit.dx, hit.dy, scale))
+                                  .toList(growable: false),
+                            ),
+                          ),
+                        ),
+                      ),
                     ...locations.map(
                       (location) => selectedLocationId == location.locationId
                           ? _SelectedLocationMarker(
@@ -141,12 +277,31 @@ class MapCanvas extends StatelessWidget {
                                   _scaledOffset(location.x, location.y, scale),
                               label: location.name,
                               color: Colors.blue,
-                              size: 7,
+                              size: _markerSize,
                               onTap: onSelectLocation == null
                                   ? null
                                   : () => onSelectLocation!(location),
                             ),
                     ),
+                    // 홈은 장소 마커보다 **위**입니다. 지도에 하나뿐이고, 장소가
+                    // 촘촘한 곳에 있으면 가려져 못 찾습니다.
+                    //
+                    // 색: 밝은 주황입니다(2026-09-02 실기 판정). 처음에 팔레트의
+                    // 남색을 썼는데 장소 마커의 파랑과 실기에서 거의 구분되지
+                    // 않았습니다 — 작은 점에서는 명도 차이만으로 안 갈립니다.
+                    // 아래 '선택 위치'도 주황 계열이지만 그쪽은 속 빈 원이고
+                    // 찍는 동안만 잠깐 보입니다.
+                    if (homePoint != null)
+                      _Marker(
+                        offset: _scaledOffset(
+                          homePoint!.dx,
+                          homePoint!.dy,
+                          scale,
+                        ),
+                        label: '홈',
+                        color: Colors.orange,
+                        size: _markerSize,
+                      ),
                     if (draftLocation != null)
                       _Marker(
                         offset: _scaledOffset(
@@ -154,9 +309,31 @@ class MapCanvas extends StatelessWidget {
                           draftLocation!.y,
                           scale,
                         ),
-                        label: '임시',
+                        label: '임시 저장',
                         color: Colors.green,
-                        size: 8,
+                        size: _markerSize,
+                      ),
+                    if (pickedLocation != null)
+                      _Marker(
+                        offset: _scaledOffset(
+                          pickedLocation!.x,
+                          pickedLocation!.y,
+                          scale,
+                        ),
+                        label: '선택 위치',
+                        color: Colors.deepOrange,
+                        size: _markerSize,
+                        filled: false,
+                      ),
+                    if (poseArrow != null)
+                      _PoseArrowMarker(
+                        offset: _scaledOffset(
+                          poseArrow!.x,
+                          poseArrow!.y,
+                          scale,
+                        ),
+                        yaw: 90 - poseArrow!.yawDegrees + settings.yawOffset,
+                        label: poseArrow!.label,
                       ),
                     if (robot != null && robot!.mapId == map.mapId)
                       _RobotMarker(
@@ -183,6 +360,46 @@ class MapCanvas extends StatelessWidget {
     final widthScale = maxWidth / width;
     final heightScale = maxHeight / height;
     return widthScale < heightScale ? widthScale : heightScale;
+  }
+
+  // 화면에서 짚은 자리를 ROS map 좌표로 옮깁니다. 장소 찍기와 사각형 그리기가
+  // 같은 경로를 씁니다 — 둘이 다른 경로를 쓰면 어긋났을 때 어느 쪽이 맞는지
+  // 알 수 없게 됩니다.
+  Offset _rosFromLocal(Offset local, double displayScale) {
+    return MapCoordinate.pixelToRos(
+      map: map,
+      pixel: Offset(local.dx / displayScale, local.dy / displayScale),
+      flipY: settings.flipMapY,
+      xOffset: settings.xOffset,
+      yOffset: settings.yOffset,
+      scale: settings.mapScale,
+    );
+  }
+
+  /// 짚은 자리에 있는 금지구역. 겹쳐 있으면 작은 것을 고릅니다.
+  KeepoutZone? _zoneAt(Offset ros) {
+    KeepoutZone? found;
+    for (final zone in keepoutZones) {
+      if (!zone.contains(ros)) {
+        continue;
+      }
+      if (found == null ||
+          zone.width * zone.height < found.width * found.height) {
+        found = zone;
+      }
+    }
+    return found;
+  }
+
+  /// ROS 사각형을 화면 사각형으로 옮깁니다.
+  ///
+  /// flipY 때문에 y 의 위아래가 뒤집히므로 min/max 를 그대로 left/top 으로
+  /// 쓰면 안 됩니다. Rect.fromPoints 가 두 점의 순서를 정리해 줍니다.
+  Rect _zoneRect(KeepoutZone zone, double displayScale) {
+    return Rect.fromPoints(
+      _scaledOffset(zone.xMin, zone.yMin, displayScale),
+      _scaledOffset(zone.xMax, zone.yMax, displayScale),
+    );
   }
 
   Offset _scaledOffset(double x, double y, double displayScale) {
@@ -212,7 +429,9 @@ class _SelectedLocationMarker extends StatelessWidget {
   Widget build(BuildContext context) {
     return Positioned(
       left: offset.dx - 28,
-      top: offset.dy - 32,
+      // 핀 아이콘을 20 -> 16 으로 줄인 만큼(4px) 함께 내립니다. 이 값을 그대로 두면
+      // 핀 끝이 실제 좌표보다 4px 위를 가리키게 됩니다.
+      top: offset.dy - 28,
       width: 56,
       child: IgnorePointer(
         child: Column(
@@ -246,7 +465,7 @@ class _SelectedLocationMarker extends StatelessWidget {
             const Icon(
               Icons.location_on,
               color: Colors.deepOrange,
-              size: 20,
+              size: 16,
             ),
           ],
         ),
@@ -261,6 +480,7 @@ class _Marker extends StatelessWidget {
     required this.label,
     required this.color,
     required this.size,
+    this.filled = true,
     this.onTap,
   });
 
@@ -268,24 +488,43 @@ class _Marker extends StatelessWidget {
   final String label;
   final Color color;
   final double size;
+  // false 면 속을 비우고 테두리만 그립니다. "좌표만 찍었고 아직 아무 정보도 없다"를
+  // 색이 아니라 형태로 알리기 위한 것입니다.
+  final bool filled;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
+    // 누를 수 있는 점(저장 장소)만 손가락 판을 넓힙니다. 홈·임시·선택 위치처럼
+    // 누를 일이 없는 점은 판을 넓히면 그 아래 지도를 눌러 자리를 옮기는 손가락을
+    // 가로챕니다 — "위치를 조금 옮기기"가 바로 그 동작입니다.
+    final hit = onTap == null ? size : _markerHitSize;
+    final dot = DecoratedBox(
+      decoration: BoxDecoration(
+        color: filled ? color : Colors.white,
+        shape: BoxShape.circle,
+        // 지름 5 에서 1.4 는 점의 절반을 넘게 먹어 속이 안 보였습니다. 배율로
+        // 줄일 때도 같은 비율(1/5)을 지킵니다.
+        border: Border.all(
+          color: filled ? Colors.white : color,
+          width: _markerBorder,
+        ),
+      ),
+      child: SizedBox(width: size, height: size),
+    );
     return Positioned(
-      left: offset.dx - size / 2,
-      top: offset.dy - size / 2,
+      left: offset.dx - hit / 2,
+      top: offset.dy - hit / 2,
       child: Tooltip(
         message: label,
         child: GestureDetector(
           onTap: onTap,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 1.4),
-            ),
-            child: SizedBox(width: size, height: size),
+          // 투명한 판 전체가 눌리게 합니다. 기본값이면 그림이 있는 점만 눌립니다.
+          behavior: onTap == null ? null : HitTestBehavior.opaque,
+          child: SizedBox(
+            width: hit,
+            height: hit,
+            child: Center(child: dot),
           ),
         ),
       ),
@@ -306,7 +545,7 @@ class _RobotMarker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const markerSize = 7.0;
+    const markerSize = 7.0 * _markerScale;
     return Positioned(
       left: offset.dx - markerSize / 2,
       top: offset.dy - markerSize / 2,
@@ -324,4 +563,199 @@ class _RobotMarker extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PoseArrowMarker extends StatelessWidget {
+  const _PoseArrowMarker({
+    required this.offset,
+    required this.yaw,
+    required this.label,
+  });
+
+  final Offset offset;
+  final double yaw;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    // 로봇 화살표(7)보다 조금만 크게 둡니다. 지금 고르는 것이라 구분은 되어야
+    // 하지만, 18 이었을 때 로봇 화살표와 균형이 안 맞아 보기 싫다는 실기
+    // 피드백(2026-08-26)으로 줄였습니다.
+    const markerSize = 10.0 * _markerScale;
+    return Positioned(
+      left: offset.dx - markerSize / 2,
+      top: offset.dy - markerSize / 2,
+      child: IgnorePointer(
+        child: Tooltip(
+          message: label,
+          child: Transform.rotate(
+            // ROS yaw는 y축이 위인 좌표계라 화면에서는 회전 방향을 반대로 적용합니다.
+            angle: yaw * 3.1415926535 / 180.0,
+            child: const Icon(
+              Icons.navigation,
+              color: VicaColors.primaryDark,
+              size: markerSize,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 지도 위의 금지구역 사각형 하나입니다.
+///
+/// 세 가지 모습이 있습니다.
+///   그리는 중  점선 테두리 + 모서리 점 4개. **속은 채우지 않습니다** —
+///              채우면 그 아래 지도가 가려져 어디까지 덮는지 모르고 그리게 됩니다.
+///   저장된 것  옅은 빨강으로 채우고 실선 테두리.
+///   고른 것    테두리를 굵게 하고 모서리에 점을 찍습니다.
+class _KeepoutRect extends StatelessWidget {
+  const _KeepoutRect({
+    required this.rect,
+    this.selected = false,
+    this.draft = false,
+  });
+
+  final Rect rect;
+  final bool selected;
+  final bool draft;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+      // 어느 사각형을 눌렀는지는 MapCanvas 가 좌표로 판정합니다. 이 위젯이
+      // 탭을 가로채면 사각형 안에 있는 장소 마커를 누를 수 없게 됩니다.
+      child: IgnorePointer(
+        child: CustomPaint(
+          painter: _KeepoutPainter(selected: selected, draft: draft),
+        ),
+      ),
+    );
+  }
+}
+
+class _KeepoutPainter extends CustomPainter {
+  const _KeepoutPainter({required this.selected, required this.draft});
+
+  final bool selected;
+  final bool draft;
+
+  static const _color = VicaColors.red;
+  // 점선 한 칸과 사이 간격(px). 확대해도 사람이 점선으로 알아볼 크기입니다.
+  static const _dash = 6.0;
+  static const _gap = 4.0;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    if (!draft) {
+      canvas.drawRect(
+        rect,
+        Paint()..color = _color.withValues(alpha: 0.14),
+      );
+    }
+    final border = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = selected ? 2.4 : 1.4
+      ..color = _color;
+    if (draft) {
+      _paintDashed(canvas, rect, border);
+    } else {
+      canvas.drawRect(rect, border);
+    }
+    if (draft || selected) {
+      _paintCorners(canvas, rect);
+    }
+  }
+
+  void _paintDashed(Canvas canvas, Rect rect, Paint paint) {
+    final corners = [
+      rect.topLeft,
+      rect.topRight,
+      rect.bottomRight,
+      rect.bottomLeft,
+    ];
+    for (var index = 0; index < corners.length; index++) {
+      _paintDashedLine(
+        canvas,
+        corners[index],
+        corners[(index + 1) % corners.length],
+        paint,
+      );
+    }
+  }
+
+  void _paintDashedLine(Canvas canvas, Offset from, Offset to, Paint paint) {
+    final total = (to - from).distance;
+    if (total <= 0) {
+      return;
+    }
+    final step = (to - from) / total;
+    var walked = 0.0;
+    while (walked < total) {
+      final end = (walked + _dash).clamp(0.0, total).toDouble();
+      canvas.drawLine(from + step * walked, from + step * end, paint);
+      walked = end + _gap;
+    }
+  }
+
+  void _paintCorners(Canvas canvas, Rect rect) {
+    final fill = Paint()..color = _color;
+    final ring = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..color = Colors.white;
+    for (final corner in [
+      rect.topLeft,
+      rect.topRight,
+      rect.bottomRight,
+      rect.bottomLeft,
+    ]) {
+      canvas.drawCircle(corner, 3.2, fill);
+      canvas.drawCircle(corner, 3.2, ring);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_KeepoutPainter old) =>
+      old.selected != selected || old.draft != draft;
+}
+
+/// 라이다 점을 지도 위에 찍습니다.
+///
+/// 위젯 180개 대신 CustomPainter 하나를 씁니다. Positioned 를 그만큼 만들면
+/// 확대·이동할 때마다 레이아웃이 다시 계산돼 화면이 버벅입니다. 여기서는
+/// 점 하나가 원 하나라 그리는 비용이 거의 없습니다.
+class _ScanHitPainter extends CustomPainter {
+  const _ScanHitPainter({required this.points});
+
+  final List<Offset> points;
+
+  /// 산호빛 붉은색.
+  ///
+  /// 지도는 흰 바탕에 검은 벽이라 **둘 다에서 보여야** 합니다. 완전 빨강
+  /// (#FF0000)은 눈이 아프고 앱의 위험색(VicaColors.red)과 헷갈립니다.
+  /// 이 색은 흰 배경에서 또렷하고 검은 벽 위에서도 남습니다.
+  static const Color _coral = Color(0xFFE06055);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = _coral.withValues(alpha: 0.85)
+      ..style = PaintingStyle.fill;
+    // 점 하나가 너무 크면 벽을 덮어 "맞았는지"를 못 본다. 확대해서 볼 수
+    // 있으므로 작게 둔다.
+    for (final point in points) {
+      // 1.6 -> 0.8 (2026-09-01 실기 피드백): 점이 커서 벽 선을 덮었다.
+      canvas.drawCircle(point, 0.8, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ScanHitPainter old) => old.points != points;
 }

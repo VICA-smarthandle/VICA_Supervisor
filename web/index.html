@@ -34,13 +34,22 @@
 </head>
 <body>
   <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
+    기본 부트스트랩은 CanvasKit을 https://www.gstatic.com 에서 받아온다.
+    VICA는 폐쇄망에서 동작하므로 외부 CDN에 의존하면 화면이 아예 뜨지 않는다.
+    canvasKitBaseUrl을 앱과 같은 출처로 고정해 항상 로컬 canvaskit을 쓴다.
 
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
-  <script src="flutter_bootstrap.js" async></script>
+  <script>
+    {{flutter_js}}
+    {{flutter_build_config}}
+
+    _flutter.loader.load({
+      config: {
+        canvasKitBaseUrl: "canvaskit/",
+      },
+    });
+  </script>
 </body>
 </html>

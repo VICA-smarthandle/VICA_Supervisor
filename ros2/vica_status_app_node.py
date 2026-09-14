@@ -39,14 +39,14 @@ from typing import Any
 import rclpy
 import yaml
 from diagnostic_msgs.msg import DiagnosticArray
+from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry
 from rcl_interfaces.msg import ParameterType
 from rcl_interfaces.srv import GetParameters
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
-from rclpy.time import Time
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
-from tf2_ros import Buffer, TransformException, TransformListener
 
 
 # error_reason의 원천. error_source 파라미터가 고릅니다.
@@ -76,8 +76,11 @@ class VicaStatusAppNode(Node):
             "destination_storage_root",
             str(Path.home() / "vica_data" / "destinations"),
         )
-        # 위치를 매끄럽게 보여주기 위해 기본 10Hz로 발행합니다.
-        self.declare_parameter("publish_period_sec", 0.1)
+        # 0.1(10Hz) -> 0.5(2Hz) (2026-09-01). 10Hz는 태블릿 마커의 사치였고
+        # 이 노드 CPU와 rosbridge 번역량의 주범이었다. 소비자 전수조사 결과
+        # (앱 마커·주행 버튼 판정·keepout 유예) 주기에 민감한 곳이 없고,
+        # 위치미확보 판정 임계(nav2_data_timeout_sec 3.0)와도 여유 6배다.
+        self.declare_parameter("publish_period_sec", 0.5)
         self.declare_parameter("nav2_data_timeout_sec", 3.0)
         # 구독 입력별 만료 시간. 발행이 끊긴 값을 현재 상태로 쓰지 않기 위한 기준입니다.
         self.declare_parameter("odom_timeout_sec", 3.0)
@@ -158,9 +161,13 @@ class VicaStatusAppNode(Node):
         self.latest_odom: Odometry | None = None
         self.last_odom_time: float | None = None
 
-        # TF에서 읽은 map frame 기준 현재 pose (x, y, yaw_deg).
-        self.tf_pose: tuple[float, float, float] | None = None
-        self.last_tf_time: float | None = None
+        # AMCL이 마지막으로 알려준 map frame 기준 pose (x, y, yaw_deg).
+        # 종전에는 TF 청취기로 매 주기 조회했는데, 청취기는 /tf 방송 전체
+        # (EKF 30Hz+)를 상시 수신·보관해 이 노드 CPU의 최대 고정비였다.
+        # /amcl_pose 구독으로 바꿨다(2026-09-01) — mission_manager가 같은
+        # 이유로 먼저 쓰던 방식이고, 2Hz 상황판에는 이 신선도면 충분하다.
+        self.map_pose: tuple[float, float, float] | None = None
+        self.last_map_pose_time: float | None = None
 
         # diagnostics는 오류/대기 사유 문자열을 만들 때만 사용합니다.
         # /diagnostics는 여러 노드가 함께 쓰는 공용 topic이고 각 메시지는 그 발행자의
@@ -191,9 +198,17 @@ class VicaStatusAppNode(Node):
         self._loc_cache_map_id = ""
         self._loc_cache_time = 0.0
 
-        # TF 조회 준비.
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
+        # 지도 위치는 /amcl_pose 로 받는다. AMCL 은 transient_local(보관) +
+        # 이동 시에만 발행하므로, 일반(volatile) 구독은 이 노드가 나중에 켜지면
+        # 보관본을 못 받는다 — mission_manager 의 같은 구독과 동일한 함정 대응.
+        amcl_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.create_subscription(
+            PoseWithCovarianceStamped, "/amcl_pose", self.handle_amcl_pose, amcl_qos
+        )
 
         # map_server 파라미터 조회 클라이언트.
         map_server_node = str(self.get_parameter("map_server_node").value).rstrip("/")
@@ -215,6 +230,9 @@ class VicaStatusAppNode(Node):
             String, "/vica_goal_event", self.handle_goal_event, 10
         )
 
+        # 일시정지 여부의 정본. 이벤트 한 번이 아니라 1 Hz 상태를 본다.
+        self._setup_paused_source()
+
         # health 모드일 때만 /robot/health를 구독합니다.
         self._setup_health_source()
 
@@ -231,7 +249,7 @@ class VicaStatusAppNode(Node):
             self.map_poll_timer = self.create_timer(poll_period, self._poll_map_yaml)
 
         self.get_logger().info(
-            f"vica_status_app_node ready: TF {self.map_frame}->{self.base_frame}, "
+            f"vica_status_app_node ready: pose=/amcl_pose ({self.map_frame} 기준), "
             f"publish {1.0 / period:.0f}Hz, map auto-detect via {map_server_node}, "
             f"error_source={self.error_source}"
         )
@@ -295,6 +313,20 @@ class VicaStatusAppNode(Node):
             "goal_rejected",
             "goal_canceled",
             "emergency_stopped",
+            # 홈 복귀는 **출발할 때는** 위의 goal_sent/goal_accepted 를 쓰고
+            # **끝날 때만** 전용 이름으로 알린다(mission_manager_node 의
+            # "return_home_… if returning else goal_…"). 그래서 이 셋이 없으면
+            # 홈에 도착해도 current_goal 이 영영 안 비고, 앱은 로봇이 계속
+            # 달리는 줄 알아 주행 요청·홈 복귀·취소 버튼을 모두 잠근다
+            # (2026-09-02 실기 재현). 안전망 goal_event_timeout_sec 는 600초라
+            # 그때까지 앱이 멈춰 있는 셈이었다.
+            "return_home_succeeded",
+            "return_home_failed",
+            "return_home_canceled",
+            # 미션이 "취소할 것이 없다"고 답할 때 보내는 동기화 신호다. 앱의
+            # 표시가 어떤 이유로든 로봇보다 뒤처져 있으면 취소 버튼이 그것을
+            # 되맞추는 새로고침이 된다.
+            "state_idle",
         }:
             self.current_goal = ""
             self.navigation_active = False
@@ -344,33 +376,23 @@ class VicaStatusAppNode(Node):
     # ------------------------------------------------------------------
     # TF 위치 조회
     # ------------------------------------------------------------------
-    def _update_tf_pose(self) -> None:
-        """map->base_frame TF를 조회해 현재 pose를 갱신합니다.
-
-        조회에 실패하면(TF 미확보) 이전 값을 유지하고, 만료 여부는 last_tf_time
-        나이로 판단합니다.
-        """
-        try:
-            transform = self.tf_buffer.lookup_transform(
-                self.map_frame, self.base_frame, Time()
-            )
-        except TransformException:
-            return
-        translation = transform.transform.translation
-        rotation = transform.transform.rotation
+    def handle_amcl_pose(self, msg: PoseWithCovarianceStamped) -> None:
+        """AMCL이 알려주는 map 기준 pose를 저장합니다. 이동 중에만 옵니다."""
+        pose = msg.pose.pose
         yaw = self._quaternion_to_yaw_degrees(
-            rotation.x, rotation.y, rotation.z, rotation.w
+            pose.orientation.x,
+            pose.orientation.y,
+            pose.orientation.z,
+            pose.orientation.w,
         )
-        self.tf_pose = (float(translation.x), float(translation.y), yaw)
-        self.last_tf_time = time.monotonic()
+        self.map_pose = (float(pose.position.x), float(pose.position.y), yaw)
+        self.last_map_pose_time = time.monotonic()
 
     # ------------------------------------------------------------------
     # 상태 발행
     # ------------------------------------------------------------------
     def publish_status(self) -> None:
         """최신 정보를 앱용 /robot_status JSON으로 발행합니다(타이머 주기 실행)."""
-        self._update_tf_pose()
-
         map_id = self._current_map_id()
         x, y, yaw, linear_x, angular_z = self._read_pose_values()
         nav2_pose_available = self._nav2_pose_available()
@@ -416,8 +438,8 @@ class VicaStatusAppNode(Node):
     def _read_pose_values(self) -> tuple[float, float, float, float, float]:
         """(x, y, yaw_degree, linear_x, angular_z)를 돌려줍니다.
 
-        위치는 TF(map frame)를 우선하고, 아직 없으면 /odom pose를 fallback으로 씁니다.
-        속도는 항상 /odom.twist에서 읽습니다.
+        위치는 AMCL(map frame)을 우선하고, 아직 없으면 /odom pose를 fallback으로
+        씁니다. 속도는 항상 /odom.twist에서 읽습니다.
         """
         # 발행이 끊긴 /odom의 마지막 속도를 계속 쓰면 로봇이 멈춘 뒤에도 moving으로
         # 남을 수 있어, 만료된 odom은 아예 없는 것으로 취급합니다.
@@ -429,8 +451,8 @@ class VicaStatusAppNode(Node):
             linear_x = float(twist.linear.x)
             angular_z = float(twist.angular.z)
 
-        if self._nav2_pose_available() and self.tf_pose is not None:
-            x, y, yaw = self.tf_pose
+        if self._nav2_pose_available() and self.map_pose is not None:
+            x, y, yaw = self.map_pose
             return x, y, yaw, linear_x, angular_z
 
         if not odom_fresh or self.latest_odom is None:
@@ -452,11 +474,31 @@ class VicaStatusAppNode(Node):
         )
 
     def _nav2_pose_available(self) -> bool:
-        """map->base TF가 최근에 확보됐는지로 Nav2 위치 추정 활성 여부를 판단합니다."""
-        if self.tf_pose is None or self.last_tf_time is None:
+        """AMCL pose를 확보했는지로 Nav2 위치 추정 활성 여부를 판단합니다.
+
+        AMCL은 이동 중에만 발행하므로 **정지 중에는 나이로 실효시키지 않는다** —
+        마지막 값이 그대로 유효하다. 움직이는 중인데 갱신이 끊겼을 때만
+        (AMCL 사망·위치 상실) 미확보로 본다. 초기위치를 아직 안 잡은 Nav2
+        재시작 감지는 앱의 초기위치 입구 생사 확인이 맡는다(2026-08-31 수리).
+        """
+        if self.map_pose is None or self.last_map_pose_time is None:
             return False
+        if not self._robot_moving():
+            return True
         timeout_sec = float(self.get_parameter("nav2_data_timeout_sec").value)
-        return (time.monotonic() - self.last_tf_time) <= timeout_sec
+        return (time.monotonic() - self.last_map_pose_time) <= timeout_sec
+
+    def _robot_moving(self) -> bool:
+        """odom 속도로 '지금 움직이는 중'을 판단합니다(_status와 같은 임계값)."""
+        if not self._odom_fresh() or self.latest_odom is None:
+            return False
+        twist = self.latest_odom.twist.twist
+        linear = abs(float(twist.linear.x))
+        angular = abs(float(twist.angular.z))
+        return (
+            linear >= float(self.get_parameter("moving_linear_threshold").value)
+            or angular >= float(self.get_parameter("moving_angular_threshold").value)
+        )
 
     def _odom_fresh(self) -> bool:
         """/odom이 만료 시간 안에 갱신되고 있는지 확인합니다."""
@@ -551,6 +593,43 @@ class VicaStatusAppNode(Node):
     # ------------------------------------------------------------------
     # 오류 사유 원천 (error_source 파라미터가 고릅니다)
     # ------------------------------------------------------------------
+    def _setup_paused_source(self) -> None:
+        """/vica/robot_state의 is_paused를 일시정지 판정의 정본으로 삼습니다.
+
+        [2026-08-21] 종전에는 /vica_goal_event의 goal_paused 한 번만 보고 판단했습니다.
+        그런데 그 이벤트를 발행하는 mission_manager_node._cancel_nav가 Nav2 취소 응답을
+        기다리다 멈추면 이벤트가 아예 나가지 않아, 앱의 '다시 출발' 버튼이 뜰 때도 있고
+        안 뜰 때도 있었습니다. 앱을 나중에 켠 경우에도 지나간 이벤트는 받을 수 없습니다.
+
+        Mission Manager는 같은 사실을 RobotState.is_paused로 1 Hz 상시 발행하고
+        있었습니다(mission_manager_node._publish_robot_state). 이벤트는 빠르고 상태는
+        확실하므로 둘을 함께 씁니다 — 이벤트가 오면 즉시 바뀌고, 놓쳤어도 1초 뒤에
+        상태가 바로잡습니다.
+
+        RobotState에는 목적지 이름이 없으므로 current_goal은 종전대로 goal 이벤트가
+        담당합니다. 이 구독은 is_paused 하나만 대체합니다.
+
+        _setup_health_source와 같은 이유로 import를 감쌉니다. vica_interfaces를 빌드하지
+        않은 환경에서 이 노드가 기동 실패하면 안 됩니다.
+        """
+        try:
+            from vica_interfaces.msg import RobotState
+        except ImportError as exc:
+            self.get_logger().warn(
+                f"vica_interfaces/RobotState import 실패: {exc}. "
+                "일시정지 표시는 goal 이벤트에만 의존합니다."
+            )
+            return
+
+        self.create_subscription(
+            RobotState, "/vica/robot_state", self.handle_robot_state, 10
+        )
+        self.get_logger().info("/vica/robot_state 구독: is_paused 정본")
+
+    def handle_robot_state(self, msg) -> None:
+        """Mission Manager가 1 Hz로 알려주는 일시정지 여부를 반영합니다."""
+        self.navigation_paused = bool(msg.is_paused)
+
     def _setup_health_source(self) -> None:
         """error_source가 health일 때만 /robot/health를 구독합니다.
 
