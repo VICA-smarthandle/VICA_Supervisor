@@ -27,7 +27,9 @@ void main() {
     );
   }
 
-  testWidgets('좁은 화면에서는 Drawer Navigation을 사용한다', (tester) async {
+  // 2026-09-14 리디자인: 좁은 화면은 드로어 대신 하단 탭을 씁니다. 탭에 못 올린
+  // 화면은 '더보기' 안에 있어야 합니다 — 갈 수 있는 곳이 줄면 안 됩니다.
+  testWidgets('좁은 화면에서는 하단 탭과 더보기 목록을 사용한다', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(390, 844);
     addTearDown(() {
@@ -39,8 +41,27 @@ void main() {
     await tester.pump();
 
     final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
-    expect(scaffold.drawer, isA<Drawer>());
-    expect(find.byType(NavigationRail), findsNothing);
+    expect(scaffold.drawer, isNull);
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.byKey(const ValueKey('desktop_sidebar')), findsNothing);
+    expect(tester.takeException(), isNull);
+
+    // 더보기 탭 → 목록 → 설정 화면.
+    await tester.tap(find.text('더보기'));
+    await tester.pumpAndSettle();
+    for (final label in [
+      '현재 위치',
+      '시스템 진단',
+      '알림 및 로그',
+      '설정',
+      '모드 바꾸기',
+      '로그아웃'
+    ]) {
+      expect(find.text(label), findsWidgets, reason: "더보기에 '$label' 이 없습니다.");
+    }
+    await tester.tap(find.text('설정'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(AppBar, '설정'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

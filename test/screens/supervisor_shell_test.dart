@@ -61,10 +61,14 @@ void main() {
       '설정',
     ];
 
+    final sidebar = find.byKey(const ValueKey('desktop_sidebar'));
     for (final label in expected) {
-      // 사이드바 라벨을 누릅니다. 같은 글자가 AppBar 에도 있을 수 있으므로
-      // 마지막(= 사이드바 쪽)을 고릅니다.
-      await tester.tap(find.text(label).last, warnIfMissed: false);
+      // 사이드바 안의 라벨을 누릅니다. 같은 글자가 AppBar 나 본문에도 있을 수
+      // 있으므로 사이드바 안으로 범위를 좁힙니다.
+      await tester.tap(
+        find.descendant(of: sidebar, matching: find.text(label)),
+        warnIfMissed: false,
+      );
       await tester.pumpAndSettle();
 
       expect(
