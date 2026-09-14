@@ -261,11 +261,14 @@ class _ModeCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
+                // 아이콘만 든 상자는 정원으로 둡니다(2026-09-14 시안). 원은 폭과
+                // 높이가 같아야 찌그러지지 않으므로 여백 대신 크기를 고정합니다.
                 Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
+                  width: 52,
+                  height: 52,
+                  decoration: const BoxDecoration(
                     color: VicaColors.accentTint,
-                    borderRadius: BorderRadius.circular(12),
+                    shape: BoxShape.circle,
                   ),
                   child: Icon(mode.icon, size: 28, color: VicaColors.primary),
                 ),

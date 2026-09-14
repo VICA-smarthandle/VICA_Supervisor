@@ -953,7 +953,7 @@ class _NavigationItem {
   final String label;
 }
 
-/// 틸 사각형 안의 번개. 로그인·모드 선택·사이드바가 같은 표식을 씁니다.
+/// 틸 원 안의 번개. 사이드바가 씁니다(시안의 사이드바 로고는 원입니다).
 class _BrandMark extends StatelessWidget {
   const _BrandMark({this.size = 36});
 
@@ -964,9 +964,9 @@ class _BrandMark extends StatelessWidget {
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: VicaColors.primary,
-        borderRadius: BorderRadius.circular(size * 0.28),
+        shape: BoxShape.circle,
       ),
       child: Icon(Icons.bolt, color: Colors.white, size: size * 0.55),
     );

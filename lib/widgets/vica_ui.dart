@@ -1237,7 +1237,7 @@ class _LogIconBox extends StatelessWidget {
       height: 32,
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(8),
+        shape: BoxShape.circle,
       ),
       child: Icon(icon, color: color, size: 18),
     );
@@ -1257,7 +1257,7 @@ class _IconBox extends StatelessWidget {
       height: 50,
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(10),
+        shape: BoxShape.circle,
       ),
       child: Icon(icon, color: color, size: 24),
     );
