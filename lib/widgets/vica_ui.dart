@@ -761,6 +761,14 @@ class VicaDisconnectedNotice extends StatelessWidget {
   }
 }
 
+/// 대시보드 위쪽의 지표 카드. 상태색 하나([color])로 카드 전체의 분위기를 정합니다.
+///
+/// 흰 카드 넷이 나란히 서면 어느 것이 위험한지 숫자를 읽기 전엔 모릅니다.
+/// 카드 배경을 상태색의 옅은 틴트로 깔고 숫자를 상태색으로 찍어, 색만으로
+/// 상태가 읽히게 합니다(2026-09-14 시안). 아이콘과 배지는 흰 원·흰 알약이라
+/// 틴트 위에서 떠 보입니다.
+///
+/// [badge] 와 [unit] 은 선택입니다. 없으면 그 자리를 비웁니다.
 class VicaMetricCard extends StatelessWidget {
   const VicaMetricCard({
     super.key,
@@ -770,48 +778,83 @@ class VicaMetricCard extends StatelessWidget {
     required this.color,
     this.labelMaxLines = 1,
     this.labelFontSize = 12,
+    this.badge,
+    this.unit = '',
   });
 
   /// 글자 배율 1.0에서 카드 한 장이 차지하는 높이입니다.
   ///
   /// 카드를 놓는 쪽이 이 값을 배율에 맞춰 늘려야 합니다. 고정 높이로 두면 배율을
-  /// 올린 기기에서 카드 아래가 잘립니다.
-  static const double baseHeight = 116;
+  /// 올린 기기에서 카드 아래가 잘립니다. 라벨이 두 줄인 카드까지 들어가는
+  /// 값입니다 — 한 줄이면 남는 자리를 아이콘 줄과 숫자 사이가 먹습니다.
+  static const double baseHeight = 124;
 
   final IconData icon;
   final String label;
   final String value;
+
+  /// 카드의 상태색. 숫자·아이콘·배지 글자에 그대로 쓰고, 배경 틴트는
+  /// [tintFor] 로 여기서 계산합니다.
   final Color color;
   final int labelMaxLines;
   final double labelFontSize;
 
+  /// 오른쪽 위 흰 알약에 들어가는 짧은 상태 글자('정상', '이상 없음').
+  final String? badge;
+
+  /// 큰 숫자 옆에 작게 붙는 단위('대', '건').
+  final String unit;
+
+  /// 상태색에서 배경 틴트를 얻습니다.
+  ///
+  /// 브랜드색은 이미 정해 둔 [VicaColors.accentTint] 를 쓰고, 나머지는 상태색을
+  /// 옅게 깝니다. 초록은 다른 색보다 연해 보여 한 단계(12%) 더 진하게 깝니다.
+  static Color tintFor(Color color) {
+    if (color == VicaColors.primary) {
+      return VicaColors.accentTint;
+    }
+    if (color == VicaColors.green) {
+      return color.withValues(alpha: 0.12);
+    }
+    return color.withValues(alpha: 0.10);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return VicaCard(
-      padding: const EdgeInsets.all(14),
-      child: Row(
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: tintFor(color),
+        borderRadius: BorderRadius.circular(kVicaCardRadius),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _MetricIconBox(icon: icon, color: color),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  maxLines: labelMaxLines,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontSize: labelFontSize,
-                        fontWeight: FontWeight.w700,
-                      ),
+          Row(
+            children: [
+              _MetricIconBox(icon: icon, color: color),
+              const SizedBox(width: 6),
+              // 배지는 남는 폭만 씁니다. 좁은 카드에서 아이콘을 밀어내면 안 됩니다.
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: badge == null
+                      ? const SizedBox.shrink()
+                      : _MetricBadge(text: badge!, color: color),
                 ),
-                const SizedBox(height: 3),
-                // 카드가 좁아지면 두 자리 숫자가 두 줄로 접혀 카드 아래로 넘쳤습니다.
-                // 숫자는 줄을 바꾸지 않고 자리에 맞게 줄어들게 합니다. 지표는 한눈에
-                // 읽는 값이라 말줄임표로 자르면 뜻이 사라집니다.
-                FittedBox(
+              ),
+            ],
+          ),
+          const Spacer(),
+          const SizedBox(height: 4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              // 카드가 좁아지면 두 자리 숫자가 두 줄로 접혀 카드 아래로 넘쳤습니다.
+              // 숫자는 줄을 바꾸지 않고 자리에 맞게 줄어들게 합니다. 지표는 한눈에
+              // 읽는 값이라 말줄임표로 자르면 뜻이 사라집니다.
+              Flexible(
+                child: FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
                   child: Text(
@@ -819,12 +862,38 @@ class VicaMetricCard extends StatelessWidget {
                     maxLines: 1,
                     softWrap: false,
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontSize: 25,
+                          fontSize: 28,
+                          height: 1.15,
+                          color: color,
                         ),
                   ),
                 ),
+              ),
+              if (unit.isNotEmpty) ...[
+                const SizedBox(width: 4),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    unit,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: VicaColors.muted,
+                    ),
+                  ),
+                ),
               ],
-            ),
+            ],
+          ),
+          Text(
+            label,
+            maxLines: labelMaxLines,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontSize: labelFontSize,
+                  height: 1.25,
+                  fontWeight: FontWeight.w700,
+                ),
           ),
         ],
       ),
@@ -832,6 +901,7 @@ class VicaMetricCard extends StatelessWidget {
   }
 }
 
+/// 흰 원 안의 아이콘. 틴트 배경 위에서 아이콘이 상태색으로 또렷이 보입니다.
 class _MetricIconBox extends StatelessWidget {
   const _MetricIconBox({required this.icon, required this.color});
 
@@ -841,13 +911,56 @@ class _MetricIconBox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(9),
+      width: 32,
+      height: 32,
+      decoration: const BoxDecoration(
+        color: VicaColors.card,
+        shape: BoxShape.circle,
       ),
-      child: Icon(icon, color: color, size: 21),
+      child: Icon(icon, color: color, size: 18),
+    );
+  }
+}
+
+/// 카드 오른쪽 위의 흰 알약. 점과 글자를 상태색으로 찍습니다.
+class _MetricBadge extends StatelessWidget {
+  const _MetricBadge({required this.text, required this.color});
+
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: VicaColors.card,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                height: 1.2,
+                color: color,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
