@@ -29,6 +29,13 @@ import 'screens/system_diagnostics_screen.dart';
 /// `textTheme`에는 자동으로 적용되지만 `appBarTheme.titleTextStyle`처럼 하위 테마가
 /// 직접 들고 있는 TextStyle에는 적용되지 않는다. 그런 자리에는 이 상수를 손으로 넣는다.
 /// 넣지 않으면 그 자리만 기본 글꼴(Roboto)로 그려져 한글이 네모(□)가 된다.
+///
+/// Gothic A1 으로 바꾸려면 (2026-09-14 디자인 결정, 폰트 파일은 아직 없음):
+///   1. Gothic A1 을 받아 assets/fonts/ 에 넣는다 (SIL OFL 1.1 — NanumGothic 과
+///      같은 라이선스라 지금 방식 그대로 재배포할 수 있다. LICENSE 파일도 함께)
+///   2. pubspec.yaml 의 주석 처리된 GothicA1 블록을 살린다
+///   3. 이 상수를 'GothicA1' 로 바꾼다
+/// 파일 없이 이름만 바꾸면 APK 에서 한글이 전부 네모(□)로 나온다.
 const String kVicaFontFamily = 'NanumGothic';
 
 class VicaSupervisorApp extends StatelessWidget {
@@ -48,7 +55,7 @@ class VicaSupervisorApp extends StatelessWidget {
         ),
         useMaterial3: true,
         appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFFFBF9FF),
+          backgroundColor: VicaColors.card,
           foregroundColor: VicaColors.text,
           elevation: 0,
           centerTitle: false,
@@ -91,14 +98,14 @@ class VicaSupervisorApp extends StatelessWidget {
         inputDecorationTheme: const InputDecorationTheme(
           border: OutlineInputBorder(),
           filled: true,
-          fillColor: Color(0xFFF8FAFD),
+          fillColor: VicaColors.surfaceSunken,
           floatingLabelBehavior: FloatingLabelBehavior.always,
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(10)),
+            borderRadius: BorderRadius.all(Radius.circular(kVicaFieldRadius)),
             borderSide: BorderSide(color: VicaColors.border),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(10)),
+            borderRadius: BorderRadius.all(Radius.circular(kVicaFieldRadius)),
             borderSide: BorderSide(color: VicaColors.primary, width: 2),
           ),
         ),
@@ -107,9 +114,15 @@ class VicaSupervisorApp extends StatelessWidget {
             backgroundColor: VicaColors.primary,
             foregroundColor: Colors.white,
             minimumSize: const Size.fromHeight(46),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(22),
-            ),
+            shape: const StadiumBorder(),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: VicaColors.text,
+            side: const BorderSide(color: VicaColors.borderStrong),
+            minimumSize: const Size.fromHeight(46),
+            shape: const StadiumBorder(),
           ),
         ),
       ),
@@ -430,7 +443,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
               contentPadding: const EdgeInsets.symmetric(horizontal: 24),
               leading: CircleAvatar(
                 radius: 18,
-                backgroundColor: VicaColors.softBlue,
+                backgroundColor: VicaColors.accentTint,
                 child: Text(
                   _usernameInitial(username),
                   style: const TextStyle(
@@ -502,7 +515,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
   }) {
     final selected = _index == index;
     final destination = Material(
-      color: selected ? VicaColors.softBlue : Colors.transparent,
+      color: selected ? VicaColors.accentTint : Colors.transparent,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
         onTap: () => setState(() => _index = index),
@@ -604,7 +617,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
   }) {
     final avatar = CircleAvatar(
       radius: 18,
-      backgroundColor: VicaColors.softBlue,
+      backgroundColor: VicaColors.accentTint,
       child: Text(
         _usernameInitial(username),
         style: const TextStyle(
@@ -877,7 +890,7 @@ class _EmergencyStopOverlay extends StatelessWidget {
                             vertical: 12,
                           ),
                           decoration: BoxDecoration(
-                            color: VicaColors.softBlue,
+                            color: VicaColors.accentTint,
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: const Text(

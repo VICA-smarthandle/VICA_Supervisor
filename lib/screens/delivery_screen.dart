@@ -201,7 +201,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
               width: double.infinity,
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: VicaColors.softBlue,
+                color: VicaColors.accentTint,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(notice.text),

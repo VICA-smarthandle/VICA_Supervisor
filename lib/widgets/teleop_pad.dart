@@ -171,7 +171,7 @@ class _PadButton extends StatelessWidget {
               // 눌려서 명령이 나가는 동안만 진하게(2026-09-04). 근거는 버튼의
               // 눌림이 아니라 provider 의 실제 명령값(isTeleopHeld)이라, 연결이
               // 끊겨 명령이 안 나가면 색도 꺼집니다.
-              color: pressed ? VicaColors.primary : VicaColors.softBlue,
+              color: pressed ? VicaColors.primary : VicaColors.accentTint,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: pressed ? VicaColors.primaryDark : VicaColors.border,

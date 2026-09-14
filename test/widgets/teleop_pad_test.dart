@@ -151,17 +151,17 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(_buttonColor(tester, Icons.keyboard_arrow_up), VicaColors.softBlue);
+    expect(_buttonColor(tester, Icons.keyboard_arrow_up), VicaColors.accentTint);
 
     final gesture = await tester
         .startGesture(tester.getCenter(find.bySemanticsLabel('앞으로')));
     await tester.pump();
     expect(_buttonColor(tester, Icons.keyboard_arrow_up), VicaColors.primary);
     // 다른 버튼은 그대로다 — 명령이 하나뿐이라 하나만 빛난다.
-    expect(_buttonColor(tester, Icons.keyboard_arrow_down), VicaColors.softBlue);
+    expect(_buttonColor(tester, Icons.keyboard_arrow_down), VicaColors.accentTint);
 
     await gesture.up();
     await tester.pump();
-    expect(_buttonColor(tester, Icons.keyboard_arrow_up), VicaColors.softBlue);
+    expect(_buttonColor(tester, Icons.keyboard_arrow_up), VicaColors.accentTint);
   });
 }

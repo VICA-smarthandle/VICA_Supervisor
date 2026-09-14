@@ -1453,7 +1453,7 @@ class _DraftSummary extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: VicaColors.softBlue,
+        color: VicaColors.accentTint,
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(

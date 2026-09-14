@@ -235,7 +235,7 @@ class InitialPoseCard extends StatelessWidget {
           alignment: Alignment.center,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: done ? VicaColors.green : VicaColors.softBlue,
+            color: done ? VicaColors.green : VicaColors.accentTint,
           ),
           child: done
               ? const Icon(Icons.check, size: 14, color: Colors.white)

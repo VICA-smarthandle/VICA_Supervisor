@@ -35,6 +35,14 @@ flutter:
   # NanumGothic은 SIL Open Font License 1.1이라 재배포할 수 있다. 라이선스 전문을
   # assets/fonts/NanumGothic-LICENSE.txt에 함께 둔다 — OFL이 요구한다.
   # Noto Sans CJK도 후보였지만 굵기당 19 MB라 9 MB인 이쪽을 골랐다.
+  #
+  # 2026-09-14 디자인 결정으로 Gothic A1 로 바꾸기로 했다. 폰트 파일을 아직
+  # 받지 않아 블록만 미리 적어 둔다. 없는 asset 을 등록하면 빌드가 깨지므로
+  # 주석으로 둔다 — 파일을 넣은 뒤에 주석을 풀고 app.dart 의
+  # kVicaFontFamily 를 'GothicA1' 로 바꾸면 끝난다.
+  #
+  # Gothic A1 도 SIL Open Font License 1.1 이라 NanumGothic 과 똑같이
+  # 재배포할 수 있다. LICENSE 전문도 함께 두어야 한다(OFL 이 요구한다).
   fonts:
     - family: NanumGothic
       fonts:
@@ -42,6 +50,16 @@ flutter:
           weight: 400
         - asset: assets/fonts/NanumGothicBold.ttf
           weight: 700
+    # - family: GothicA1
+    #   fonts:
+    #     - asset: assets/fonts/GothicA1-Regular.ttf
+    #       weight: 400
+    #     - asset: assets/fonts/GothicA1-Medium.ttf
+    #       weight: 500
+    #     - asset: assets/fonts/GothicA1-SemiBold.ttf
+    #       weight: 600
+    #     - asset: assets/fonts/GothicA1-Bold.ttf
+    #       weight: 700
 
 flutter_launcher_icons:
   android: true

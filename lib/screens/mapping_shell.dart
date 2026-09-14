@@ -283,7 +283,7 @@ class _Step extends StatelessWidget {
                   height: 26,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: done ? VicaColors.green : VicaColors.softBlue,
+                    color: done ? VicaColors.green : VicaColors.accentTint,
                     shape: BoxShape.circle,
                   ),
                   child: done
@@ -424,7 +424,7 @@ class _WaitingForSupervisor extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: VicaColors.softBlue,
+        color: VicaColors.accentTint,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: VicaColors.border),
       ),

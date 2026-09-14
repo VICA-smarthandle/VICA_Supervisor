@@ -264,7 +264,7 @@ class _ModeCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: VicaColors.softBlue,
+                    color: VicaColors.accentTint,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(mode.icon, size: 28, color: VicaColors.primary),
@@ -398,7 +398,7 @@ class _UnknownNotice extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: VicaColors.softBlue,
+        color: VicaColors.accentTint,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: VicaColors.border),
       ),

@@ -6,19 +6,70 @@ import '../core/layout_breakpoints.dart';
 import '../models/robot_status.dart';
 import '../models/supervisor_log.dart';
 
+/// 모서리 둥글기. 화면마다 제각기 숫자를 적으면 같은 카드가 화면마다 다르게
+/// 보인다. Figma 의 라운딩 토큰과 같은 값이다.
+///
+/// 여기(app.dart 가 아니라)에 두는 이유는 import 방향 때문이다. app.dart 는
+/// 이 파일을 읽지만 이 파일은 app.dart 를 읽지 않는다 — 반대로 두면 순환된다.
+///
+/// 버튼에는 상수가 없다. StadiumBorder(완전한 알약)라 높이가 곧 반지름이다.
+const double kVicaCardRadius = 20;
+const double kVicaFieldRadius = 14;
+
+/// 앱 전체가 쓰는 색. 화면은 여기 있는 이름만 쓰고 직접 Color(0x..) 를 적지 않는다.
+///
+/// 값은 Figma 파일 'VICA Supervisor — UI Redesign' 의 VICA Tokens 컬렉션과 같다.
+/// 디자인이 바뀌면 이 열 몇 줄만 고치면 되고, 화면 파일은 건드리지 않는다.
+///
+/// 색 계열을 파랑에서 세이지 틸로 바꿨다(2026-09-14). 이전 팔레트는 채도가 높아
+/// 상태색(초록·빨강)과 브랜드색이 화면에서 서로 다퉜다. 바탕도 회색에 가까워
+/// 카드와 구분이 약했다. 지금은 바탕이 따뜻한 오프화이트라 흰 카드가 떠 보인다.
 class VicaColors {
   const VicaColors._();
 
-  static const background = Color(0xFFF3F6FA);
+  // ---- 바탕과 면 --------------------------------------------------------
+  static const background = Color(0xFFF4F2ED);
   static const card = Colors.white;
-  static const border = Color(0xFFDDE4EE);
-  static const primary = Color(0xFF5465A3);
-  static const primaryDark = Color(0xFF203F91);
-  static const text = Color(0xFF20222B);
-  static const muted = Color(0xFF667085);
-  static const softBlue = Color(0xFFE9EEF8);
-  static const green = Color(0xFF22A86A);
-  static const red = Color(0xFFE8424E);
+
+  /// 카드 **안**에서 한 단계 가라앉히는 칸. 정보 칸·입력칸·짝수 행에 쓴다.
+  /// 카드와 같은 흰색을 쓰면 경계가 사라져 표가 읽히지 않는다.
+  static const surfaceSunken = Color(0xFFFAF8F4);
+
+  static const border = Color(0xFFE6E1D8);
+
+  /// 외곽선 버튼처럼 선 자체가 버튼의 경계일 때. border 는 너무 옅어 눌리는
+  /// 자리로 보이지 않는다.
+  static const borderStrong = Color(0xFFD5CEC2);
+
+  // ---- 브랜드 -----------------------------------------------------------
+  static const primary = Color(0xFF3E7C76);
+  static const primaryDark = Color(0xFF2F625D);
+
+  /// primary 의 옅은 배경. 선택된 메뉴, 안내 상자, 진행 중 배지에 쓴다.
+  static const accentTint = Color(0xFFE5F0EE);
+
+  // ---- 글자 -------------------------------------------------------------
+  static const text = Color(0xFF232622);
+  static const muted = Color(0xFF5E6159);
+
+  /// muted 보다 한 단계 더 옅다. 값 위에 붙는 작은 라벨용.
+  /// 본문에 쓰면 대비가 모자란다.
+  static const textTertiary = Color(0xFF93968C);
+
+  // ---- 상태 -------------------------------------------------------------
+  //
+  // RobotFault.SEVERITY_* 와 짝이 맞는다. 등급이 다섯인데 색은 넷인 이유는
+  // stop 과 fault 가 같은 빨강을 쓰기 때문이다(fault_severity.dart 참고).
+  static const green = Color(0xFF4A8A5C);
+
+  /// 주의(WARN). 이전에는 fault_severity.dart 와 home_position_card.dart 가
+  /// 각자 0xFFE0A800 / 0xFFA8730F 를 들고 있어 같은 '주의'가 두 색이었다.
+  static const warning = Color(0xFFB4802F);
+
+  /// 기능 저하(DEGRADED). 주의보다 붉다 — 등급이 한 단계 위임을 색으로 알린다.
+  static const degraded = Color(0xFFC2743A);
+
+  static const red = Color(0xFFC25F52);
 }
 
 class VicaPage extends StatelessWidget {
@@ -124,7 +175,7 @@ class VicaExpandPanel extends StatelessWidget {
           color: expanded ? VicaColors.primary : VicaColors.border,
           width: expanded ? 1.4 : 1,
         ),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(kVicaCardRadius),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.025),
@@ -141,10 +192,10 @@ class VicaExpandPanel extends StatelessWidget {
           // 가려 보이지 않습니다. 눌러도 아무 반응이 없는 것처럼 보입니다.
           Material(
             color: Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(kVicaCardRadius),
             child: InkWell(
               onTap: enabled ? onTap : null,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(kVicaCardRadius),
               child: Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -226,7 +277,7 @@ class VicaCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: VicaColors.card,
         border: Border.all(color: VicaColors.border),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(kVicaCardRadius),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.025),

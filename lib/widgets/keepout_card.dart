@@ -84,7 +84,7 @@ class KeepoutCard extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: VicaColors.softBlue,
+            color: VicaColors.accentTint,
             borderRadius: BorderRadius.circular(8),
           ),
           child: const Row(
