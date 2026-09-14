@@ -48,7 +48,9 @@ class _HoldingSupervisor extends SupervisorProvider {
 
 Color _buttonColor(WidgetTester tester, IconData icon) {
   final container = tester.widget<Container>(
-    find.ancestor(of: find.byIcon(icon), matching: find.byType(Container)).first,
+    find
+        .ancestor(of: find.byIcon(icon), matching: find.byType(Container))
+        .first,
   );
   return (container.decoration! as BoxDecoration).color!;
 }
@@ -151,17 +153,17 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(_buttonColor(tester, Icons.keyboard_arrow_up), VicaColors.accentTint);
+    expect(_buttonColor(tester, Icons.keyboard_arrow_up), VicaColors.card);
 
     final gesture = await tester
         .startGesture(tester.getCenter(find.bySemanticsLabel('앞으로')));
     await tester.pump();
     expect(_buttonColor(tester, Icons.keyboard_arrow_up), VicaColors.primary);
     // 다른 버튼은 그대로다 — 명령이 하나뿐이라 하나만 빛난다.
-    expect(_buttonColor(tester, Icons.keyboard_arrow_down), VicaColors.accentTint);
+    expect(_buttonColor(tester, Icons.keyboard_arrow_down), VicaColors.card);
 
     await gesture.up();
     await tester.pump();
-    expect(_buttonColor(tester, Icons.keyboard_arrow_up), VicaColors.accentTint);
+    expect(_buttonColor(tester, Icons.keyboard_arrow_up), VicaColors.card);
   });
 }
