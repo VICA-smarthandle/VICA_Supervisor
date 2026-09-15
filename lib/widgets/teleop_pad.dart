@@ -122,11 +122,13 @@ class TeleopPad extends StatelessWidget {
           const SizedBox(height: 4),
           // 문장 끝에서 줄을 바꿉니다(2026-09-14 규칙). '손을 떼면 바로 멈춥니다'는
           // 앞 문장과 뜻이 겹쳐 뺐습니다(2026-09-15).
-          const Text(
-            '버튼을 누르고 있는 동안만 움직입니다.\n'
-            '최대 ${SupervisorProvider.teleopMaxLinear} m/s · '
-            '${SupervisorProvider.teleopMaxAngular} rad/s.',
-            style: TextStyle(color: VicaColors.muted, fontSize: 12),
+          Text(
+            vicaKeepWords(
+              '버튼을 누르고 있는 동안만 움직입니다.\n'
+              '최대 ${SupervisorProvider.teleopMaxLinear} m/s · '
+              '${SupervisorProvider.teleopMaxAngular} rad/s.',
+            ),
+            style: const TextStyle(color: VicaColors.muted, fontSize: 12),
           ),
           const SizedBox(height: 14),
           // 가운데 정지 버튼은 없습니다. 손을 떼면 그 자리에서 멈추므로 누를

@@ -9,6 +9,8 @@
 // 일시정지·재개도 같은 service 로 나갑니다 — 미션이 복귀 중 일시정지를
 // 허용하고(2026-09-03), 재개하면 복귀로 되돌아갑니다.
 import 'package:flutter/material.dart';
+
+import 'vica_ui.dart';
 import 'package:provider/provider.dart';
 
 import '../core/app_settings.dart';
@@ -84,16 +86,19 @@ class DriveControlBar extends StatelessWidget {
   Future<void> _confirmCancel(BuildContext context) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(cancelTitle),
-        content: Text(cancelBody),
+      builder: (dialogContext) => VicaDialog(
+        icon: Icons.stop_circle_outlined,
+        iconColor: VicaColors.red,
+        title: cancelTitle,
+        body: cancelBody,
         actions: [
-          TextButton(
+          VicaCancelButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(keepLabel),
+            label: keepLabel,
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: VicaColors.red),
             child: const Text('취소하기'),
           ),
         ],

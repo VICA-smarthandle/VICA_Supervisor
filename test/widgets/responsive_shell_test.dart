@@ -49,16 +49,12 @@ void main() {
     // 더보기 탭 → 목록 → 설정 화면.
     await tester.tap(find.text('더보기'));
     await tester.pumpAndSettle();
-    for (final label in [
-      '현재 위치',
-      '시스템 진단',
-      '알림 및 로그',
-      '설정',
-      '모드 바꾸기',
-      '로그아웃'
-    ]) {
+    for (final label in ['현재 위치', '시스템 진단', '알림 및 로그', '설정', '로그아웃']) {
       expect(find.text(label), findsWidgets, reason: "더보기에 '$label' 이 없습니다.");
     }
+    // 모드 바꾸기는 목록이 아니라 앱바에 있고, 설정 바로가기도 그 옆에 있습니다.
+    expect(find.byTooltip('모드 바꾸기'), findsOneWidget);
+    expect(find.byTooltip('설정'), findsOneWidget);
     await tester.tap(find.text('설정'));
     await tester.pumpAndSettle();
     expect(find.widgetWithText(AppBar, '설정'), findsOneWidget);

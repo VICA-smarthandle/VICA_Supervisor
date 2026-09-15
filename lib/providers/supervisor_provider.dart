@@ -1877,6 +1877,13 @@ class SupervisorProvider extends ChangeNotifier {
         _keepoutState = KeepoutSaveState.succeeded;
         _keepoutEditing = false;
         _keepoutMaskApplied = response.values['applied'] == true;
+        // Nav2 가 꺼져 있어 적용을 미룬 경우의 문구는 앱이 정합니다. 노드
+        // (ros2/keepout_map_node.py)도 같은 말을 하지만, 젯슨의 노드를 아직
+        // 재시작하지 않았을 때도 화면이 같은 문구를 보여야 합니다(2026-09-15).
+        if (!_keepoutMaskApplied && response.values['reason'] == 'no_nav2') {
+          _keepoutMessage = '금지구역 ${zones.length}개를 저장했습니다. '
+              'Nav2가 실행되면 적용됩니다.';
+        }
         _selectedKeepoutZoneId = null;
         _keepoutBackup = List.of(zones);
       } else {

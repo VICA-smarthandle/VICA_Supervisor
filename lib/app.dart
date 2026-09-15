@@ -290,7 +290,6 @@ class _SupervisorShellState extends State<SupervisorShell> {
         // 폰 전용 '더보기' 목록. 사이드바가 있는 넓은 창에서는 쓰이지 않습니다.
         _MoreScreen(
           onSelect: (title) => setState(() => _index = _titles.indexOf(title)),
-          onChangeMode: () => _changeMode(context),
           onLogout: _confirmLogout,
         ),
       ];
@@ -442,6 +441,12 @@ class _SupervisorShellState extends State<SupervisorShell> {
           onPressed: () => _changeMode(context),
           icon: const Icon(Icons.swap_horiz),
           tooltip: '모드 바꾸기',
+        ),
+        // 설정은 '더보기' 안에도 있지만, 주소를 고칠 일이 잦아 한 번에 갑니다.
+        IconButton(
+          onPressed: () => setState(() => _index = _settingsIndex),
+          icon: const Icon(Icons.settings_outlined),
+          tooltip: '설정',
         ),
         const SizedBox(width: 2),
         _EmergencyStopButton(
@@ -829,9 +834,9 @@ class _SupervisorShellState extends State<SupervisorShell> {
           body: "'${draft.name}'을(를) 아직 ROS2에 저장하지 않았습니다. "
               '모드를 바꾸면 사라집니다.',
           actions: [
-            OutlinedButton(
+            VicaCancelButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('남아서 저장'),
+              label: '남아서 저장',
             ),
             FilledButton.icon(
               onPressed: () => Navigator.of(dialogContext).pop(true),
@@ -882,9 +887,8 @@ class _SupervisorShellState extends State<SupervisorShell> {
         title: '로그아웃',
         body: '로그아웃하면 다음 실행 시 로그인 화면이 표시됩니다.',
         actions: [
-          OutlinedButton(
+          VicaCancelButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('취소'),
           ),
           FilledButton.icon(
             onPressed: () => Navigator.of(dialogContext).pop(true),
@@ -1098,9 +1102,10 @@ class _EmergencyStopButton extends StatelessWidget {
       // 라벨이 없으므로 Tooltip과 semanticLabel로 의미를 전달합니다.
       return Tooltip(
         message: '비상정지',
+        // 42 였는데 앱바에서 너무 커 보여 3/4(32)로 줄였습니다(2026-09-15).
         child: SizedBox(
-          width: 42,
-          height: 42,
+          width: 32,
+          height: 32,
           child: FilledButton(
             onPressed: enabled ? onPressed : null,
             style: FilledButton.styleFrom(
@@ -1109,11 +1114,11 @@ class _EmergencyStopButton extends StatelessWidget {
               disabledBackgroundColor: disabledColor,
               shape: const CircleBorder(),
               padding: EdgeInsets.zero,
-              minimumSize: const Size(42, 42),
+              minimumSize: const Size(32, 32),
             ),
             child: const Icon(
               Icons.warning_amber_rounded,
-              size: 22,
+              size: 17,
               semanticLabel: '비상정지',
             ),
           ),
@@ -1135,28 +1140,22 @@ class _EmergencyStopButton extends StatelessWidget {
   }
 }
 
-/// 폰의 '더보기' 탭. 하단 탭에 못 올린 화면 네 개와 모드 바꾸기·로그아웃.
+/// 폰의 '더보기' 탭. 하단 탭에 못 올린 화면 네 개와 로그아웃.
+///
+/// 모드 바꾸기는 앱바의 ⇄ 버튼이 맡고, 계정 상자는 뺐습니다(2026-09-15).
 class _MoreScreen extends StatelessWidget {
   const _MoreScreen({
     required this.onSelect,
-    required this.onChangeMode,
     required this.onLogout,
   });
 
   final ValueChanged<String> onSelect;
-  final VoidCallback onChangeMode;
   final VoidCallback onLogout;
 
   @override
   Widget build(BuildContext context) {
-    final username = context.watch<AuthProvider>().currentUsername ?? '';
-    final rosBridgeUrl =
-        context.watch<SettingsProvider>().settings.rosBridgeUrl;
-
     return VicaPage(
       children: [
-        _AccountCard(username: username, rosBridgeUrl: rosBridgeUrl),
-        const SizedBox(height: 4),
         _MoreTile(
           icon: Icons.my_location_outlined,
           title: '현재 위치',
@@ -1182,82 +1181,12 @@ class _MoreScreen extends StatelessWidget {
           onTap: () => onSelect('설정'),
         ),
         _MoreTile(
-          icon: Icons.swap_horiz,
-          title: '모드 바꾸기',
-          subtitle: '주행 모드 ↔ 지도 모드',
-          onTap: onChangeMode,
-        ),
-        _MoreTile(
           icon: Icons.logout,
           title: '로그아웃',
           subtitle: '계정에서 나가기',
           onTap: onLogout,
         ),
       ],
-    );
-  }
-}
-
-class _AccountCard extends StatelessWidget {
-  const _AccountCard({required this.username, required this.rosBridgeUrl});
-
-  final String username;
-  final String rosBridgeUrl;
-
-  @override
-  Widget build(BuildContext context) {
-    final initial = username.isEmpty ? '?' : username[0].toUpperCase();
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: VicaColors.text,
-        borderRadius: BorderRadius.circular(kVicaCardRadius),
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 20,
-            backgroundColor: VicaColors.primary,
-            child: Text(
-              initial,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w900,
-                fontSize: 16,
-              ),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  username,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '관리자 · $rosBridgeUrl',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.65),
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -1421,19 +1350,23 @@ class _EmergencyStopOverlay extends StatelessWidget {
                             borderRadius:
                                 BorderRadius.circular(kVicaFieldRadius),
                           ),
-                          child: const Row(
+                          child: Row(
                             children: [
-                              Icon(
+                              const Icon(
                                 Icons.notifications_active_outlined,
                                 size: 18,
                                 color: VicaColors.primaryDark,
                               ),
-                              SizedBox(width: 10),
+                              const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
-                                  '주행 중 비상정지로 비카가 관리자를 호출했습니다. '
-                                  '확인이 필요합니다.',
-                                  style: TextStyle(
+                                  // 문장은 마침표에서 나누고, 그 안은 어절 단위로
+                                  // 폭에 맞춰 접힙니다(넓은 창은 한 줄).
+                                  vicaKeepWords(vicaBreakAtSentences(
+                                    '주행 중 비상정지로 비카가 관리자를 호출했습니다. '
+                                    '확인이 필요합니다.',
+                                  )),
+                                  style: const TextStyle(
                                     fontSize: 13,
                                     height: 1.5,
                                     fontWeight: FontWeight.w800,

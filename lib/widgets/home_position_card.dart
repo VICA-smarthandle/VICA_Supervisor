@@ -129,9 +129,12 @@ class HomePositionCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
         ],
-        const Text(
-          '안내가 끝나면 로봇이 이 자리로 돌아옵니다. 지도당 하나만 설정 가능합니다.',
-          style: TextStyle(color: VicaColors.muted, fontSize: 13),
+        Text(
+          // 마침표에서 줄을 나누고 그 안은 어절 단위로 접힙니다(2026-09-15).
+          vicaKeepWords(vicaBreakAtSentences(
+            '안내가 끝나면 로봇이 이 자리로 돌아옵니다. 지도당 하나만 설정 가능합니다.',
+          )),
+          style: const TextStyle(color: VicaColors.muted, fontSize: 13),
         ),
         const SizedBox(height: 14),
         ..._body(context),
@@ -537,7 +540,8 @@ class _InfoBox extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              text,
+              // 안내 상자 글은 모두 마침표에서 줄을 나누고 어절 단위로 접힙니다.
+              vicaKeepWords(vicaBreakAtSentences(text)),
               style: const TextStyle(color: VicaColors.muted, fontSize: 12.5),
             ),
           ),

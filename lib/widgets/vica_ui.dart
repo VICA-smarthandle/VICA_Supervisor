@@ -412,7 +412,8 @@ class VicaDialog extends StatelessWidget {
               if (body != null) ...[
                 const SizedBox(height: 8),
                 Text(
-                  body!,
+                  // 문장은 마침표에서 나누고, 그 안은 어절 단위로 폭에 맞춰 접힙니다.
+                  vicaKeepWords(vicaBreakAtSentences(body!)),
                   style: const TextStyle(
                     color: VicaColors.muted,
                     fontSize: 14,
@@ -433,12 +434,44 @@ class VicaDialog extends StatelessWidget {
               ],
               if (actions.isNotEmpty) ...[
                 const SizedBox(height: 20),
-                VicaButtonRow(children: actions),
+                // 폰(360~412)에서도 취소·확정을 나란히 둡니다. 기본 접힘 폭 320 은
+                // 팝업 안쪽 폭(390 폰에서 306)보다 커서 세로로 쌓였습니다(2026-09-15).
+                VicaButtonRow(foldWidth: 240, children: actions),
               ],
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// 팝업의 '취소' 자리 버튼. 초록(브랜드색) 테두리와 글자의 외곽선 버튼입니다.
+///
+/// 확정 버튼(채움)과 나란히 놓여 "물러나는 쪽"이 한눈에 구분됩니다(2026-09-15).
+/// 글자는 '취소'가 기본이고, '계속 편집'처럼 물러나는 뜻의 다른 말도 넣습니다.
+class VicaCancelButton extends StatelessWidget {
+  const VicaCancelButton({
+    super.key,
+    required this.onPressed,
+    this.label = '취소',
+  });
+
+  final VoidCallback? onPressed;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton(
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: VicaColors.primary,
+        side: const BorderSide(color: VicaColors.primary),
+        // 좌우 여백을 줄여 '이름 없이 저장' 같은 긴 글자도 360 폰에서 한 줄에
+        // 들어가게 합니다.
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+      ),
+      child: Text(label, textAlign: TextAlign.center),
     );
   }
 }
@@ -724,7 +757,49 @@ class VicaSectionTitle extends StatelessWidget {
 /// 'ws://192.168.0.31' 처럼 공백이 따라오지 않는 점은 문장 끝이 아니므로 그대로
 /// 둡니다. 글자는 바꾸지 않고 줄만 바꿉니다.
 String vicaBreakAtSentences(String text) {
-  return text.replaceAll(RegExp(r'\.\s+'), '.\n');
+  // 마침표 뒤 공백을 문장 경계로 봅니다. 이미 있는 줄바꿈(문단 띄움 \n\n)은
+  // 그대로 둡니다.
+  final sentences = <String>[];
+  var start = 0;
+  for (final match in RegExp(r'\.[ \t]+').allMatches(text)) {
+    sentences.add(text.substring(start, match.start + 1));
+    start = match.end;
+  }
+  sentences.add(text.substring(start));
+
+  final out = StringBuffer(sentences.first);
+  var previous = sentences.first;
+  for (final next in sentences.skip(1)) {
+    // 짧은 문장은 줄을 따로 차지하지 않고 이웃 문장에 붙입니다. 문장마다
+    // 줄을 바꾸면 '저장 중입니다.' 같은 한마디가 한 줄을 다 먹어 안내가
+    // 길어집니다(2026-09-15 사용자 지시).
+    final joins = previous.trim().length <= kVicaShortSentence ||
+        next.trim().length <= kVicaShortSentence;
+    out.write(joins ? ' ' : '\n');
+    out.write(next);
+    previous = next;
+  }
+  return out.toString();
+}
+
+/// 이 글자 수 이하의 문장은 마침표 줄바꿈에서 이웃 문장과 한 줄로 붙습니다.
+const int kVicaShortSentence = 16;
+
+/// 어절(띄어쓰기) 단위로만 줄이 바뀌게 합니다.
+///
+/// Flutter 는 한글을 글자 사이 아무 데서나 끊어 '호출했' + '습니다' 처럼 접습니다.
+/// 띄어쓰기가 아닌 글자 사이마다 보이지 않는 단어 결합자(U+2060)를 끼우면 줄은
+/// 띄어쓰기에서만 바뀝니다. 넓은 창에서는 한 줄, 좁은 창에서는 어절 단위로 접히므로
+/// 줄바꿈을 미리 박아 둘 필요가 없습니다(2026-09-15).
+///
+/// 글자가 실제로 바뀌므로 시험에서 find.text 로 찾는 문구에는 같은 변환을 거쳐야
+/// 하고, 띄어쓰기 없는 긴 값(URL·파일 이름)은 한 줄에 못 들어가면 넘칩니다 —
+/// 그런 값에는 쓰지 않습니다.
+String vicaKeepWords(String text) {
+  return text.replaceAllMapped(
+    RegExp(r'(\S)(?=\S)'),
+    (m) => '${m[1]}\u2060',
+  );
 }
 
 // ROS 연결이 끊긴 동안 로봇 상태를 신뢰할 수 없다는 것을 화면에 알립니다.
@@ -762,8 +837,10 @@ class VicaDisconnectedNotice extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  vicaBreakAtSentences(
-                    detail.isEmpty ? '로봇 상태를 받을 수 없습니다.' : detail,
+                  vicaKeepWords(
+                    vicaBreakAtSentences(
+                      detail.isEmpty ? '로봇 상태를 받을 수 없습니다.' : detail,
+                    ),
                   ),
                   style: const TextStyle(fontSize: 13),
                 ),

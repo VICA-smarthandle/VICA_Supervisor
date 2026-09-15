@@ -136,7 +136,10 @@ void main() {
     // 값이 코드에서만 바뀌고 문구가 그대로면 사람이 잘못 안다.
     await pump(tester);
     expect(
-      find.textContaining('${SupervisorProvider.teleopMaxLinear} m/s'),
+      // 안내문은 어절 단위 줄바꿈(vicaKeepWords)을 거치므로 같은 변환으로 찾습니다.
+      find.textContaining(
+        vicaKeepWords('${SupervisorProvider.teleopMaxLinear} m/s'),
+      ),
       findsOneWidget,
     );
   });

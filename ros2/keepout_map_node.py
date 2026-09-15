@@ -316,17 +316,18 @@ class KeepoutMapNode(Node):
         """
         yaml_path = km.keepout_paths(self.maps_root, map_id)["yaml"]
         if self._load_map_client is None:
+            # 문구는 앱 화면에 그대로 뜬다. "결국 Nav2 를 켜야 적용된다"는 뜻만
+            # 짧게 전한다(2026-09-15 사용자 수정).
             return (
                 False,
                 "no_nav2",
-                "Nav2 마스크 서버에 연결할 수 없어 적용은 미뤘습니다.",
+                "Nav2가 실행되면 적용됩니다.",
             )
         if not self._load_map_client.service_is_ready():
             return (
                 False,
                 "no_nav2",
-                "Nav2가 실행 중이 아니라 적용은 미뤘습니다. "
-                "주행 스택을 켠 뒤 다시 적용해 주세요.",
+                "Nav2가 실행되면 적용됩니다.",
             )
 
         request = self._load_map_type.Request()

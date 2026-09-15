@@ -157,13 +157,11 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
         supervisor.consumeGoalAlert();
         showDialog<void>(
           context: context,
-          builder: (dialogContext) => AlertDialog(
-            icon: Icon(
-              alert.isFailure ? Icons.error_outline : Icons.info_outline,
-              color: alert.isFailure ? VicaColors.red : VicaColors.primaryDark,
-            ),
-            title: Text(alert.title),
-            content: Text(alert.description),
+          builder: (dialogContext) => VicaDialog(
+            icon: alert.isFailure ? Icons.error_outline : Icons.info_outline,
+            iconColor: alert.isFailure ? VicaColors.red : VicaColors.primary,
+            title: alert.title,
+            body: alert.description,
             actions: [
               FilledButton(
                 onPressed: () => Navigator.of(dialogContext).pop(),
@@ -182,12 +180,10 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
     final sent = notice.result.sent;
     showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: Icon(
-          sent ? Icons.sms_outlined : Icons.sms_failed_outlined,
-          color: sent ? VicaColors.green : VicaColors.red,
-        ),
-        title: Text(sent ? '도착 문자를 보냈습니다' : '도착 문자가 가지 않았습니다'),
+      builder: (dialogContext) => VicaDialog(
+        icon: sent ? Icons.sms_outlined : Icons.sms_failed_outlined,
+        iconColor: sent ? VicaColors.green : VicaColors.red,
+        title: sent ? '도착 문자를 보냈습니다' : '도착 문자가 가지 않았습니다',
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -323,17 +319,15 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
     final settings = context.read<SettingsProvider>().settings;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('배송 출발'),
-        content: Text(
-          '${location.name}(으)로 물건을 보냅니다.\n'
-          '도착하면 ${maskContactPhone(location.contactPhone)} 로 문자를 보냅니다.\n\n'
-          '로봇 주변에 사람과 장애물이 없는지 확인하세요.',
-        ),
+      builder: (dialogContext) => VicaDialog(
+        icon: Icons.play_arrow_outlined,
+        title: '배송 출발',
+        body: '${location.name}(으)로 물건을 보냅니다. '
+            '도착하면 ${maskContactPhone(location.contactPhone)} 로 문자를 보냅니다.\n\n'
+            '로봇 주변에 사람과 장애물이 없는지 확인하세요.',
         actions: [
-          TextButton(
+          VicaCancelButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('취소'),
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
