@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vica_supervisor/core/app_settings.dart';
 import 'package:vica_supervisor/models/pose_check_result.dart';
 import 'package:vica_supervisor/widgets/initial_pose_card.dart';
+import 'package:vica_supervisor/widgets/vica_ui.dart';
 
 PoseCheckResult result({
   bool ok = true,
@@ -36,8 +37,7 @@ PoseCheckResult result({
 /// 문구가 버튼 폭에 따라 '지금 위치로 확정'(넓을 때)과 '지금 위치\n확정'
 /// (좁을 때)으로 갈리므로(2026-09-02), 문구가 아니라 **아이콘**으로 찾습니다.
 /// 이 카드에서 체크 아이콘을 쓰는 버튼은 이것 하나뿐입니다.
-Finder _commitButton() =>
-    find.widgetWithIcon(FilledButton, Icons.check);
+Finder _commitButton() => find.widgetWithIcon(FilledButton, Icons.check);
 
 void main() {
   Future<int> pump(
@@ -153,7 +153,7 @@ void main() {
 
   testWidgets('방향을 모르겠음으로 두면 대가를 알려준다', (tester) async {
     await pump(tester, picked: const Offset(1, 2), direction: null);
-    expect(find.textContaining('360°'), findsOneWidget);
+    expect(find.textContaining(vicaKeepWords('360°')), findsOneWidget);
   });
 
   group('방향 버튼이 지도 그림 기준이라는 것', () {

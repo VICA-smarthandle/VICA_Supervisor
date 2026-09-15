@@ -250,9 +250,11 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                 const SizedBox(height: 14),
                 if (driving || paused) ...[
                   Text(
-                    paused
-                        ? '$drivingGoal(으)로 가던 중 일시정지했습니다. 다시 출발하거나 취소할 수 있습니다.'
-                        : '$drivingGoal(으)로 주행 중입니다.',
+                    vicaKeepWords(vicaBreakAtSentences(
+                      paused
+                          ? '$drivingGoal(으)로 가던 중 일시정지했습니다. 다시 출발하거나 취소할 수 있습니다.'
+                          : '$drivingGoal(으)로 주행 중입니다.',
+                    )),
                     style: const TextStyle(
                       color: VicaColors.muted,
                       fontSize: 13,
@@ -300,9 +302,12 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                   ),
                   if (!supervisor.home!.visitedOk) ...[
                     const SizedBox(height: 6),
-                    const Text(
-                      '홈에 아직 가 본 적이 없습니다. 지도 설정 화면에서 확인해주세요.',
-                      style: TextStyle(color: VicaColors.muted, fontSize: 12),
+                    Text(
+                      vicaKeepWords(vicaBreakAtSentences(
+                        '홈에 아직 가 본 적이 없습니다. 지도 설정 화면에서 확인해주세요.',
+                      )),
+                      style: const TextStyle(
+                          color: VicaColors.muted, fontSize: 12),
                     ),
                   ],
                 ],
@@ -446,9 +451,11 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            blocked.isEmpty
-                ? 'Nav2 를 켠 직후에는 로봇이 자기 위치를 모릅니다. 초기위치를 설정해주세요.'
-                : blocked,
+            vicaKeepWords(vicaBreakAtSentences(
+              blocked.isEmpty
+                  ? 'Nav2 를 켠 직후에는 로봇이 자기 위치를 모릅니다. 초기위치를 설정해주세요.'
+                  : blocked,
+            )),
             style: const TextStyle(color: VicaColors.muted, fontSize: 13),
           ),
           const SizedBox(height: 12),

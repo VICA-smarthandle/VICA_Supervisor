@@ -253,9 +253,11 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
             ],
           ),
           const SizedBox(height: 6),
-          const Text(
-            '연락처가 저장된 장소만 보입니다. 배송을 원하시는 장소는 연락처를 넣어주세요.',
-            style: TextStyle(color: VicaColors.muted, fontSize: 13),
+          Text(
+            vicaKeepWords(vicaBreakAtSentences(
+              '연락처가 저장된 장소만 보입니다. 배송을 원하시는 장소는 연락처를 넣어주세요.',
+            )),
+            style: const TextStyle(color: VicaColors.muted, fontSize: 13),
           ),
           const SizedBox(height: 14),
           if (candidates.isEmpty)
@@ -475,22 +477,26 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
           if (job.phase == DeliveryPhase.aborted) ...[
             const SizedBox(height: 6),
             Text(
-              '문자를 보내지 않았습니다. 사유: ${job.abortReason}',
+              vicaKeepWords(vicaBreakAtSentences(
+                '문자를 보내지 않았습니다. 사유: ${job.abortReason}',
+              )),
               style: const TextStyle(color: VicaColors.red, fontSize: 13),
             ),
           ],
           if (job.phase == DeliveryPhase.unconfirmed) ...[
             const SizedBox(height: 6),
             Text(
-              '${job.abortReason} 로봇이 문 앞에 있으면 "도착 처리"를, '
-              '아니면 "지우기"를 누르세요.',
+              vicaKeepWords(vicaBreakAtSentences(
+                '${job.abortReason} 로봇이 문 앞에 있으면 "도착 처리"를, '
+                '아니면 "지우기"를 누르세요.',
+              )),
               style: const TextStyle(color: VicaColors.red, fontSize: 13),
             ),
           ],
           if (job.returnNote.isNotEmpty) ...[
             const SizedBox(height: 6),
             Text(
-              '홈 복귀: ${job.returnNote}',
+              vicaKeepWords(vicaBreakAtSentences('홈 복귀: ${job.returnNote}')),
               style: const TextStyle(color: VicaColors.red, fontSize: 13),
             ),
           ],

@@ -13,6 +13,7 @@ import 'package:vica_supervisor/models/location_point.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/screens/delivery_screen.dart';
+import 'package:vica_supervisor/widgets/vica_ui.dart';
 
 const _office = LocationPoint(
   locationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -134,7 +135,7 @@ void main() {
           .copyWith(phase: DeliveryPhase.aborted, abortReason: '경로 막힘'),
     );
     await tester.pump();
-    expect(find.textContaining('문자를 보내지 않았습니다'), findsOneWidget);
+    expect(find.textContaining(vicaKeepWords('문자를 보내지 않았습니다')), findsOneWidget);
 
     await tester.tap(find.text('배송 완료 · 지우기'));
     await tester.pump();
@@ -158,7 +159,8 @@ void main() {
     await tester.tap(find.text('복귀 취소'));
     await tester.pump();
     expect(supervisor.delivery?.returnAt, isNull);
-    expect(find.text('홈이 없습니다'), findsOneWidget, reason: '시험엔 홈이 없어 복귀 버튼이 잠긴다');
+    expect(find.text('홈이 없습니다'), findsOneWidget,
+        reason: '시험엔 홈이 없어 복귀 버튼이 잠긴다');
     expect(find.text('지우기'), findsOneWidget);
   });
 
