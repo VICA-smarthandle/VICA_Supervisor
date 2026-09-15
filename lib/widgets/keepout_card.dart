@@ -203,10 +203,14 @@ class KeepoutCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          OutlinedButton.icon(
-            onPressed: connected ? onReload : null,
-            icon: const Icon(Icons.refresh, size: 18),
-            label: const Text('다시 불러오기'),
+          // Expanded 가 없으면 버튼 테마의 최소 폭(무한대) 때문에 "무한 폭"
+          // 배치 오류가 납니다(2026-09-14). 아래 저장|취소 줄도 같습니다.
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: connected ? onReload : null,
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('다시 불러오기'),
+            ),
           ),
         ],
       );
@@ -247,9 +251,11 @@ class KeepoutCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 10),
-            OutlinedButton(
-              onPressed: _saving ? null : onCancel,
-              child: const Text('취소'),
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _saving ? null : onCancel,
+                child: const Text('취소'),
+              ),
             ),
           ],
         ),

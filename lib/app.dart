@@ -46,6 +46,178 @@ import 'screens/system_diagnostics_screen.dart';
 /// 파일 없이 이름만 바꾸면 APK 에서 한글이 전부 네모(□)로 나온다.
 const String kVicaFontFamily = 'NanumGothic';
 
+/// 앱 전체 테마. 시험도 이것을 써야 실제 화면과 같은 규칙으로 그려집니다.
+///
+/// 2026-09-14 교훈: 버튼 테마의 minimumSize 가 Size.fromHeight(46)(= 폭 무한대)라
+/// Row 안에 Expanded 없이 놓인 버튼이 "무한 폭" 배치 오류를 냈다. 화면 시험은
+/// 기본 테마로 돌고 있어 그 오류를 못 잡았고, 실제 앱에서만 화면이 깨졌다.
+/// 시험이 이 함수를 쓰면 같은 일이 다시 숨지 못한다.
+ThemeData vicaTheme() {
+  return ThemeData(
+    fontFamily: kVicaFontFamily,
+    scaffoldBackgroundColor: VicaColors.background,
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: VicaColors.primary,
+      surface: VicaColors.background,
+    ),
+    useMaterial3: true,
+    appBarTheme: const AppBarTheme(
+      backgroundColor: VicaColors.card,
+      foregroundColor: VicaColors.text,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      centerTitle: false,
+      // fontFamily를 여기 직접 넣어야 한다. ThemeData.fontFamily는 textTheme에만
+      // 적용되고 appBarTheme이 들고 있는 TextStyle에는 닿지 않는다. 빠뜨렸더니
+      // 햄버거 메뉴 옆 제목만 한글이 네모로 나왔다(2026-08-01 Jetson 화면 확인).
+      titleTextStyle: TextStyle(
+        fontFamily: kVicaFontFamily,
+        color: VicaColors.text,
+        fontSize: 20,
+        fontWeight: FontWeight.w900,
+      ),
+    ),
+    textTheme: const TextTheme(
+      headlineSmall: TextStyle(
+        color: VicaColors.text,
+        fontSize: 26,
+        fontWeight: FontWeight.w900,
+        letterSpacing: 0,
+      ),
+      titleMedium: TextStyle(
+        color: VicaColors.text,
+        fontSize: 18,
+        fontWeight: FontWeight.w900,
+        letterSpacing: 0,
+      ),
+      titleSmall: TextStyle(
+        color: VicaColors.text,
+        fontSize: 15,
+        fontWeight: FontWeight.w800,
+        letterSpacing: 0,
+      ),
+      bodyMedium: TextStyle(
+        color: VicaColors.muted,
+        fontSize: 16,
+        height: 1.4,
+        letterSpacing: 0,
+      ),
+      bodySmall: TextStyle(
+        color: VicaColors.muted,
+        fontSize: 13,
+        height: 1.3,
+        letterSpacing: 0,
+      ),
+      labelSmall: TextStyle(
+        color: VicaColors.textTertiary,
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0,
+      ),
+    ),
+    inputDecorationTheme: const InputDecorationTheme(
+      border: OutlineInputBorder(),
+      filled: true,
+      fillColor: VicaColors.surfaceSunken,
+      floatingLabelBehavior: FloatingLabelBehavior.always,
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(kVicaFieldRadius)),
+        borderSide: BorderSide(color: VicaColors.border),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(kVicaFieldRadius)),
+        borderSide: BorderSide(color: VicaColors.primary, width: 2),
+      ),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: VicaColors.primary,
+        foregroundColor: Colors.white,
+        minimumSize: const Size.fromHeight(46),
+        shape: const StadiumBorder(),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: VicaColors.text,
+        backgroundColor: VicaColors.card,
+        side: const BorderSide(color: VicaColors.borderStrong),
+        minimumSize: const Size.fromHeight(46),
+        shape: const StadiumBorder(),
+      ),
+    ),
+    // 폰 하단 탭. 고른 칸은 옅은 틸 사각형 안에 진한 틸 글자.
+    navigationBarTheme: NavigationBarThemeData(
+      backgroundColor: VicaColors.card,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      height: 68,
+      indicatorColor: VicaColors.accentTint,
+      indicatorShape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(kVicaFieldRadius),
+      ),
+      labelTextStyle: WidgetStateProperty.resolveWith(
+        (states) => TextStyle(
+          fontFamily: kVicaFontFamily,
+          fontSize: 11,
+          fontWeight: states.contains(WidgetState.selected)
+              ? FontWeight.w800
+              : FontWeight.w600,
+          color: states.contains(WidgetState.selected)
+              ? VicaColors.primaryDark
+              : VicaColors.muted,
+        ),
+      ),
+      iconTheme: WidgetStateProperty.resolveWith(
+        (states) => IconThemeData(
+          size: 22,
+          color: states.contains(WidgetState.selected)
+              ? VicaColors.primaryDark
+              : VicaColors.muted,
+        ),
+      ),
+    ),
+    // 팝업은 전부 같은 모서리·흰 면. 화면마다 따로 적지 않는다.
+    dialogTheme: DialogThemeData(
+      backgroundColor: VicaColors.card,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(kVicaCardRadius),
+      ),
+      titleTextStyle: const TextStyle(
+        fontFamily: kVicaFontFamily,
+        color: VicaColors.text,
+        fontSize: 18,
+        fontWeight: FontWeight.w900,
+      ),
+      contentTextStyle: const TextStyle(
+        fontFamily: kVicaFontFamily,
+        color: VicaColors.muted,
+        fontSize: 14,
+        height: 1.5,
+      ),
+    ),
+    // 저장 완료 같은 짧은 알림은 어두운 토스트 하나로 통일한다.
+    snackBarTheme: SnackBarThemeData(
+      backgroundColor: VicaColors.text,
+      contentTextStyle: const TextStyle(
+        fontFamily: kVicaFontFamily,
+        color: Colors.white,
+        fontSize: 14,
+      ),
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(kVicaFieldRadius),
+      ),
+    ),
+    dividerTheme: const DividerThemeData(
+      color: VicaColors.border,
+      thickness: 1,
+      space: 1,
+    ),
+  );
+}
+
 class VicaSupervisorApp extends StatelessWidget {
   const VicaSupervisorApp({super.key});
 
@@ -54,169 +226,7 @@ class VicaSupervisorApp extends StatelessWidget {
     return MaterialApp(
       title: 'VICA_Supervisor',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        fontFamily: kVicaFontFamily,
-        scaffoldBackgroundColor: VicaColors.background,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: VicaColors.primary,
-          surface: VicaColors.background,
-        ),
-        useMaterial3: true,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: VicaColors.card,
-          foregroundColor: VicaColors.text,
-          elevation: 0,
-          scrolledUnderElevation: 0,
-          centerTitle: false,
-          // fontFamily를 여기 직접 넣어야 한다. ThemeData.fontFamily는 textTheme에만
-          // 적용되고 appBarTheme이 들고 있는 TextStyle에는 닿지 않는다. 빠뜨렸더니
-          // 햄버거 메뉴 옆 제목만 한글이 네모로 나왔다(2026-08-01 Jetson 화면 확인).
-          titleTextStyle: TextStyle(
-            fontFamily: kVicaFontFamily,
-            color: VicaColors.text,
-            fontSize: 20,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        textTheme: const TextTheme(
-          headlineSmall: TextStyle(
-            color: VicaColors.text,
-            fontSize: 26,
-            fontWeight: FontWeight.w900,
-            letterSpacing: 0,
-          ),
-          titleMedium: TextStyle(
-            color: VicaColors.text,
-            fontSize: 18,
-            fontWeight: FontWeight.w900,
-            letterSpacing: 0,
-          ),
-          titleSmall: TextStyle(
-            color: VicaColors.text,
-            fontSize: 15,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0,
-          ),
-          bodyMedium: TextStyle(
-            color: VicaColors.muted,
-            fontSize: 16,
-            height: 1.4,
-            letterSpacing: 0,
-          ),
-          bodySmall: TextStyle(
-            color: VicaColors.muted,
-            fontSize: 13,
-            height: 1.3,
-            letterSpacing: 0,
-          ),
-          labelSmall: TextStyle(
-            color: VicaColors.textTertiary,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0,
-          ),
-        ),
-        inputDecorationTheme: const InputDecorationTheme(
-          border: OutlineInputBorder(),
-          filled: true,
-          fillColor: VicaColors.surfaceSunken,
-          floatingLabelBehavior: FloatingLabelBehavior.always,
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(kVicaFieldRadius)),
-            borderSide: BorderSide(color: VicaColors.border),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(kVicaFieldRadius)),
-            borderSide: BorderSide(color: VicaColors.primary, width: 2),
-          ),
-        ),
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            backgroundColor: VicaColors.primary,
-            foregroundColor: Colors.white,
-            minimumSize: const Size.fromHeight(46),
-            shape: const StadiumBorder(),
-          ),
-        ),
-        outlinedButtonTheme: OutlinedButtonThemeData(
-          style: OutlinedButton.styleFrom(
-            foregroundColor: VicaColors.text,
-            backgroundColor: VicaColors.card,
-            side: const BorderSide(color: VicaColors.borderStrong),
-            minimumSize: const Size.fromHeight(46),
-            shape: const StadiumBorder(),
-          ),
-        ),
-        // 폰 하단 탭. 고른 칸은 옅은 틸 사각형 안에 진한 틸 글자.
-        navigationBarTheme: NavigationBarThemeData(
-          backgroundColor: VicaColors.card,
-          surfaceTintColor: Colors.transparent,
-          elevation: 0,
-          height: 68,
-          indicatorColor: VicaColors.accentTint,
-          indicatorShape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(kVicaFieldRadius),
-          ),
-          labelTextStyle: WidgetStateProperty.resolveWith(
-            (states) => TextStyle(
-              fontFamily: kVicaFontFamily,
-              fontSize: 11,
-              fontWeight: states.contains(WidgetState.selected)
-                  ? FontWeight.w800
-                  : FontWeight.w600,
-              color: states.contains(WidgetState.selected)
-                  ? VicaColors.primaryDark
-                  : VicaColors.muted,
-            ),
-          ),
-          iconTheme: WidgetStateProperty.resolveWith(
-            (states) => IconThemeData(
-              size: 22,
-              color: states.contains(WidgetState.selected)
-                  ? VicaColors.primaryDark
-                  : VicaColors.muted,
-            ),
-          ),
-        ),
-        // 팝업은 전부 같은 모서리·흰 면. 화면마다 따로 적지 않는다.
-        dialogTheme: DialogThemeData(
-          backgroundColor: VicaColors.card,
-          surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(kVicaCardRadius),
-          ),
-          titleTextStyle: const TextStyle(
-            fontFamily: kVicaFontFamily,
-            color: VicaColors.text,
-            fontSize: 18,
-            fontWeight: FontWeight.w900,
-          ),
-          contentTextStyle: const TextStyle(
-            fontFamily: kVicaFontFamily,
-            color: VicaColors.muted,
-            fontSize: 14,
-            height: 1.5,
-          ),
-        ),
-        // 저장 완료 같은 짧은 알림은 어두운 토스트 하나로 통일한다.
-        snackBarTheme: SnackBarThemeData(
-          backgroundColor: VicaColors.text,
-          contentTextStyle: const TextStyle(
-            fontFamily: kVicaFontFamily,
-            color: Colors.white,
-            fontSize: 14,
-          ),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(kVicaFieldRadius),
-          ),
-        ),
-        dividerTheme: const DividerThemeData(
-          color: VicaColors.border,
-          thickness: 1,
-          space: 1,
-        ),
-      ),
+      theme: vicaTheme(),
       home: const AuthGate(),
     );
   }
@@ -800,8 +810,8 @@ class _SupervisorShellState extends State<SupervisorShell> {
         context,
         icon: Icons.place_outlined,
         title: '매핑이 진행 중입니다',
-        body: '${mapping.state.label} 상태입니다. 지도 모드에서 저장하거나 종료한 뒤에 '
-            '모드를 바꿔 주세요.',
+        body: '${mapping.state.label}입니다.\n'
+            '지도 모드에서 저장하거나 종료한 뒤에 모드를 바꿔 주세요.',
       );
       return;
     }

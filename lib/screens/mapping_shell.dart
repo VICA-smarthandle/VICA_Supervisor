@@ -499,9 +499,13 @@ class _PrepareStep extends StatelessWidget {
               Icon(Icons.check_circle_outline,
                   size: 16, color: VicaColors.green),
               SizedBox(width: 8),
-              Text(
-                '충돌 없음. 필요한 노드가 모두 떠 있습니다.',
-                style: TextStyle(fontSize: 12, color: VicaColors.green),
+              // 좁은 창(320)에서 글자가 오른쪽으로 74px 넘쳤습니다(2026-09-15).
+              // 남는 폭만 쓰고 줄을 바꾸게 합니다.
+              Expanded(
+                child: Text(
+                  '충돌 없음. 필요한 노드가 모두 떠 있습니다.',
+                  style: TextStyle(fontSize: 12, color: VicaColors.green),
+                ),
               ),
             ],
           ),
@@ -608,21 +612,18 @@ class _MappingStep extends StatelessWidget {
         const SizedBox(height: 12),
         TeleopPad(enabled: status?.state == MappingState.mapping),
         const SizedBox(height: 4),
-        Row(
-          children: [
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: status?.canSave == true ? onGoSave : null,
-                icon: const Icon(Icons.save_outlined),
-                label: const Text('지도 작성 완료'),
-              ),
-            ),
-            const SizedBox(width: 10),
-            OutlinedButton(
-              onPressed: onStop,
-              child: const Text('취소'),
-            ),
-          ],
+        // 버튼 둘을 위아래로 놓습니다(2026-09-14 시안). 전에는 Row 에 두었는데,
+        // 버튼 테마의 최소 폭이 무한대라 Expanded 없이 놓인 '취소'가 "무한 폭"
+        // 배치 오류를 내고 이 화면 전체가 그려지지도, 눌리지도 않았습니다.
+        FilledButton.icon(
+          onPressed: status?.canSave == true ? onGoSave : null,
+          icon: const Icon(Icons.save_outlined),
+          label: const Text('지도 작성 완료'),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton(
+          onPressed: onStop,
+          child: const Text('취소'),
         ),
       ],
     );

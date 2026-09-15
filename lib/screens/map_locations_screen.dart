@@ -218,6 +218,12 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                     ),
                     OutlinedButton(
                       onPressed: null,
+                      // 개수 배지라 내용 폭만 씁니다. 테마의 최소 폭(무한대)을
+                      // 그대로 두면 Row 안에서 "무한 폭" 배치 오류가 납니다.
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 36),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                      ),
                       child: Text('${locations.length}개'),
                     ),
                   ],

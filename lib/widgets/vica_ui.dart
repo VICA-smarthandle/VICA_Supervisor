@@ -695,7 +695,11 @@ class VicaCard extends StatelessWidget {
           ),
         ],
       ),
-      child: child,
+      // 투명한 Material 한 겹. ListTile·Switch·Checkbox 계열은 잉크를 가장
+      // 가까운 Material 에 그리는데, 색 있는 Container 가 그 사이에 있으면
+      // 디버그 빌드가 assertion 으로 멈춥니다(2026-09-14 물류 배송 화면).
+      // transparency 라 보이는 모양은 그대로입니다.
+      child: Material(type: MaterialType.transparency, child: child),
     );
   }
 }

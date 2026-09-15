@@ -319,9 +319,8 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               // 목적지가 살아 있으면(주행·일시정지 — current_goal은 일시정지에도
               // 남습니다) 편집 시작을 잠급니다. 젯슨 쪽 유예 판정(hold_apply)과
               // 같은 기준이라 화면과 로봇이 같은 말을 합니다.
-              drivingHold:
-                  (supervisor.primaryRobot?.currentGoal.trim() ?? '')
-                      .isNotEmpty,
+              drivingHold: (supervisor.primaryRobot?.currentGoal.trim() ?? '')
+                  .isNotEmpty,
               state: supervisor.keepoutState,
               message: supervisor.keepoutMessage,
               maskApplied: supervisor.keepoutMaskApplied,
@@ -474,9 +473,13 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                 ),
               ),
               const SizedBox(width: 10),
-              OutlinedButton(
-                onPressed: _pickedRos == null ? null : _clearPickedLocation,
-                child: const Text('선택 취소'),
+              // Expanded 가 없으면 버튼 테마의 최소 폭(무한대) 때문에 "무한 폭"
+              // 배치 오류가 나서 이 화면 전체가 안 그려집니다(2026-09-14).
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _pickedRos == null ? null : _clearPickedLocation,
+                  child: const Text('선택 취소'),
+                ),
               ),
             ],
           ),
@@ -1298,27 +1301,27 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     }
     final name = _nameController.text.trim();
     return LocationPoint(
-        // 수정 중이면 기존 id를 유지해야 같은 장소로 갱신됩니다.
-        locationId: _editingLocationId ?? _uuid.v4(),
-        mapId: mapId,
-        name: name,
-        aliases: _parseAliases(name),
-        category1: _category1!,
-        category2: _category2!,
-        building: _buildingController.text.trim(),
-        floor: int.parse(_floorController.text.trim()),
-        owner: _category1 == 'person' ? _ownerController.text.trim() : '',
-        // validator 를 통과한 뒤라 null 이 아닙니다. 파일에는 숫자만 남깁니다.
-        contactPhone: normalizeContactPhone(_contactPhoneController.text) ?? '',
-        authorization: _authorization,
-        isApproachable: _isApproachable,
-        unavailableReason:
-            _isApproachable ? '' : _unavailableReasonController.text.trim(),
-        x: picked.dx,
-        y: picked.dy,
-        yaw: _yawFromDirection(_yawDirection),
-        confirmPrompt: '$name으로 안내해드릴까요?',
-        arrivalMessage: '$name 앞에 도착했습니다.',
+      // 수정 중이면 기존 id를 유지해야 같은 장소로 갱신됩니다.
+      locationId: _editingLocationId ?? _uuid.v4(),
+      mapId: mapId,
+      name: name,
+      aliases: _parseAliases(name),
+      category1: _category1!,
+      category2: _category2!,
+      building: _buildingController.text.trim(),
+      floor: int.parse(_floorController.text.trim()),
+      owner: _category1 == 'person' ? _ownerController.text.trim() : '',
+      // validator 를 통과한 뒤라 null 이 아닙니다. 파일에는 숫자만 남깁니다.
+      contactPhone: normalizeContactPhone(_contactPhoneController.text) ?? '',
+      authorization: _authorization,
+      isApproachable: _isApproachable,
+      unavailableReason:
+          _isApproachable ? '' : _unavailableReasonController.text.trim(),
+      x: picked.dx,
+      y: picked.dy,
+      yaw: _yawFromDirection(_yawDirection),
+      confirmPrompt: '$name으로 안내해드릴까요?',
+      arrivalMessage: '$name 앞에 도착했습니다.',
     );
   }
 

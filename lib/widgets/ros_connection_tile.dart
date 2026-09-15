@@ -128,7 +128,9 @@ class VicaRosConnectionTile extends StatelessWidget {
             children: [
               Expanded(child: status),
               const SizedBox(width: 12),
-              const VicaRosConnectionButton(),
+              // 폭을 정해 줍니다. 버튼 테마의 최소 폭이 무한대라 Row 에 그냥 두면
+              // "무한 폭" 배치 오류로 화면 전체가 안 그려집니다(2026-09-14).
+              const SizedBox(width: 148, child: VicaRosConnectionButton()),
             ],
           );
         },

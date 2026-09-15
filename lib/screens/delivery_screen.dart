@@ -247,6 +247,11 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
               ),
               OutlinedButton(
                 onPressed: null,
+                // 개수 배지라 내용 폭만 씁니다(map_locations 의 '개' 배지와 같은 이유).
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 36),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                ),
                 child: Text('${candidates.length}곳'),
               ),
             ],
@@ -289,7 +294,9 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
           // 문자가 나갈 수 있습니다.
           CheckboxListTile(
             value: _loaded,
-            onChanged: busy ? null : (value) => setState(() => _loaded = value ?? false),
+            onChanged: busy
+                ? null
+                : (value) => setState(() => _loaded = value ?? false),
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
             title: const Text('물건을 실었습니다'),
@@ -347,7 +354,8 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
       // 실지도 않은 물건을 실었다고 출발하게 됩니다.
       setState(() => _loaded = false);
     }
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   static LocationPoint? _find(List<LocationPoint> locations, String? id) {
@@ -459,7 +467,8 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
               ),
               Text(
                 phaseText,
-                style: TextStyle(color: phaseColor, fontWeight: FontWeight.w700),
+                style:
+                    TextStyle(color: phaseColor, fontWeight: FontWeight.w700),
               ),
             ],
           ),
@@ -511,7 +520,8 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
                 cancelBody: '홈 복귀를 취소합니다. 로봇은 그 자리에 섭니다.',
               ),
             DeliveryPhase.unconfirmed => _unconfirmedButtons(context),
-            DeliveryPhase.completed || DeliveryPhase.aborted =>
+            DeliveryPhase.completed ||
+            DeliveryPhase.aborted =>
               _finishedButtons(),
           },
         ],
@@ -579,7 +589,8 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
       children: [
         Expanded(
           child: FilledButton.icon(
-            onPressed: () => _send(context, (_) => supervisor.confirmDeliveryArrival()),
+            onPressed: () =>
+                _send(context, (_) => supervisor.confirmDeliveryArrival()),
             icon: const Icon(Icons.sms_outlined),
             label: const Text('도착 처리 · 문자'),
           ),
