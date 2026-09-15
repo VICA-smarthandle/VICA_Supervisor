@@ -63,6 +63,12 @@ class SettingsScreenState extends State<SettingsScreen> {
   late AppSettings _settings;
   final Map<String, TextEditingController> _controllers = {};
 
+  // 좌표 보정과 고급 설정은 처음 맞출 때 말고는 손댈 일이 없는 값입니다.
+  // 접어 두고 제목을 눌러야 펼쳐집니다 — 늘 펼쳐 두면 스무 줄이 화면을 채워
+  // 자주 고치는 주소 두 줄이 묻힙니다.
+  bool _coordinateExpanded = false;
+  bool _advancedExpanded = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -101,6 +107,9 @@ class SettingsScreenState extends State<SettingsScreen> {
         _SettingsCard(
           icon: Icons.adjust,
           title: '좌표 보정',
+          expanded: _coordinateExpanded,
+          onToggle: () =>
+              setState(() => _coordinateExpanded = !_coordinateExpanded),
           children: [
             _editable('xOffset', 'x 보정값', number: true),
             _editable('yOffset', 'y 보정값', number: true),
@@ -118,6 +127,9 @@ class SettingsScreenState extends State<SettingsScreen> {
         _SettingsCard(
           icon: Icons.monitor_heart_outlined,
           title: '고급 설정',
+          expanded: _advancedExpanded,
+          onToggle: () =>
+              setState(() => _advancedExpanded = !_advancedExpanded),
           children: [
             _SwitchRow(
               label: '지도 목록 자동 요청',
@@ -246,11 +258,42 @@ class SettingsScreenState extends State<SettingsScreen> {
     );
     if (confirmed != true) {
       controller.text = before;
+    } else {
+      _syncHost(key);
     }
     if (mounted) {
       // 행에 보이는 값은 controller 를 읽어 그리므로 다시 그려야 바뀝니다.
       setState(() {});
     }
+  }
+
+  /// 지도 이미지 URL 과 ROS Bridge 주소는 같은 젯슨을 가리킵니다. 한쪽의
+  /// 호스트(IP)를 고치면 다른 쪽도 같은 호스트로 맞춥니다 — 둘을 따로 고치다
+  /// 한쪽을 빠뜨리면 지도만 안 뜨거나 연결만 안 되는 식으로 어긋납니다.
+  /// 포트와 경로는 서로 다르므로 호스트만 옮깁니다. 저장은 여전히 헤더의
+  /// 저장 버튼이 합니다.
+  static const _pairedUrlKeys = {
+    'rosBridgeUrl': 'mapHttpBaseUrl',
+    'mapHttpBaseUrl': 'rosBridgeUrl',
+  };
+
+  void _syncHost(String editedKey) {
+    final otherKey = _pairedUrlKeys[editedKey];
+    if (otherKey == null) {
+      return;
+    }
+    final edited = Uri.tryParse(_c(editedKey).text.trim());
+    final other = Uri.tryParse(_c(otherKey).text.trim());
+    if (edited == null || other == null) {
+      return;
+    }
+    // 주소가 아직 덜 적혔거나(호스트 없음) 이미 같으면 건드리지 않습니다.
+    if (edited.host.isEmpty ||
+        other.host.isEmpty ||
+        edited.host == other.host) {
+      return;
+    }
+    _c(otherKey).text = other.replace(host: edited.host).toString();
   }
 
   TextEditingController _c(String key) => _controllers[key]!;
@@ -353,11 +396,18 @@ class _SettingsCard extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.children,
+    this.expanded = true,
+    this.onToggle,
   });
 
   final IconData icon;
   final String title;
   final List<Widget> children;
+
+  /// [onToggle] 이 있으면 접을 수 있는 카드입니다. 제목 줄 오른쪽에 화살표가
+  /// 붙고, [expanded] 가 false 면 행을 그리지 않습니다.
+  final bool expanded;
+  final VoidCallback? onToggle;
 
   @override
   Widget build(BuildContext context) {
@@ -389,31 +439,42 @@ class _SettingsCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
-              child: Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: const BoxDecoration(
-                      color: VicaColors.accentTint,
-                      shape: BoxShape.circle,
+            InkWell(
+              onTap: onToggle,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(18, 16, 18, expanded ? 8 : 16),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: const BoxDecoration(
+                        color: VicaColors.accentTint,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(icon, size: 20, color: VicaColors.primary),
                     ),
-                    child: Icon(icon, size: 20, color: VicaColors.primary),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: Theme.of(context).textTheme.titleMedium,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
                     ),
-                  ),
-                ],
+                    if (onToggle != null)
+                      Icon(
+                        expanded ? Icons.expand_less : Icons.expand_more,
+                        size: 22,
+                        color: VicaColors.muted,
+                      ),
+                  ],
+                ),
               ),
             ),
-            ...items,
-            const SizedBox(height: 6),
+            if (expanded) ...[
+              ...items,
+              const SizedBox(height: 6),
+            ],
           ],
         ),
       ),

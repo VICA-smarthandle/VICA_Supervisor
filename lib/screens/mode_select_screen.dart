@@ -411,7 +411,9 @@ class _UnknownNotice extends StatelessWidget {
           SizedBox(width: 10),
           Expanded(
             child: Text(
-              'ROS 에 연결하지 않아 로봇 상태를 확인할 수 없습니다. '
+              // 문장 끝에서 줄을 바꿉니다. 화면 폭에 맡기면 뜻과 상관없는 자리에서
+              // 접힙니다(2026-09-14 규칙). 글자는 그대로입니다.
+              'ROS 에 연결하지 않아 로봇 상태를 확인할 수 없습니다.\n'
               '모드 선택은 가능하지만 중복 실행 여부는 확인되지 않은 상태입니다.',
               style: TextStyle(fontSize: 12),
             ),

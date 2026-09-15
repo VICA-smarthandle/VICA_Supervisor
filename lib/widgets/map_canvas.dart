@@ -79,12 +79,17 @@ class MapPoseArrow {
     required this.y,
     required this.yawDegrees,
     this.label = '',
+    this.color = VicaColors.primaryDark,
   });
 
   final double x;
   final double y;
   final double yawDegrees;
   final String label;
+
+  /// 화살표 색. 기본은 브랜드 진한색이고, 지도 그리는 중에는 회색 지도 위에서
+  /// 눈에 띄도록 빨강을 넘깁니다(2026-09-15).
+  final Color color;
 }
 
 class MapCanvas extends StatelessWidget {
@@ -334,6 +339,7 @@ class MapCanvas extends StatelessWidget {
                         ),
                         yaw: 90 - poseArrow!.yawDegrees + settings.yawOffset,
                         label: poseArrow!.label,
+                        color: poseArrow!.color,
                       ),
                     if (robot != null && robot!.mapId == map.mapId)
                       _RobotMarker(
@@ -570,11 +576,13 @@ class _PoseArrowMarker extends StatelessWidget {
     required this.offset,
     required this.yaw,
     required this.label,
+    required this.color,
   });
 
   final Offset offset;
   final double yaw;
   final String label;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
@@ -591,9 +599,9 @@ class _PoseArrowMarker extends StatelessWidget {
           child: Transform.rotate(
             // ROS yaw는 y축이 위인 좌표계라 화면에서는 회전 방향을 반대로 적용합니다.
             angle: yaw * 3.1415926535 / 180.0,
-            child: const Icon(
+            child: Icon(
               Icons.navigation,
-              color: VicaColors.primaryDark,
+              color: color,
               size: markerSize,
             ),
           ),

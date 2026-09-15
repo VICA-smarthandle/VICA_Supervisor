@@ -227,9 +227,12 @@ class _MappingShellState extends State<MappingShell> {
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: const Text('매핑이 진행 중입니다'),
+          // 줄은 문장 끝과 '먼저 …' 앞에서 바꿉니다(2026-09-15). 화면 폭에
+          // 맡기면 뜻과 상관없는 자리에서 접혔습니다.
           content: Text(
-            '${status.state.label} 상태입니다. 모드를 바꾸면 종료·저장 버튼이 '
-            '보이지 않을 수 있으니 먼저 저장하거나 종료해 주세요.',
+            '${status.state.label}입니다.\n'
+            '모드를 바꾸면 종료·저장 버튼이 보이지 않을 수 있으니\n'
+            '먼저 저장하거나 종료해 주세요.',
           ),
           actions: [
             FilledButton(
@@ -541,7 +544,9 @@ class _PrepareStep extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         const Text(
-          'd455(Docker)와 IMU 는 앱이 실행하지 않습니다.'
+          // 두 문장이 띄어쓰기 없이 붙어 보였습니다(2026-09-15 검토). 마침표
+          // 뒤에서 줄을 바꿉니다.
+          'd455(Docker)와 IMU 는 앱이 실행하지 않습니다.\n'
           'IMU 를 띄운 뒤 20초 동안 로봇을 완전히 세워 자이로 보정이 끝난 것을 확인하고 시작하세요.',
           style: TextStyle(fontSize: 11, color: VicaColors.muted),
         ),
@@ -596,6 +601,8 @@ class _MappingStep extends StatelessWidget {
                       y: preview.robotY!,
                       yawDegrees: preview.robotYaw!,
                       label: '로봇 위치',
+                      // 회색 지도 위에서 잘 보이게 빨강(2026-09-15).
+                      color: VicaColors.red,
                     )
                   : null,
             ),
@@ -655,8 +662,7 @@ class _SaveStep extends StatelessWidget {
             // 한글도 됩니다(2026-09-04). 파일·URL 에는 영문 id 만 들어가고 한글은
             // 표시 이름으로만 남습니다 — 규칙은 감독 노드(plan_map_save)가 정하고
             // 거부 사유는 저장 응답으로 옵니다.
-            helperText: '한글도 됩니다. 영문 이름은 날짜가 붙고, 한글 이름은 '
-                '파일 이름(map_날짜_시각)이 자동으로 만들어집니다.',
+            helperText: '이름 뒤에 날짜가 붙습니다.',
           ),
         ),
         const SizedBox(height: 12),
@@ -665,7 +671,12 @@ class _SaveStep extends StatelessWidget {
           icon: const Icon(Icons.save),
           label: const Text('저장'),
         ),
-        if (status != null && status!.detail.isNotEmpty) ...[
+        // 노드가 보내는 상태 설명은 저장 중·오류일 때만 보입니다. 지도를 그리는
+        // 중이라는 말은 이 단계에선 뻔한 소리라 뺐습니다(2026-09-15). 거부 사유는
+        // 저장 응답이 상태 설명으로 오므로 그때는 그대로 보여야 합니다.
+        if (status != null &&
+            status!.state != MappingState.mapping &&
+            status!.detail.isNotEmpty) ...[
           const SizedBox(height: 10),
           Text(
             status!.detail,
@@ -674,8 +685,8 @@ class _SaveStep extends StatelessWidget {
         ],
         const SizedBox(height: 8),
         const Text(
-          '저장 중입니다. 최대 2분까지 걸릴 수 있고, 끝나면 위에 '
-          '결과가 표시됩니다.',
+          '저장 중입니다.\n'
+          '최대 2분까지 걸릴 수 있고, 끝나면 위에 결과가 표시됩니다.',
           style: TextStyle(fontSize: 11, color: VicaColors.muted),
         ),
       ],
@@ -716,23 +727,34 @@ class _DoneStep extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: onRefreshMaps,
-                icon: const Icon(Icons.refresh),
-                label: const Text('지도 목록 새로고침'),
+        // 왼쪽 글자가 두 줄이라 오른쪽 버튼도 같은 높이로 늘립니다.
+        // Column 안의 Row 는 높이가 무한대라 stretch 만 주면 "무한 높이" 배치
+        // 오류가 납니다(2026-09-15 실기). IntrinsicHeight 로 높이를 먼저 잽니다.
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: onRefreshMaps,
+                  icon: const Icon(Icons.refresh),
+                  // 폰 폭(360~412)에서는 한 줄에 못 들어가 '새로고' + '침'으로
+                  // 엉뚱하게 접힙니다. 뜻 단위로 미리 줄을 바꿉니다(2026-09-15).
+                  label: const Text(
+                    '지도 목록\n새로고침',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: FilledButton(
-                onPressed: onFinish,
-                child: const Text('매핑 종료'),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton(
+                  onPressed: onFinish,
+                  child: const Text('매핑 종료'),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ],
     );

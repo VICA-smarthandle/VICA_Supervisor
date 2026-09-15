@@ -718,6 +718,15 @@ class VicaSectionTitle extends StatelessWidget {
   }
 }
 
+/// 문장 끝(마침표 뒤 공백)에서 줄을 바꿉니다.
+///
+/// 안내 문장은 화면 폭이 아니라 뜻 단위로 접혀야 읽기 쉽습니다(2026-09-14 규칙).
+/// 'ws://192.168.0.31' 처럼 공백이 따라오지 않는 점은 문장 끝이 아니므로 그대로
+/// 둡니다. 글자는 바꾸지 않고 줄만 바꿉니다.
+String vicaBreakAtSentences(String text) {
+  return text.replaceAll(RegExp(r'\.\s+'), '.\n');
+}
+
 // ROS 연결이 끊긴 동안 로봇 상태를 신뢰할 수 없다는 것을 화면에 알립니다.
 // 연결이 끊기면 로봇 실시간 값은 비워지므로, 빈 화면의 이유를 설명하는 역할도 합니다.
 class VicaDisconnectedNotice extends StatelessWidget {
@@ -753,7 +762,9 @@ class VicaDisconnectedNotice extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  detail.isEmpty ? '로봇 상태를 받을 수 없습니다.' : detail,
+                  vicaBreakAtSentences(
+                    detail.isEmpty ? '로봇 상태를 받을 수 없습니다.' : detail,
+                  ),
                   style: const TextStyle(fontSize: 13),
                 ),
               ],

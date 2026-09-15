@@ -24,9 +24,11 @@ class TeleopPad extends StatelessWidget {
 
   /// 다이얼(바깥 원)의 지름과 방향 버튼의 지름입니다. 버튼은 원 가장자리에서
   /// [_dialInset] 만큼 안쪽에 동서남북으로 놓입니다.
-  static const double _dialSize = 200;
-  static const double _buttonSize = 52;
-  static const double _dialInset = 14;
+  // 200 이었는데 폰 화면에서 카드의 절반을 먹어 152 로 줄였습니다(2026-09-15).
+  // 버튼 44 는 손가락으로 누를 수 있는 최소 크기입니다.
+  static const double _dialSize = 152;
+  static const double _buttonSize = 44;
+  static const double _dialInset = 10;
 
   @override
   Widget build(BuildContext context) {
@@ -118,8 +120,10 @@ class TeleopPad extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
+          // 문장 끝에서 줄을 바꿉니다(2026-09-14 규칙). '손을 떼면 바로 멈춥니다'는
+          // 앞 문장과 뜻이 겹쳐 뺐습니다(2026-09-15).
           const Text(
-            '버튼을 누르고 있는 동안만 움직입니다. 손을 떼면 바로 멈춥니다. '
+            '버튼을 누르고 있는 동안만 움직입니다.\n'
             '최대 ${SupervisorProvider.teleopMaxLinear} m/s · '
             '${SupervisorProvider.teleopMaxAngular} rad/s.',
             style: TextStyle(color: VicaColors.muted, fontSize: 12),
@@ -209,7 +213,7 @@ class _PadButton extends StatelessWidget {
               ),
               child: Icon(
                 icon,
-                size: 26,
+                size: 22,
                 color: pressed ? Colors.white : VicaColors.primaryDark,
               ),
             ),
