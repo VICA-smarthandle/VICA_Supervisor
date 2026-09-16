@@ -149,7 +149,7 @@ void main() {
           .pumpWidget(wrap(const SystemDiagnosticsScreen(), supervisor));
       await tester.pump();
 
-      expect(find.text('안내 장치'), findsOneWidget);
+      expect(find.text('핸들 및 초음파'), findsOneWidget);
     });
 
     testWidgets('결함이 없으면 없다고 알린다', (tester) async {

@@ -95,7 +95,12 @@ void main() {
       find.widgetWithText(OutlinedButton, '초기 위치 잡기'),
     );
     expect(button.onPressed, isNull);
-    expect(find.textContaining('먼저 시작하세요'), findsOneWidget);
+    // 문구는 '주행(Nav2)이 꺼져 있습니다. 확인해주세요.' 이고 어절 단위 줄바꿈을
+    // 거치므로 같은 변환으로 찾습니다.
+    expect(
+      find.textContaining(vicaKeepWords('주행(Nav2)이 꺼져 있습니다')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('주행 중에는 잠긴다', (tester) async {
