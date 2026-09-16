@@ -120,7 +120,7 @@ void main() {
       expect(
           RobotFault.fromRosMsg(faultMsg(component: 'guidance'))
               .componentLabelText,
-          '안내 장치');
+          '핸들 및 초음파');
     });
 
     test('모르는 컴포넌트는 원문을 그대로 보여준다', () {

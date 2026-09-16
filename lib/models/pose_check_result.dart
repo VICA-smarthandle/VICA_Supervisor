@@ -123,8 +123,13 @@ class PoseCheckResult {
   /// 작업공간에 있어 앱만 고쳐도 화면은 바뀝니다.
   String get displayMessage {
     final text = message
+        // 옛 노드 문구(젯슨을 아직 안 올린 경우)와 새 노드 문구 둘 다 두 줄로.
         .replaceFirst(
           '지도의 다른 자리 같습니다. 다시 짚어 보세요.',
+          '다른 위치입니다.\n다시 선택해 주세요.',
+        )
+        .replaceFirst(
+          '다른 위치입니다. 다시 선택해 주세요.',
           '다른 위치입니다.\n다시 선택해 주세요.',
         )
         .replaceFirst(
