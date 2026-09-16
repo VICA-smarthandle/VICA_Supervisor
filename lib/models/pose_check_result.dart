@@ -115,6 +115,25 @@ class PoseCheckResult {
 
   double get yawDegrees => yaw * 180.0 / math.pi;
 
+  /// 화면에 보여 줄 판정 문장입니다.
+  ///
+  /// 노드(pose_bootstrap_node)가 보내는 문장을 그대로 쓰되, 점수 미달 문구는
+  /// 앱의 말로 바꾸고 두 문장을 줄로 나눕니다. 뒤에 붙는 '고른 방향의
+  /// 끝자락…' 안내는 뺍니다(2026-09-15 사용자 수정). 노드 쪽 원문은 ROS
+  /// 작업공간에 있어 앱만 고쳐도 화면은 바뀝니다.
+  String get displayMessage {
+    final text = message
+        .replaceFirst(
+          '지도의 다른 자리 같습니다. 다시 짚어 보세요.',
+          '다른 위치입니다.\n다시 선택해 주세요.',
+        )
+        .replaceFirst(
+          RegExp(r'\s*고른 방향의 끝자락입니다\. 옆 방향으로도 확인해 보세요\.'),
+          '',
+        );
+    return text.trim();
+  }
+
   // 사람이 짚은 자리에서 얼마나 옮겼는지를 한 줄로 보여줍니다.
   //
   // 이 표시가 은근히 중요합니다. 화살표만 툭 나오면 "왜 딴 데 갔지?" 하지만,

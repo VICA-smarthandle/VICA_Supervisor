@@ -107,8 +107,10 @@ class _Banner extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        detail,
-                        maxLines: 2,
+                        // 마침표에서 나누고 어절 단위로 접힙니다. 문장이 둘이라
+                        // 최대 3줄까지 보이고 그 뒤는 말줄임표입니다.
+                        vicaKeepWords(vicaBreakAtSentences(detail)),
+                        maxLines: 3,
                         overflow: TextOverflow.ellipsis,
                       ),
                       if (extraCount > 0) ...[

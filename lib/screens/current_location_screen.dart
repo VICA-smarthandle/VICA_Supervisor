@@ -70,7 +70,7 @@ class _CurrentLocationScreenState extends State<CurrentLocationScreen> {
           map: map,
           child: map == null
               ? const ColoredBox(
-                  color: VicaColors.softBlue,
+                  color: VicaColors.accentTint,
                   child: Center(child: Text('현재 map_id와 일치하는 지도가 없습니다.')),
                 )
               : MapCanvas(

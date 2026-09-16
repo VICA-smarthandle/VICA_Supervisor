@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/screens/system_diagnostics_screen.dart';
+import 'package:vica_supervisor/widgets/vica_ui.dart';
 import 'package:vica_supervisor/widgets/health_banner.dart';
 
 Map<String, Object?> faultMsg({
@@ -87,7 +88,8 @@ void main() {
           .pumpWidget(wrap(const SystemDiagnosticsScreen(), supervisor));
       await tester.pump();
 
-      expect(find.textContaining('아직 로봇 상태를 받지 못했습니다'), findsOneWidget);
+      expect(find.textContaining(vicaKeepWords('아직 로봇 상태를 받지 못했습니다')),
+          findsOneWidget);
     });
 
     testWidgets('활성 결함의 컴포넌트·등급·조치를 모두 보여준다', (tester) async {
@@ -101,8 +103,8 @@ void main() {
       expect(find.text('LiDAR'), findsWidgets);
       expect(find.text('주행 불가'), findsWidgets);
       expect(find.text('LIDAR_SCAN_STALE'), findsOneWidget);
-      expect(find.textContaining('2.1초'), findsOneWidget);
-      expect(find.textContaining('USB 연결'), findsOneWidget);
+      expect(find.textContaining(vicaKeepWords('2.1초')), findsOneWidget);
+      expect(find.textContaining(vicaKeepWords('USB 연결')), findsOneWidget);
     });
 
     testWidgets('발생 횟수와 지속 시간을 보여준다', (tester) async {
@@ -134,7 +136,7 @@ void main() {
       // guidance/voice/app이 UNKNOWN입니다. 초록불로 보이면 잘못된 안심을 줍니다.
       expect(find.text('관측 불가'), findsWidgets);
       expect(
-        find.textContaining('상태를 확인할 수단이 없다는'),
+        find.textContaining(vicaKeepWords('상태를 확인할 수단이 없다는')),
         findsOneWidget,
       );
     });
@@ -243,7 +245,7 @@ void main() {
 
       expect(find.textContaining('주행 불가'), findsOneWidget);
       expect(find.textContaining('LiDAR'), findsOneWidget);
-      expect(find.textContaining('2.1초'), findsOneWidget);
+      expect(find.textContaining(vicaKeepWords('2.1초')), findsOneWidget);
     });
 
     testWidgets('다른 결함 수를 함께 알린다', (tester) async {

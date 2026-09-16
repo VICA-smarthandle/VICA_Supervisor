@@ -261,11 +261,14 @@ class _ModeCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
+                // 아이콘만 든 상자는 정원으로 둡니다(2026-09-14 시안). 원은 폭과
+                // 높이가 같아야 찌그러지지 않으므로 여백 대신 크기를 고정합니다.
                 Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: VicaColors.softBlue,
-                    borderRadius: BorderRadius.circular(12),
+                  width: 52,
+                  height: 52,
+                  decoration: const BoxDecoration(
+                    color: VicaColors.accentTint,
+                    shape: BoxShape.circle,
                   ),
                   child: Icon(mode.icon, size: 28, color: VicaColors.primary),
                 ),
@@ -398,19 +401,23 @@ class _UnknownNotice extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: VicaColors.softBlue,
+        color: VicaColors.accentTint,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: VicaColors.border),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          Icon(Icons.help_outline, color: VicaColors.muted, size: 20),
-          SizedBox(width: 10),
+          const Icon(Icons.help_outline, color: VicaColors.muted, size: 20),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'ROS 에 연결하지 않아 로봇 상태를 확인할 수 없습니다. '
-              '모드 선택은 가능하지만 중복 실행 여부는 확인되지 않은 상태입니다.',
-              style: TextStyle(fontSize: 12),
+              // 문장 끝에서 줄을 바꾸고(2026-09-14 규칙), 그 안은 어절 단위로
+              // 폭에 맞춰 접힙니다. 글자는 그대로입니다.
+              vicaKeepWords(vicaBreakAtSentences(
+                'ROS 에 연결하지 않아 로봇 상태를 확인할 수 없습니다. '
+                '모드 선택은 가능하지만 중복 실행 여부는 확인되지 않은 상태입니다.',
+              )),
+              style: const TextStyle(fontSize: 12),
             ),
           ),
         ],

@@ -17,7 +17,7 @@ Future<RenderParagraph> _pumpCard(
         body: Center(
           child: SizedBox(
             width: width,
-            height: 116,
+            height: VicaMetricCard.baseHeight,
             child: VicaMetricCard(
               icon: Icons.warning,
               label: label,

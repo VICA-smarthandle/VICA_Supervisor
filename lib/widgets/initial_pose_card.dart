@@ -99,9 +99,13 @@ class InitialPoseCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
-          const Text(
-            'Nav2 를 켜면 로봇은 자기가 어디 있는지 모릅니다. 지도에서 로봇이 현재 위치를 선택해 주세요.',
-            style: TextStyle(color: VicaColors.muted, fontSize: 13),
+          Text(
+            // 마침표에서 줄을 나누되 짧은 문장은 붙이고, 그 안은 어절 단위로
+            // 접힙니다(2026-09-15).
+            vicaKeepWords(vicaBreakAtSentences(
+              'Nav2 를 켜면 로봇은 자기가 어디 있는지 모릅니다. 지도에서 로봇이 현재 위치를 선택해 주세요.',
+            )),
+            style: const TextStyle(color: VicaColors.muted, fontSize: 13),
           ),
           const SizedBox(height: 16),
           _step(
@@ -154,9 +158,11 @@ class InitialPoseCard extends StatelessWidget {
           ),
           if (direction == null) ...[
             const SizedBox(height: 6),
-            const Text(
-              '방향을 모르면 360° 전부를 훑습니다. 느리고, 앞뒤가 같은 복도에서는 뒤집힌 자세와 구분하지 못합니다.',
-              style: TextStyle(color: VicaColors.muted, fontSize: 12),
+            Text(
+              vicaKeepWords(vicaBreakAtSentences(
+                '방향을 모르면 360° 전부를 훑습니다. 느리고, 앞뒤가 같은 복도에서는 뒤집힌 자세와 구분하지 못합니다.',
+              )),
+              style: const TextStyle(color: VicaColors.muted, fontSize: 12),
             ),
           ],
           const SizedBox(height: 16),
@@ -235,7 +241,7 @@ class InitialPoseCard extends StatelessWidget {
           alignment: Alignment.center,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: done ? VicaColors.green : VicaColors.softBlue,
+            color: done ? VicaColors.green : VicaColors.accentTint,
           ),
           child: done
               ? const Icon(Icons.check, size: 14, color: Colors.white)
@@ -314,7 +320,7 @@ class _Score extends StatelessWidget {
                 // 문구는 노드가 만듭니다. 숫자가 아니라 **다음에 할 행동**으로
                 // 씁니다 -- 관리자는 % 의 의미를 모릅니다.
                 Text(
-                  result.message,
+                  vicaKeepWords(vicaBreakAtSentences(result.displayMessage)),
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,

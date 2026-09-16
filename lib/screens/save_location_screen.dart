@@ -319,9 +319,8 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               // 목적지가 살아 있으면(주행·일시정지 — current_goal은 일시정지에도
               // 남습니다) 편집 시작을 잠급니다. 젯슨 쪽 유예 판정(hold_apply)과
               // 같은 기준이라 화면과 로봇이 같은 말을 합니다.
-              drivingHold:
-                  (supervisor.primaryRobot?.currentGoal.trim() ?? '')
-                      .isNotEmpty,
+              drivingHold: (supervisor.primaryRobot?.currentGoal.trim() ?? '')
+                  .isNotEmpty,
               state: supervisor.keepoutState,
               message: supervisor.keepoutMessage,
               maskApplied: supervisor.keepoutMaskApplied,
@@ -382,15 +381,16 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       final mapId = supervisor.selectedMap?.mapId;
       final leave = await showDialog<bool>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('저장하지 않은 금지구역이 있습니다'),
-          content: const Text('편집을 취소하고 넘어갈까요?'),
+        builder: (dialogContext) => VicaDialog(
+          icon: Icons.shield_outlined,
+          title: '저장하지 않은 금지구역이 있습니다',
+          body: '편집을 취소하고 넘어갈까요?',
           actions: [
-            TextButton(
+            VicaCancelButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('계속 편집'),
+              label: '계속 편집',
             ),
-            TextButton(
+            FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
               child: const Text('편집 취소'),
             ),
@@ -445,8 +445,11 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
         // 아래 수정·저장 버튼이 그 역할을 이어받으므로 이 자리는 감춥니다.
         if (draft == null) ...[
           Text(
+            // 안내문은 마침표에서 줄을 나누고 그 안은 어절 단위로 접힙니다(2026-09-15).
             _pickedRos == null
-                ? '지도를 눌러 저장할 위치를 찍으세요. 다시 누르면 점이 옮겨갑니다.'
+                ? vicaKeepWords(vicaBreakAtSentences(
+                    '지도를 눌러 저장할 위치를 찍으세요. 다시 누르면 점이 옮겨갑니다.',
+                  ))
                 : _editingSaved != null
                     ? '수정 중: ${_editingSaved!.name}   '
                         'x ${_pickedRos!.dx.toStringAsFixed(2)}   '
@@ -474,9 +477,13 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                 ),
               ),
               const SizedBox(width: 10),
-              OutlinedButton(
-                onPressed: _pickedRos == null ? null : _clearPickedLocation,
-                child: const Text('선택 취소'),
+              // Expanded 가 없으면 버튼 테마의 최소 폭(무한대) 때문에 "무한 폭"
+              // 배치 오류가 나서 이 화면 전체가 안 그려집니다(2026-09-14).
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _pickedRos == null ? null : _clearPickedLocation,
+                  child: const Text('선택 취소'),
+                ),
               ),
             ],
           ),
@@ -792,8 +799,9 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     final controller = TextEditingController();
     final value = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('홈 이름'),
+      builder: (dialogContext) => VicaDialog(
+        icon: Icons.home_outlined,
+        title: '홈 이름',
         content: TextField(
           controller: controller,
           autofocus: true,
@@ -803,9 +811,9 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
           ),
         ),
         actions: [
-          TextButton(
+          VicaCancelButton(
             onPressed: () => Navigator.of(dialogContext).pop(''),
-            child: const Text('이름 없이 저장'),
+            label: '이름 없이 저장',
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(controller.text),
@@ -829,17 +837,15 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     final settings = context.read<SettingsProvider>().settings;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('홈으로 가보기'),
-        content: const Text(
-          '로봇이 홈 위치로 이동합니다.\n'
-          '경로에 사람과 장애물이 없는지 확인하세요.\n\n'
-          '제대로 도착하면 이 홈은 "가 본 자리"로 기록됩니다.',
-        ),
+      builder: (dialogContext) => VicaDialog(
+        icon: Icons.home_outlined,
+        title: '홈으로 가보기',
+        body: '로봇이 홈 위치로 이동합니다. '
+            '경로에 사람과 장애물이 없는지 확인하세요.\n\n'
+            '제대로 도착하면 이 홈은 "가 본 자리"로 기록됩니다.',
         actions: [
-          TextButton(
+          VicaCancelButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('취소'),
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
@@ -865,20 +871,20 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     final settings = context.read<SettingsProvider>().settings;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('홈 지우기'),
-        content: const Text(
-          '홈을 지우면 안내가 끝난 뒤 로봇이 자동으로 돌아가지 않습니다.\n'
-          '안내 기능 자체는 그대로 동작합니다.',
-        ),
+      builder: (dialogContext) => VicaDialog(
+        icon: Icons.delete_outline,
+        iconColor: VicaColors.red,
+        title: '홈 지우기',
+        body: '홈을 지우면 안내가 끝난 뒤 로봇이 자동으로 돌아가지 않습니다. '
+            '안내 기능 자체는 그대로 동작합니다.',
         actions: [
-          TextButton(
+          VicaCancelButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('그대로 두기'),
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('지우기'),
+            style: FilledButton.styleFrom(backgroundColor: VicaColors.red),
+            child: const Text('삭제'),
           ),
         ],
       ),
@@ -1298,27 +1304,27 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     }
     final name = _nameController.text.trim();
     return LocationPoint(
-        // 수정 중이면 기존 id를 유지해야 같은 장소로 갱신됩니다.
-        locationId: _editingLocationId ?? _uuid.v4(),
-        mapId: mapId,
-        name: name,
-        aliases: _parseAliases(name),
-        category1: _category1!,
-        category2: _category2!,
-        building: _buildingController.text.trim(),
-        floor: int.parse(_floorController.text.trim()),
-        owner: _category1 == 'person' ? _ownerController.text.trim() : '',
-        // validator 를 통과한 뒤라 null 이 아닙니다. 파일에는 숫자만 남깁니다.
-        contactPhone: normalizeContactPhone(_contactPhoneController.text) ?? '',
-        authorization: _authorization,
-        isApproachable: _isApproachable,
-        unavailableReason:
-            _isApproachable ? '' : _unavailableReasonController.text.trim(),
-        x: picked.dx,
-        y: picked.dy,
-        yaw: _yawFromDirection(_yawDirection),
-        confirmPrompt: '$name으로 안내해드릴까요?',
-        arrivalMessage: '$name 앞에 도착했습니다.',
+      // 수정 중이면 기존 id를 유지해야 같은 장소로 갱신됩니다.
+      locationId: _editingLocationId ?? _uuid.v4(),
+      mapId: mapId,
+      name: name,
+      aliases: _parseAliases(name),
+      category1: _category1!,
+      category2: _category2!,
+      building: _buildingController.text.trim(),
+      floor: int.parse(_floorController.text.trim()),
+      owner: _category1 == 'person' ? _ownerController.text.trim() : '',
+      // validator 를 통과한 뒤라 null 이 아닙니다. 파일에는 숫자만 남깁니다.
+      contactPhone: normalizeContactPhone(_contactPhoneController.text) ?? '',
+      authorization: _authorization,
+      isApproachable: _isApproachable,
+      unavailableReason:
+          _isApproachable ? '' : _unavailableReasonController.text.trim(),
+      x: picked.dx,
+      y: picked.dy,
+      yaw: _yawFromDirection(_yawDirection),
+      confirmPrompt: '$name으로 안내해드릴까요?',
+      arrivalMessage: '$name 앞에 도착했습니다.',
     );
   }
 
@@ -1453,7 +1459,7 @@ class _DraftSummary extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: VicaColors.softBlue,
+        color: VicaColors.accentTint,
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(

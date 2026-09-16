@@ -51,9 +51,9 @@ enum FaultSeverity {
       case FaultSeverity.ok:
         return VicaColors.green;
       case FaultSeverity.warn:
-        return const Color(0xFFE0A800);
+        return VicaColors.warning;
       case FaultSeverity.degraded:
-        return const Color(0xFFE07B39);
+        return VicaColors.degraded;
       case FaultSeverity.stop:
       case FaultSeverity.fault:
         return VicaColors.red;
@@ -144,7 +144,7 @@ enum RobotHealthState {
       case RobotHealthState.ready:
         return VicaColors.green;
       case RobotHealthState.degraded:
-        return const Color(0xFFE07B39);
+        return VicaColors.degraded;
       case RobotHealthState.stopped:
       case RobotHealthState.estopped:
       case RobotHealthState.fault:

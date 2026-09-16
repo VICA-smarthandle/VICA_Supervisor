@@ -39,13 +39,17 @@ class DashboardScreen extends StatelessWidget {
         .where((robot) => robot.status != 'moving' && !robot.hasError)
         .length;
     final robot = supervisor.primaryRobot ?? _waitingRobot();
+    // 카드 색은 상태색 하나로 정합니다. 배경 틴트·숫자·아이콘·배지가 전부
+    // 그 색을 따르므로(VicaMetricCard.tintFor) 여기서는 색 이름만 고릅니다.
     final metricCards = [
       VicaMetricCard(
         icon: Icons.smart_toy,
         label: '전체 로봇',
         value: robots.length.toString(),
-        color: VicaColors.primaryDark,
+        color: VicaColors.primary,
         labelFontSize: metricLabelFontSize,
+        badge: '정상',
+        unit: '대',
       ),
       VicaMetricCard(
         icon: Icons.navigation,
@@ -53,23 +57,31 @@ class DashboardScreen extends StatelessWidget {
         value: moving.toString(),
         color: VicaColors.green,
         labelFontSize: metricLabelFontSize,
+        badge: '주행',
+        unit: '대',
       ),
       VicaMetricCard(
         icon: Icons.hourglass_empty,
         label: '대기 중',
         value: waiting.toString(),
-        color: Colors.blueAccent,
+        color: VicaColors.muted,
         labelFontSize: metricLabelFontSize,
+        badge: '대기',
+        unit: '대',
       ),
       VicaMetricCard(
         icon: Icons.warning,
-        // Flutter는 공백에서만 줄을 나눠 '오류/긴급' + '정지'로 갈라지므로
-        // 의미 단위가 유지되도록 개행 위치를 직접 지정합니다.
-        label: '오류/\n긴급 정지',
+        // 라벨이 카드 폭을 다 쓰므로 한 줄로 둡니다(2026-09-14 시안). 아주 좁은
+        // 창에서만 두 줄로 접힙니다.
+        label: '오류 · 긴급정지',
         value: errors.toString(),
         color: VicaColors.red,
         labelMaxLines: 2,
         labelFontSize: errorMetricLabelFontSize,
+        // 이 배지만 건수를 따라 바뀝니다. 0건인데 '이상 없음'이 아니면 거짓말이고,
+        // 1건인데 '이상 없음'이면 더 나쁜 거짓말입니다.
+        badge: errors == 0 ? '이상 없음' : '이상 있음',
+        unit: '건',
       ),
     ];
 
@@ -111,7 +123,8 @@ class DashboardScreen extends StatelessWidget {
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: columnCount,
                     crossAxisSpacing: 12,
-                    mainAxisSpacing: 4,
+                    // 카드가 자기 여백을 갖지 않으므로 줄 간격도 열 간격과 같게 둡니다.
+                    mainAxisSpacing: 12,
                     mainAxisExtent: cellHeight,
                   ),
                   itemBuilder: (context, index) => metricCards[index],
@@ -120,6 +133,7 @@ class DashboardScreen extends StatelessWidget {
             ),
           ),
         ),
+        const SizedBox(height: 12),
         const VicaSectionTitle('로봇 상태'),
         VicaRobotCard(robot: robot),
         const VicaSectionTitle('최근 알림'),

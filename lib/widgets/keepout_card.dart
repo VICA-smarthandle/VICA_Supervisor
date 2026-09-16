@@ -69,11 +69,14 @@ class KeepoutCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          editing
-              ? '드래그해서 사각형을 그리세요. 다시 드래그하면 그리던 사각형이 새로 그려지고, [이 사각형 확정]을 눌러야 목록에 들어갑니다. 편집 중에는 지도 이동·확대가 잠깁니다.'
-              : drivingHold
-                  ? '로봇이 목적지로 가는 중에는 금지구역을 편집할 수 없습니다. 주행이 끝나면 열립니다.'
-                  : '로봇이 접근하지 않을 자리입니다. 편집을 누르면 다시 그릴 수 있습니다.',
+          // 문구는 2026-09-15 사용자 수정. 마침표에서 줄을 나누고 어절 단위로 접힙니다.
+          vicaKeepWords(vicaBreakAtSentences(
+            editing
+                ? '드래그해서 사각형을 그리세요. [금지구역 확정]을 누르면 목록에 들어갑니다. 편집 중에는 지도 이동, 확대가 잠깁니다.'
+                : drivingHold
+                    ? '로봇이 목적지로 가는 중에는 금지구역을 편집할 수 없습니다. 주행이 끝나면 열립니다.'
+                    : '로봇이 주행하지 않을 구역입니다. 편집을 누르세요.',
+          )),
           style: const TextStyle(
               fontSize: 13, color: VicaColors.muted, height: 1.5),
         ),
@@ -84,19 +87,22 @@ class KeepoutCard extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: VicaColors.softBlue,
+            color: VicaColors.accentTint,
             borderRadius: BorderRadius.circular(8),
           ),
-          child: const Row(
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.info_outline, size: 16, color: VicaColors.primaryDark),
-              SizedBox(width: 8),
+              const Icon(Icons.info_outline,
+                  size: 16, color: VicaColors.primaryDark),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  '로봇은 금지구역의 경계선까지 붙을 수 있습니다. 실제로 막고 싶은 범위보다 '
-                  '20~30 cm 크게 그리세요.',
-                  style: TextStyle(
+                  vicaKeepWords(vicaBreakAtSentences(
+                    '로봇은 금지구역의 경계선까지 붙을 수 있습니다. 실제로 막고 싶은 범위보다 '
+                    '20~30 cm 크게 그리세요.',
+                  )),
+                  style: const TextStyle(
                     fontSize: 12.5,
                     color: VicaColors.primaryDark,
                     height: 1.45,
@@ -115,7 +121,7 @@ class KeepoutCard extends StatelessWidget {
         if (message.isNotEmpty) ...[
           const SizedBox(height: 12),
           Text(
-            message,
+            vicaKeepWords(vicaBreakAtSentences(message)),
             style: TextStyle(
               fontSize: 12.5,
               height: 1.45,
@@ -203,10 +209,14 @@ class KeepoutCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          OutlinedButton.icon(
-            onPressed: connected ? onReload : null,
-            icon: const Icon(Icons.refresh, size: 18),
-            label: const Text('다시 불러오기'),
+          // Expanded 가 없으면 버튼 테마의 최소 폭(무한대) 때문에 "무한 폭"
+          // 배치 오류가 납니다(2026-09-14). 아래 저장|취소 줄도 같습니다.
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: connected ? onReload : null,
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('다시 불러오기'),
+            ),
           ),
         ],
       );
@@ -223,7 +233,7 @@ class KeepoutCard extends StatelessWidget {
               child: FilledButton.tonalIcon(
                 onPressed: (hasPending && !_saving) ? onConfirmPending : null,
                 icon: const Icon(Icons.check, size: 18),
-                label: const Text('이 사각형 확정'),
+                label: const Text('금지구역 확정'),
               ),
             ),
           ],
@@ -247,9 +257,11 @@ class KeepoutCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 10),
-            OutlinedButton(
-              onPressed: _saving ? null : onCancel,
-              child: const Text('취소'),
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _saving ? null : onCancel,
+                child: const Text('취소'),
+              ),
             ),
           ],
         ),

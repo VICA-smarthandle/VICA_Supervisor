@@ -10,6 +10,7 @@ import 'package:vica_supervisor/models/location_point.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/screens/save_location_screen.dart';
+import 'package:vica_supervisor/widgets/vica_ui.dart';
 import 'package:vica_supervisor/widgets/map_canvas.dart';
 
 class _FakeSupervisor extends SupervisorProvider {
@@ -88,7 +89,7 @@ void main() {
     await pumpWithMap(tester);
 
     expect(find.text('장소 정보 입력'), findsOneWidget);
-    expect(find.textContaining('지도를 눌러'), findsOneWidget);
+    expect(find.textContaining(vicaKeepWords('지도를 눌러')), findsOneWidget);
 
     // MapCanvas 가 좌표를 돌려주는 지점을 직접 부릅니다. 실제 탭은 지도 이미지
     // 로드에 묶여 있어 테스트 환경에서 재현이 어렵습니다.
@@ -171,13 +172,12 @@ void main() {
     await tester.pump();
 
     expect(find.textContaining('1.50'), findsNothing);
-    expect(find.textContaining('지도를 눌러'), findsOneWidget);
+    expect(find.textContaining(vicaKeepWords('지도를 눌러')), findsOneWidget);
   });
 
   // ---- 저장된 장소 수정 (2026-09-03) ----------------------------------------
 
-  testWidgets('선택 장소 수정을 누르면 원본이 채워진 시트가 열리고 저장은 ROS 로 바로 간다',
-      (tester) async {
+  testWidgets('선택 장소 수정을 누르면 원본이 채워진 시트가 열리고 저장은 ROS 로 바로 간다', (tester) async {
     final supervisor = await pumpWithMap(tester);
     supervisor.injectLocations([_savedRestroom]);
     await tester.pump();

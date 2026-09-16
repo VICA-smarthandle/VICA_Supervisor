@@ -11,6 +11,7 @@ import 'package:vica_supervisor/providers/auth_provider.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/screens/mapping_shell.dart';
+import 'package:vica_supervisor/widgets/vica_ui.dart';
 
 class _FakeSupervisor extends SupervisorProvider {
   void injectEstop(Map<String, Object?> json) =>
@@ -109,7 +110,7 @@ void main() {
   testWidgets('상태를 못 받았으면 감독 노드를 확인하라고 알린다', (tester) async {
     await pump(tester);
     expect(
-      find.textContaining('mapping_supervisor_node'),
+      find.textContaining(vicaKeepWords('mapping_supervisor_node')),
       findsOneWidget,
     );
   });
@@ -149,7 +150,7 @@ void main() {
     await tester.tap(find.byType(Checkbox));
     await tester.pump();
 
-    expect(find.textContaining('Nav2 가 실행 중'), findsOneWidget);
+    expect(find.textContaining(vicaKeepWords('Nav2 가 실행 중')), findsOneWidget);
     final button = tester.widget<FilledButton>(
       find.widgetWithText(FilledButton, '매핑 시작'),
     );
@@ -161,7 +162,8 @@ void main() {
       tester,
       status: statusJson(duplicated: ['ekf_filter_node']),
     );
-    expect(find.textContaining('ekf_filter_node'), findsOneWidget);
+    expect(
+        find.textContaining(vicaKeepWords('ekf_filter_node')), findsOneWidget);
   });
 
   testWidgets('선행 노드가 빠져 있으면 무엇이 없는지 적는다', (tester) async {
@@ -170,13 +172,14 @@ void main() {
       tester,
       status: statusJson(missing: ['imu_base_link_adapter']),
     );
-    expect(find.textContaining('imu_base_link_adapter'), findsOneWidget);
+    expect(find.textContaining(vicaKeepWords('imu_base_link_adapter')),
+        findsOneWidget);
   });
 
   testWidgets('그리는 중이면 2단계로 넘어가고 조작판이 열린다', (tester) async {
     await pump(tester, status: statusJson(state: 'mapping'));
 
-    expect(find.textContaining('지도를 띄우는 중입니다'), findsOneWidget);
+    expect(find.textContaining(vicaKeepWords('지도를 띄우는 중입니다')), findsOneWidget);
     expect(find.bySemanticsLabel('앞으로'), findsOneWidget);
     // 1단계 내용은 접혀 있어야 한다.
     expect(find.widgetWithText(FilledButton, '매핑 시작'), findsNothing);
@@ -238,7 +241,8 @@ void main() {
     supervisor.injectEstop({'active': true});
     await tester.pump();
 
-    expect(find.textContaining('safety 와 motor 가 먼저'), findsOneWidget);
+    expect(find.textContaining(vicaKeepWords('safety 와 motor 가 먼저')),
+        findsOneWidget);
   });
 
   testWidgets('대기 상태면 모드를 바꿀 수 있다', (tester) async {

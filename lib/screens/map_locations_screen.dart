@@ -55,13 +55,11 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
         supervisor.consumeGoalAlert();
         showDialog<void>(
           context: context,
-          builder: (dialogContext) => AlertDialog(
-            icon: Icon(
-              alert.isFailure ? Icons.error_outline : Icons.info_outline,
-              color: alert.isFailure ? VicaColors.red : VicaColors.primaryDark,
-            ),
-            title: Text(alert.title),
-            content: Text(alert.description),
+          builder: (dialogContext) => VicaDialog(
+            icon: alert.isFailure ? Icons.error_outline : Icons.info_outline,
+            iconColor: alert.isFailure ? VicaColors.red : VicaColors.primary,
+            title: alert.title,
+            body: alert.description,
             actions: [
               FilledButton(
                 onPressed: () => Navigator.of(dialogContext).pop(),
@@ -218,6 +216,12 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                     ),
                     OutlinedButton(
                       onPressed: null,
+                      // 개수 배지라 내용 폭만 씁니다. 테마의 최소 폭(무한대)을
+                      // 그대로 두면 Row 안에서 "무한 폭" 배치 오류가 납니다.
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 36),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                      ),
                       child: Text('${locations.length}개'),
                     ),
                   ],
@@ -246,9 +250,11 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                 const SizedBox(height: 14),
                 if (driving || paused) ...[
                   Text(
-                    paused
-                        ? '$drivingGoal(으)로 가던 중 일시정지했습니다. 다시 출발하거나 취소할 수 있습니다.'
-                        : '$drivingGoal(으)로 주행 중입니다.',
+                    vicaKeepWords(vicaBreakAtSentences(
+                      paused
+                          ? '$drivingGoal(으)로 가던 중 일시정지했습니다. 다시 출발하거나 취소할 수 있습니다.'
+                          : '$drivingGoal(으)로 주행 중입니다.',
+                    )),
                     style: const TextStyle(
                       color: VicaColors.muted,
                       fontSize: 13,
@@ -296,9 +302,12 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                   ),
                   if (!supervisor.home!.visitedOk) ...[
                     const SizedBox(height: 6),
-                    const Text(
-                      '홈에 아직 가 본 적이 없습니다. 지도 설정 화면에서 확인해주세요.',
-                      style: TextStyle(color: VicaColors.muted, fontSize: 12),
+                    Text(
+                      vicaKeepWords(vicaBreakAtSentences(
+                        '홈에 아직 가 본 적이 없습니다. 지도 설정 화면에서 확인해주세요.',
+                      )),
+                      style: const TextStyle(
+                          color: VicaColors.muted, fontSize: 12),
                     ),
                   ],
                 ],
@@ -349,18 +358,16 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     final settings = context.read<SettingsProvider>().settings;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('초기 위치 확정'),
-        content: Text(
-          '로봇이 여기 있다고 알려 줍니다.\n'
-          '(${result.x.toStringAsFixed(2)}, ${result.y.toStringAsFixed(2)}) '
-          '${result.yawDegrees.round()}° · 일치도 ${result.score.round()}%\n\n'
-          '잘못 잡으면 로봇이 엉뚱한 곳으로 갑니다. 지도 위 화살표가 실제 로봇 위치와 같은지 확인하세요.',
-        ),
+      builder: (dialogContext) => VicaDialog(
+        icon: Icons.gps_fixed,
+        title: '초기 위치 확정',
+        body: '로봇이 여기 있다고 알려 줍니다.\n'
+            '(${result.x.toStringAsFixed(2)}, ${result.y.toStringAsFixed(2)}) '
+            '${result.yawDegrees.round()}° · 일치도 ${result.score.round()}%\n\n'
+            '잘못 잡으면 로봇이 엉뚱한 곳으로 갑니다. 지도 위 화살표가 실제 로봇 위치와 같은지 확인하세요.',
         actions: [
-          TextButton(
+          VicaCancelButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('취소'),
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
@@ -444,9 +451,11 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            blocked.isEmpty
-                ? 'Nav2 를 켠 직후에는 로봇이 자기 위치를 모릅니다. 초기위치를 설정해주세요.'
-                : blocked,
+            vicaKeepWords(vicaBreakAtSentences(
+              blocked.isEmpty
+                  ? 'Nav2 를 켠 직후에는 로봇이 자기 위치를 모릅니다. 초기위치를 설정해주세요.'
+                  : blocked,
+            )),
             style: const TextStyle(color: VicaColors.muted, fontSize: 13),
           ),
           const SizedBox(height: 12),
@@ -472,16 +481,14 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     final settings = context.read<SettingsProvider>().settings;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('홈으로 복귀'),
-        content: const Text(
-          '로봇이 홈 위치로 이동합니다.\n'
-          '경로에 사람과 장애물이 없는지 확인하세요.',
-        ),
+      builder: (dialogContext) => VicaDialog(
+        icon: Icons.home_outlined,
+        title: '홈으로 복귀',
+        body: '로봇이 홈 위치로 이동합니다. '
+            '경로에 사람과 장애물이 없는지 확인하세요.',
         actions: [
-          TextButton(
+          VicaCancelButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('취소'),
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
@@ -509,16 +516,14 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     final settings = context.read<SettingsProvider>().settings;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('원격 주행 요청'),
-        content: Text(
-          '${location.name}(으)로 주행을 요청합니다.\n'
-          '로봇 주변에 사람과 장애물이 없는지 확인하세요.',
-        ),
+      builder: (dialogContext) => VicaDialog(
+        icon: Icons.navigation_outlined,
+        title: '원격 주행 요청',
+        body: '${location.name}(으)로 주행을 요청합니다. '
+            '로봇 주변에 사람과 장애물이 없는지 확인하세요.',
         actions: [
-          TextButton(
+          VicaCancelButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('취소'),
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),

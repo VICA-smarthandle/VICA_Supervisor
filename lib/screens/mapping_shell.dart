@@ -225,12 +225,13 @@ class _MappingShellState extends State<MappingShell> {
     if (status != null && status.busy) {
       await showDialog<void>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('매핑이 진행 중입니다'),
-          content: Text(
-            '${status.state.label} 상태입니다. 모드를 바꾸면 종료·저장 버튼이 '
-            '보이지 않을 수 있으니 먼저 저장하거나 종료해 주세요.',
-          ),
+        builder: (dialogContext) => VicaDialog(
+          icon: Icons.place_outlined,
+          title: '매핑이 진행 중입니다',
+          // 문장은 마침표에서 나뉘고 그 안은 어절 단위로 접힙니다(VicaDialog).
+          body: '${status.state.label}입니다. '
+              '모드를 바꾸면 종료·저장 버튼이 보이지 않을 수 있으니 '
+              '먼저 저장하거나 종료해 주세요.',
           actions: [
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
@@ -283,7 +284,7 @@ class _Step extends StatelessWidget {
                   height: 26,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: done ? VicaColors.green : VicaColors.softBlue,
+                    color: done ? VicaColors.green : VicaColors.accentTint,
                     shape: BoxShape.circle,
                   ),
                   child: done
@@ -385,10 +386,13 @@ class _EmergencyResetCard extends StatelessWidget {
           Text(
             // 특정 모드의 절차를 지시하지 않는다 — 비상정지는 모드와 무관한
             // 안전 장치라, 여기서는 그 사실만 말한다 (2026-08-25 실기 피드백).
-            supervisor.emergencyStopMessage.isEmpty
-                ? '해제 전에는 로봇이 움직이지 않습니다. 해제하려면 safety 와 '
-                    'motor 가 먼저 떠 있어야 합니다.'
-                : supervisor.emergencyStopMessage,
+            // 마침표에서 줄을 나누고 그 안은 어절 단위로 접힌다(2026-09-15).
+            vicaKeepWords(vicaBreakAtSentences(
+              supervisor.emergencyStopMessage.isEmpty
+                  ? '해제 전에는 로봇이 움직이지 않습니다. 해제하려면 safety 와 '
+                      'motor 가 먼저 떠 있어야 합니다.'
+                  : supervisor.emergencyStopMessage,
+            )),
             style: const TextStyle(fontSize: 12),
           ),
           const SizedBox(height: 10),
@@ -403,10 +407,12 @@ class _EmergencyResetCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
-            '거부되면 아직 남은 원인이 있는 것입니다. safety 와 motor 가 먼저 떠 '
-            '있어야 합니다.',
-            style: TextStyle(fontSize: 11, color: VicaColors.muted),
+          Text(
+            vicaKeepWords(vicaBreakAtSentences(
+              '거부되면 아직 남은 원인이 있는 것입니다. safety 와 motor 가 먼저 떠 '
+              '있어야 합니다.',
+            )),
+            style: const TextStyle(fontSize: 11, color: VicaColors.muted),
           ),
         ],
       ),
@@ -424,19 +430,21 @@ class _WaitingForSupervisor extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: VicaColors.softBlue,
+        color: VicaColors.accentTint,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: VicaColors.border),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          Icon(Icons.help_outline, color: VicaColors.muted, size: 20),
-          SizedBox(width: 10),
+          const Icon(Icons.help_outline, color: VicaColors.muted, size: 20),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'mapping_supervisor_node 에서 상태를 아직 받지 못했습니다. '
-              '노드가 실행 중인지 확인해 주세요.',
-              style: TextStyle(fontSize: 12),
+              vicaKeepWords(vicaBreakAtSentences(
+                'mapping_supervisor_node 에서 상태를 아직 받지 못했습니다. '
+                '노드가 실행 중인지 확인해 주세요.',
+              )),
+              style: const TextStyle(fontSize: 12),
             ),
           ),
         ],
@@ -486,7 +494,7 @@ class _PrepareStep extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    blocker,
+                    vicaKeepWords(vicaBreakAtSentences(blocker)),
                     style: const TextStyle(fontSize: 12, color: VicaColors.red),
                   ),
                 ),
@@ -494,14 +502,20 @@ class _PrepareStep extends StatelessWidget {
             ),
           ),
         if (blockers.isEmpty)
-          const Row(
+          Row(
             children: [
-              Icon(Icons.check_circle_outline,
+              const Icon(Icons.check_circle_outline,
                   size: 16, color: VicaColors.green),
-              SizedBox(width: 8),
-              Text(
-                '충돌 없음. 필요한 노드가 모두 떠 있습니다.',
-                style: TextStyle(fontSize: 12, color: VicaColors.green),
+              const SizedBox(width: 8),
+              // 좁은 창(320)에서 글자가 오른쪽으로 74px 넘쳤습니다(2026-09-15).
+              // 남는 폭만 쓰고 줄을 바꾸게 합니다.
+              Expanded(
+                child: Text(
+                  vicaKeepWords(vicaBreakAtSentences(
+                    '충돌 없음. 필요한 노드가 모두 떠 있습니다.',
+                  )),
+                  style: const TextStyle(fontSize: 12, color: VicaColors.green),
+                ),
               ),
             ],
           ),
@@ -523,9 +537,9 @@ class _PrepareStep extends StatelessWidget {
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
             dense: true,
-            title: const Text(
-              '비상시를 대비한 비상정지 버튼을 확인했습니다',
-              style: TextStyle(fontSize: 13),
+            title: Text(
+              vicaKeepWords('비상시를 대비한 비상정지 버튼을 확인했습니다'),
+              style: const TextStyle(fontSize: 13),
             ),
           ),
         ),
@@ -536,10 +550,14 @@ class _PrepareStep extends StatelessWidget {
           label: const Text('매핑 시작'),
         ),
         const SizedBox(height: 8),
-        const Text(
-          'd455(Docker)와 IMU 는 앱이 실행하지 않습니다.'
-          'IMU 를 띄운 뒤 20초 동안 로봇을 완전히 세워 자이로 보정이 끝난 것을 확인하고 시작하세요.',
-          style: TextStyle(fontSize: 11, color: VicaColors.muted),
+        Text(
+          // 두 문장이 띄어쓰기 없이 붙어 보였습니다(2026-09-15 검토). 마침표
+          // 뒤에서 줄을 바꾸고, 그 안은 어절 단위로 접힙니다.
+          vicaKeepWords(vicaBreakAtSentences(
+            'd455(Docker)와 IMU 는 앱이 실행하지 않습니다. '
+            'IMU 를 띄운 뒤 20초 동안 로봇을 완전히 세워 자이로 보정이 끝난 것을 확인하고 시작하세요.',
+          )),
+          style: const TextStyle(fontSize: 11, color: VicaColors.muted),
         ),
       ],
     );
@@ -568,9 +586,11 @@ class _MappingStep extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (preview == null)
-          const Text(
-            '지도를 띄우는 중입니다. 로봇을 조금 움직이면 그려지기 시작합니다.',
-            style: TextStyle(fontSize: 12, color: VicaColors.muted),
+          Text(
+            vicaKeepWords(vicaBreakAtSentences(
+              '지도를 띄우는 중입니다. 로봇을 조금 움직이면 그려지기 시작합니다.',
+            )),
+            style: const TextStyle(fontSize: 12, color: VicaColors.muted),
           )
         else ...[
           ResponsiveMapFrame(
@@ -592,6 +612,8 @@ class _MappingStep extends StatelessWidget {
                       y: preview.robotY!,
                       yawDegrees: preview.robotYaw!,
                       label: '로봇 위치',
+                      // 회색 지도 위에서 잘 보이게 빨강(2026-09-15).
+                      color: VicaColors.red,
                     )
                   : null,
             ),
@@ -608,21 +630,18 @@ class _MappingStep extends StatelessWidget {
         const SizedBox(height: 12),
         TeleopPad(enabled: status?.state == MappingState.mapping),
         const SizedBox(height: 4),
-        Row(
-          children: [
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: status?.canSave == true ? onGoSave : null,
-                icon: const Icon(Icons.save_outlined),
-                label: const Text('지도 작성 완료'),
-              ),
-            ),
-            const SizedBox(width: 10),
-            OutlinedButton(
-              onPressed: onStop,
-              child: const Text('취소'),
-            ),
-          ],
+        // 버튼 둘을 위아래로 놓습니다(2026-09-14 시안). 전에는 Row 에 두었는데,
+        // 버튼 테마의 최소 폭이 무한대라 Expanded 없이 놓인 '취소'가 "무한 폭"
+        // 배치 오류를 내고 이 화면 전체가 그려지지도, 눌리지도 않았습니다.
+        FilledButton.icon(
+          onPressed: status?.canSave == true ? onGoSave : null,
+          icon: const Icon(Icons.save_outlined),
+          label: const Text('지도 작성 완료'),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton(
+          onPressed: onStop,
+          child: const Text('취소'),
         ),
       ],
     );
@@ -654,8 +673,7 @@ class _SaveStep extends StatelessWidget {
             // 한글도 됩니다(2026-09-04). 파일·URL 에는 영문 id 만 들어가고 한글은
             // 표시 이름으로만 남습니다 — 규칙은 감독 노드(plan_map_save)가 정하고
             // 거부 사유는 저장 응답으로 옵니다.
-            helperText: '한글도 됩니다. 영문 이름은 날짜가 붙고, 한글 이름은 '
-                '파일 이름(map_날짜_시각)이 자동으로 만들어집니다.',
+            helperText: '이름 뒤에 날짜가 붙습니다.',
           ),
         ),
         const SizedBox(height: 12),
@@ -664,7 +682,12 @@ class _SaveStep extends StatelessWidget {
           icon: const Icon(Icons.save),
           label: const Text('저장'),
         ),
-        if (status != null && status!.detail.isNotEmpty) ...[
+        // 노드가 보내는 상태 설명은 저장 중·오류일 때만 보입니다. 지도를 그리는
+        // 중이라는 말은 이 단계에선 뻔한 소리라 뺐습니다(2026-09-15). 거부 사유는
+        // 저장 응답이 상태 설명으로 오므로 그때는 그대로 보여야 합니다.
+        if (status != null &&
+            status!.state != MappingState.mapping &&
+            status!.detail.isNotEmpty) ...[
           const SizedBox(height: 10),
           Text(
             status!.detail,
@@ -672,10 +695,11 @@ class _SaveStep extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 8),
-        const Text(
-          '저장 중입니다. 최대 2분까지 걸릴 수 있고, 끝나면 위에 '
-          '결과가 표시됩니다.',
-          style: TextStyle(fontSize: 11, color: VicaColors.muted),
+        Text(
+          vicaKeepWords(vicaBreakAtSentences(
+            '저장 중입니다. 최대 2분까지 걸릴 수 있고, 끝나면 위에 결과가 표시됩니다.',
+          )),
+          style: const TextStyle(fontSize: 11, color: VicaColors.muted),
         ),
       ],
     );
@@ -704,34 +728,45 @@ class _DoneStep extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '저장했습니다: $mapName',
+          vicaKeepWords('저장했습니다: $mapName'),
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
         if (mapName != mapId) ...[
           const SizedBox(height: 4),
           Text(
-            '파일 이름: $mapId',
+            vicaKeepWords('파일 이름: $mapId'),
             style: const TextStyle(fontSize: 12, color: VicaColors.muted),
           ),
         ],
         const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: onRefreshMaps,
-                icon: const Icon(Icons.refresh),
-                label: const Text('지도 목록 새로고침'),
+        // 왼쪽 글자가 두 줄이라 오른쪽 버튼도 같은 높이로 늘립니다.
+        // Column 안의 Row 는 높이가 무한대라 stretch 만 주면 "무한 높이" 배치
+        // 오류가 납니다(2026-09-15 실기). IntrinsicHeight 로 높이를 먼저 잽니다.
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: onRefreshMaps,
+                  icon: const Icon(Icons.refresh),
+                  // 폰 폭(360~412)에서는 한 줄에 못 들어가 '새로고' + '침'으로
+                  // 엉뚱하게 접힙니다. 뜻 단위로 미리 줄을 바꿉니다(2026-09-15).
+                  label: const Text(
+                    '지도 목록\n새로고침',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: FilledButton(
-                onPressed: onFinish,
-                child: const Text('매핑 종료'),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton(
+                  onPressed: onFinish,
+                  child: const Text('매핑 종료'),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ],
     );

@@ -13,6 +13,7 @@ import 'package:vica_supervisor/providers/auth_provider.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/screens/mode_select_screen.dart';
+import 'package:vica_supervisor/widgets/vica_ui.dart';
 
 class _FakeSupervisor extends SupervisorProvider {
   void injectStack(StackStatus? status) => setStackStatusForTest(status);
@@ -82,7 +83,11 @@ void main() {
     // 막으면 연결이 안 되는 상황에서 사람이 갇힙니다. 대신 모른다는 사실을 숨기지 않습니다.
     final modeProvider = await pump(tester, _FakeSupervisor());
 
-    expect(find.textContaining('로봇 상태를 확인할 수 없습니다'), findsOneWidget);
+    // 안내문은 어절 단위 줄바꿈(vicaKeepWords)을 거치므로 같은 변환으로 찾습니다.
+    expect(
+      find.textContaining(vicaKeepWords('로봇 상태를 확인할 수 없습니다')),
+      findsOneWidget,
+    );
     expect(find.textContaining('확인 불가'), findsNWidgets(2));
 
     await tester.tap(find.text('주행'));

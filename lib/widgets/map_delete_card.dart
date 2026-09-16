@@ -71,8 +71,7 @@ class _MapDeleteCardState extends State<MapDeleteCard> {
     final supervisor = context.watch<SupervisorProvider>();
     final maps = supervisor.maps;
     final selected = maps.any((map) => map.mapId == _target) ? _target : null;
-    final selectedMap =
-        maps.where((map) => map.mapId == selected).firstOrNull;
+    final selectedMap = maps.where((map) => map.mapId == selected).firstOrNull;
     final typedName = _nameController.text.trim();
     final canRename = selectedMap != null &&
         !_busy &&
@@ -80,105 +79,102 @@ class _MapDeleteCardState extends State<MapDeleteCard> {
         typedName != selectedMap.mapName;
 
     final body = Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (widget.framed) ...[
-            Text('지도 관리', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 6),
-          ],
-          const Text(
-            '이름은 언제든 바꿀 수 있습니다. 파일 이름(id)과 저장한 장소는 그대로입니다. '
-            '삭제한 지도는 되돌릴 수 없습니다. 현재 주행하는 지도는 삭제할 수 없습니다.',
-            style: TextStyle(color: VicaColors.muted, fontSize: 12),
-          ),
-          const SizedBox(height: 12),
-          if (maps.isEmpty)
-            const Text(
-              '지도 목록이 비어 있습니다. 먼저 목록을 불러오세요.',
-              style: TextStyle(fontSize: 12),
-            )
-          else ...[
-            DropdownButtonFormField<String>(
-              initialValue: selected,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: '지도'),
-              items: maps
-                  .map(
-                    (map) => DropdownMenuItem(
-                      value: map.mapId,
-                      child: Text(
-                        map.displayName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  )
-                  .toList(),
-              onChanged: _busy ? null : (value) => _pick(value, maps),
-            ),
-            const SizedBox(height: 10),
-            // -- 이름 바꾸기 --------------------------------------------
-            TextField(
-              controller: _nameController,
-              enabled: selectedMap != null && !_busy,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                labelText: '표시 이름',
-                helperText: selectedMap == null
-                    ? '위에서 지도를 고르면 지금 이름이 채워집니다.'
-                    : '한글도 됩니다. 다른 지도와 같은 이름은 안 됩니다. '
-                        '파일 이름: ${selectedMap.mapId}',
-              ),
-            ),
-            const SizedBox(height: 6),
-            OutlinedButton.icon(
-              onPressed: canRename
-                  ? () => _rename(context, settings, selectedMap.mapId, typedName)
-                  : null,
-              icon: const Icon(Icons.drive_file_rename_outline),
-              label: const Text('이름 바꾸기'),
-            ),
-            const Divider(height: 28),
-            // -- 삭제 ------------------------------------------------------
-            // Material 로 감싸는 이유: 카드(색 있는 Container) 안의 ListTile 은
-            // Flutter 3.44 가 잉크 assertion 으로 잡는다(mapping_shell 과 같은 사정).
-            Material(
-              type: MaterialType.transparency,
-              child: CheckboxListTile(
-                value: _alsoDestinations,
-                onChanged: _busy
-                    ? null
-                    : (value) =>
-                        setState(() => _alsoDestinations = value ?? false),
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
-                dense: true,
-                title: const Text(
-                  '이 지도에 저장한 장소도 함께 삭제합니다',
-                  style: TextStyle(fontSize: 13),
-                ),
-                subtitle: const Text(
-                  '지도만 삭제하고 장소를 남길 수는 없습니다. 확인하셨으면 체크해 주세요.',
-                  style: TextStyle(fontSize: 11, color: VicaColors.muted),
-                ),
-              ),
-            ),
-            const SizedBox(height: 6),
-            OutlinedButton.icon(
-              // 체크 없이는 열리지 않습니다. 되돌릴 수 없는 일이라 확인을
-              // 한 번 더 받습니다.
-              onPressed: selected == null || _busy || !_alsoDestinations
-                  ? null
-                  : () => _confirmDelete(context, settings, selected),
-              icon: const Icon(Icons.delete_forever_outlined),
-              label: const Text('지도 삭제'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: VicaColors.red,
-              ),
-            ),
-          ],
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (widget.framed) ...[
+          Text('지도 관리', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 6),
         ],
-      );
+        Text(
+          // 두 문장을 한 줄에 두고 어절 단위로만 접습니다(2026-09-15 사용자 결정).
+          // '이름은 언제든…', '파일 이름(id)…' 두 문장은 뺐습니다.
+          vicaKeepWords(
+            '삭제한 지도는 되돌릴 수 없습니다. 현재 주행하는 지도는 삭제할 수 없습니다.',
+          ),
+          style: const TextStyle(color: VicaColors.muted, fontSize: 12),
+        ),
+        const SizedBox(height: 12),
+        if (maps.isEmpty)
+          const Text(
+            '지도 목록이 비어 있습니다. 먼저 목록을 불러오세요.',
+            style: TextStyle(fontSize: 12),
+          )
+        else ...[
+          DropdownButtonFormField<String>(
+            initialValue: selected,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: '지도'),
+            items: maps
+                .map(
+                  (map) => DropdownMenuItem(
+                    value: map.mapId,
+                    child: Text(
+                      map.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                )
+                .toList(),
+            onChanged: _busy ? null : (value) => _pick(value, maps),
+          ),
+          const SizedBox(height: 10),
+          // -- 이름 바꾸기 --------------------------------------------
+          TextField(
+            controller: _nameController,
+            enabled: selectedMap != null && !_busy,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              labelText: '표시 이름',
+              helperText:
+                  selectedMap == null ? '이름을 수정해 주세요.' : '다른 지도와 같은 이름은 안 됩니다.',
+            ),
+          ),
+          const SizedBox(height: 6),
+          OutlinedButton.icon(
+            onPressed: canRename
+                ? () => _rename(context, settings, selectedMap.mapId, typedName)
+                : null,
+            icon: const Icon(Icons.drive_file_rename_outline),
+            label: const Text('이름 바꾸기'),
+          ),
+          const Divider(height: 28),
+          // -- 삭제 ------------------------------------------------------
+          // Material 로 감싸는 이유: 카드(색 있는 Container) 안의 ListTile 은
+          // Flutter 3.44 가 잉크 assertion 으로 잡는다(mapping_shell 과 같은 사정).
+          Material(
+            type: MaterialType.transparency,
+            child: CheckboxListTile(
+              value: _alsoDestinations,
+              onChanged: _busy
+                  ? null
+                  : (value) =>
+                      setState(() => _alsoDestinations = value ?? false),
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              dense: true,
+              title: const Text(
+                '이 지도에 저장한 장소도 함께 삭제합니다',
+                style: TextStyle(fontSize: 13),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          OutlinedButton.icon(
+            // 체크 없이는 열리지 않습니다. 되돌릴 수 없는 일이라 확인을
+            // 한 번 더 받습니다.
+            onPressed: selected == null || _busy || !_alsoDestinations
+                ? null
+                : () => _confirmDelete(context, settings, selected),
+            icon: const Icon(Icons.delete_forever_outlined),
+            label: const Text('지도 삭제'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: VicaColors.red,
+            ),
+          ),
+        ],
+      ],
+    );
 
     return widget.framed ? VicaCard(child: body) : body;
   }
@@ -210,21 +206,20 @@ class _MapDeleteCardState extends State<MapDeleteCard> {
   ) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('지도를 삭제합니다'),
-        content: Text(
-          "'$mapId'의 지도 파일과 이 지도에 저장한 장소를 삭제합니다.\n"
-          '되돌릴 수 없습니다.',
-        ),
+      builder: (dialogContext) => VicaDialog(
+        icon: Icons.delete_outline,
+        iconColor: VicaColors.red,
+        title: '지도를 삭제합니다',
+        body: "'$mapId'의 지도 파일과 이 지도에 저장한 장소를 삭제합니다. "
+            '되돌릴 수 없습니다.',
         actions: [
-          TextButton(
+          VicaCancelButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('그만두기'),
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
             style: FilledButton.styleFrom(backgroundColor: VicaColors.red),
-            child: const Text('지우기'),
+            child: const Text('삭제'),
           ),
         ],
       ),

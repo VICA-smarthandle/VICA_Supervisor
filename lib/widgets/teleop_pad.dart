@@ -22,9 +22,77 @@ class TeleopPad extends StatelessWidget {
 
   final bool enabled;
 
+  /// 다이얼(바깥 원)의 지름과 방향 버튼의 지름입니다. 버튼은 원 가장자리에서
+  /// [_dialInset] 만큼 안쪽에 동서남북으로 놓입니다.
+  // 200 이었는데 폰 화면에서 카드의 절반을 먹어 152 로 줄였습니다(2026-09-15).
+  // 버튼 44 는 손가락으로 누를 수 있는 최소 크기입니다.
+  static const double _dialSize = 152;
+  static const double _buttonSize = 44;
+  static const double _dialInset = 10;
+
   @override
   Widget build(BuildContext context) {
     final supervisor = context.watch<SupervisorProvider>();
+
+    // 버튼 넷의 자리. 화살표는 화면에서 보는 방향 그대로 가리킵니다 — 위는
+    // 앞으로, 오른쪽은 오른쪽으로 도는 것입니다. 회전 아이콘(rotate_*)은 어느
+    // 쪽으로 도는지 한 박자 생각해야 해서 화살표로 바꿨습니다(2026-09-14 시안).
+    const mid = (_dialSize - _buttonSize) / 2;
+    const far = _dialSize - _buttonSize - _dialInset;
+    final buttons = [
+      _PadButton(
+        icon: Icons.keyboard_arrow_up,
+        label: '앞으로',
+        left: mid,
+        top: _dialInset,
+        pressed: supervisor.isTeleopHeld(
+          linear: SupervisorProvider.teleopMaxLinear,
+          angular: 0,
+        ),
+        enabled: enabled,
+        linear: SupervisorProvider.teleopMaxLinear,
+        angular: 0,
+      ),
+      _PadButton(
+        icon: Icons.keyboard_arrow_right,
+        label: '오른쪽',
+        left: far,
+        top: mid,
+        pressed: supervisor.isTeleopHeld(
+          linear: 0,
+          angular: -SupervisorProvider.teleopMaxAngular,
+        ),
+        enabled: enabled,
+        linear: 0,
+        angular: -SupervisorProvider.teleopMaxAngular,
+      ),
+      _PadButton(
+        icon: Icons.keyboard_arrow_down,
+        label: '뒤로',
+        left: mid,
+        top: far,
+        pressed: supervisor.isTeleopHeld(
+          linear: -SupervisorProvider.teleopMaxLinear,
+          angular: 0,
+        ),
+        enabled: enabled,
+        linear: -SupervisorProvider.teleopMaxLinear,
+        angular: 0,
+      ),
+      _PadButton(
+        icon: Icons.keyboard_arrow_left,
+        label: '왼쪽',
+        left: _dialInset,
+        top: mid,
+        pressed: supervisor.isTeleopHeld(
+          linear: 0,
+          angular: SupervisorProvider.teleopMaxAngular,
+        ),
+        enabled: enabled,
+        linear: 0,
+        angular: SupervisorProvider.teleopMaxAngular,
+      ),
+    ];
 
     return VicaCard(
       child: Column(
@@ -52,74 +120,29 @@ class TeleopPad extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
-          const Text(
-            '버튼을 누르고 있는 동안만 움직입니다. 손을 떼면 바로 멈춥니다. '
-            '최대 ${SupervisorProvider.teleopMaxLinear} m/s · '
-            '${SupervisorProvider.teleopMaxAngular} rad/s.',
-            style: TextStyle(color: VicaColors.muted, fontSize: 12),
+          // 문장 끝에서 줄을 바꿉니다(2026-09-14 규칙). '손을 떼면 바로 멈춥니다'는
+          // 앞 문장과 뜻이 겹쳐 뺐습니다(2026-09-15).
+          Text(
+            vicaKeepWords(
+              '버튼을 누르고 있는 동안만 움직입니다.\n'
+              '최대 ${SupervisorProvider.teleopMaxLinear} m/s · '
+              '${SupervisorProvider.teleopMaxAngular} rad/s.',
+            ),
+            style: const TextStyle(color: VicaColors.muted, fontSize: 12),
           ),
           const SizedBox(height: 14),
+          // 가운데 정지 버튼은 없습니다. 손을 떼면 그 자리에서 멈추므로 누를
+          // 일이 없고, 있으면 "눌러야 멈춘다"는 오해를 줍니다.
           Center(
-            child: SizedBox(
-              width: 208,
-              child: Column(
-                children: [
-                  _PadButton(
-                    icon: Icons.keyboard_arrow_up,
-                    label: '앞으로',
-                    pressed: supervisor.isTeleopHeld(
-                      linear: SupervisorProvider.teleopMaxLinear,
-                      angular: 0,
-                    ),
-                    enabled: enabled,
-                    linear: SupervisorProvider.teleopMaxLinear,
-                    angular: 0,
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _PadButton(
-                        icon: Icons.rotate_left,
-                        label: '왼쪽',
-                        pressed: supervisor.isTeleopHeld(
-                          linear: 0,
-                          angular: SupervisorProvider.teleopMaxAngular,
-                        ),
-                        enabled: enabled,
-                        linear: 0,
-                        angular: SupervisorProvider.teleopMaxAngular,
-                      ),
-                      const SizedBox(width: 8),
-                      _StopButton(enabled: enabled),
-                      const SizedBox(width: 8),
-                      _PadButton(
-                        icon: Icons.rotate_right,
-                        label: '오른쪽',
-                        pressed: supervisor.isTeleopHeld(
-                          linear: 0,
-                          angular: -SupervisorProvider.teleopMaxAngular,
-                        ),
-                        enabled: enabled,
-                        linear: 0,
-                        angular: -SupervisorProvider.teleopMaxAngular,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  _PadButton(
-                    icon: Icons.keyboard_arrow_down,
-                    label: '뒤로',
-                    pressed: supervisor.isTeleopHeld(
-                      linear: -SupervisorProvider.teleopMaxLinear,
-                      angular: 0,
-                    ),
-                    enabled: enabled,
-                    linear: -SupervisorProvider.teleopMaxLinear,
-                    angular: 0,
-                  ),
-                ],
+            child: Container(
+              width: _dialSize,
+              height: _dialSize,
+              decoration: BoxDecoration(
+                color: VicaColors.surfaceSunken,
+                shape: BoxShape.circle,
+                border: Border.all(color: VicaColors.border),
               ),
+              child: Stack(children: buttons),
             ),
           ),
         ],
@@ -132,6 +155,8 @@ class _PadButton extends StatelessWidget {
   const _PadButton({
     required this.icon,
     required this.label,
+    required this.left,
+    required this.top,
     required this.enabled,
     required this.pressed,
     required this.linear,
@@ -139,7 +164,13 @@ class _PadButton extends StatelessWidget {
   });
 
   final IconData icon;
+
+  /// 화면에는 안 보이고 접근성·시험이 읽는 이름입니다.
   final String label;
+
+  /// 다이얼 안에서의 자리입니다.
+  final double left;
+  final double top;
   final bool enabled;
   // 이 버튼의 명령이 실제로 나가고 있는가(provider 가 판정). 눌림 표시용.
   final bool pressed;
@@ -151,68 +182,44 @@ class _PadButton extends StatelessWidget {
     final supervisor = context.read<SupervisorProvider>();
     // GestureDetector 의 onTap 이 아니라 Listener 의 포인터 이벤트를 씁니다.
     // onTap 은 손을 뗀 뒤에야 불리므로 "누르고 있는 동안"을 표현할 수 없습니다.
-    return Listener(
-      onPointerDown: enabled
-          ? (_) => supervisor.holdTeleop(linear: linear, angular: angular)
-          : null,
-      onPointerUp: enabled ? (_) => supervisor.releaseTeleop() : null,
-      // 손가락이 버튼 밖으로 미끄러지거나 시스템이 제스처를 가로채도 멈춥니다.
-      onPointerCancel: enabled ? (_) => supervisor.releaseTeleop() : null,
-      child: Semantics(
-        button: true,
-        label: label,
-        child: Opacity(
-          opacity: enabled ? 1 : 0.4,
-          child: Container(
-            width: 64,
-            height: 56,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              // 눌려서 명령이 나가는 동안만 진하게(2026-09-04). 근거는 버튼의
-              // 눌림이 아니라 provider 의 실제 명령값(isTeleopHeld)이라, 연결이
-              // 끊겨 명령이 안 나가면 색도 꺼집니다.
-              color: pressed ? VicaColors.primary : VicaColors.softBlue,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: pressed ? VicaColors.primaryDark : VicaColors.border,
+    return Positioned(
+      left: left,
+      top: top,
+      child: Listener(
+        onPointerDown: enabled
+            ? (_) => supervisor.holdTeleop(linear: linear, angular: angular)
+            : null,
+        onPointerUp: enabled ? (_) => supervisor.releaseTeleop() : null,
+        // 손가락이 버튼 밖으로 미끄러지거나 시스템이 제스처를 가로채도 멈춥니다.
+        onPointerCancel: enabled ? (_) => supervisor.releaseTeleop() : null,
+        child: Semantics(
+          button: true,
+          label: label,
+          child: Opacity(
+            opacity: enabled ? 1 : 0.4,
+            child: Container(
+              width: TeleopPad._buttonSize,
+              height: TeleopPad._buttonSize,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                // 눌려서 명령이 나가는 동안만 진하게(2026-09-04). 근거는 버튼의
+                // 눌림이 아니라 provider 의 실제 명령값(isTeleopHeld)이라, 연결이
+                // 끊겨 명령이 안 나가면 색도 꺼집니다.
+                color: pressed ? VicaColors.primary : VicaColors.card,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: pressed
+                      ? VicaColors.primaryDark
+                      : VicaColors.borderStrong,
+                ),
+              ),
+              child: Icon(
+                icon,
+                size: 22,
+                color: pressed ? Colors.white : VicaColors.primaryDark,
               ),
             ),
-            child: Icon(
-              icon,
-              size: 26,
-              color: pressed ? Colors.white : VicaColors.primaryDark,
-            ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-// 손을 떼는 것으로 이미 멈추지만, 눌러서 멈출 수 있는 자리가 눈에 보이는 편이
-// 안심됩니다. 비상정지와는 다릅니다 — 그쪽은 앱바의 빨간 버튼입니다.
-class _StopButton extends StatelessWidget {
-  const _StopButton({required this.enabled});
-
-  final bool enabled;
-
-  @override
-  Widget build(BuildContext context) {
-    final supervisor = context.read<SupervisorProvider>();
-    return GestureDetector(
-      onTap: enabled ? supervisor.releaseTeleop : null,
-      child: Opacity(
-        opacity: enabled ? 1 : 0.4,
-        child: Container(
-          width: 64,
-          height: 56,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: VicaColors.border),
-          ),
-          child: const Icon(Icons.stop, size: 24, color: VicaColors.muted),
         ),
       ),
     );

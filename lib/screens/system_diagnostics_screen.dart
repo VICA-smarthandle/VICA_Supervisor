@@ -64,10 +64,13 @@ class _Summary extends StatelessWidget {
     final current = health;
 
     if (current == null) {
-      return const VicaCard(
+      return VicaCard(
         child: Text(
-          '아직 로봇 상태를 받지 못했습니다. '
-          'robot_health_monitor_node가 실행 중인지 확인해 주세요.',
+          // 안내문은 마침표에서 나누되 짧은 문장은 붙이고, 어절 단위로 접힙니다.
+          vicaKeepWords(vicaBreakAtSentences(
+            '아직 로봇 상태를 받지 못했습니다. '
+            'robot_health_monitor_node가 실행 중인지 확인해 주세요.',
+          )),
         ),
       );
     }
@@ -83,8 +86,10 @@ class _Summary extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                '상태 감시가 ${settings.robotHealthTimeoutSeconds}초 넘게 갱신되지 '
-                '않았습니다. 아래 값은 현재 상태가 아닙니다.',
+                vicaKeepWords(vicaBreakAtSentences(
+                  '상태 감시가 ${settings.robotHealthTimeoutSeconds}초 넘게 갱신되지 '
+                  '않았습니다. 아래 값은 현재 상태가 아닙니다.',
+                )),
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
             ),
@@ -194,7 +199,7 @@ class _FaultCard extends StatelessWidget {
             ),
             if (fault.detail.isNotEmpty) ...[
               const SizedBox(height: 6),
-              Text(fault.detail),
+              Text(vicaKeepWords(vicaBreakAtSentences(fault.detail))),
             ],
             const SizedBox(height: 8),
             Text(
@@ -207,7 +212,7 @@ class _FaultCard extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: VicaColors.softBlue,
+                  color: VicaColors.accentTint,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
@@ -216,7 +221,13 @@ class _FaultCard extends StatelessWidget {
                     const Icon(Icons.build_outlined,
                         size: 16, color: VicaColors.primaryDark),
                     const SizedBox(width: 8),
-                    Expanded(child: Text(fault.suggestedAction)),
+                    Expanded(
+                      child: Text(
+                        vicaKeepWords(
+                          vicaBreakAtSentences(fault.suggestedAction),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -289,18 +300,20 @@ class _Readiness extends StatelessWidget {
                 // 고장으로 오해하거나 반대로 정상으로 오해합니다.
                 if (readiness.values.contains(ComponentReadiness.unknown)) ...[
                   const Divider(height: 20),
-                  const Row(
+                  Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.help_outline,
+                      const Icon(Icons.help_outline,
                           size: 16, color: VicaColors.muted),
-                      SizedBox(width: 8),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          '관측 불가는 고장이 아니라 상태를 확인할 수단이 없다는 '
-                          '뜻입니다. 정상은 아닙니다.',
-                          style:
-                              TextStyle(color: VicaColors.muted, fontSize: 12),
+                          vicaKeepWords(vicaBreakAtSentences(
+                            '관측 불가는 고장이 아니라 상태를 확인할 수단이 없다는 '
+                            '뜻입니다. 정상은 아닙니다.',
+                          )),
+                          style: const TextStyle(
+                              color: VicaColors.muted, fontSize: 12),
                         ),
                       ),
                     ],
@@ -404,9 +417,11 @@ class _EventHistory extends StatelessWidget {
                                     fontWeight: FontWeight.w700),
                               ),
                               Text(
-                                group.latest.fault.detail.isEmpty
-                                    ? group.latest.fault.faultCode
-                                    : group.latest.fault.detail,
+                                vicaKeepWords(vicaBreakAtSentences(
+                                  group.latest.fault.detail.isEmpty
+                                      ? group.latest.fault.faultCode
+                                      : group.latest.fault.detail,
+                                )),
                                 style: const TextStyle(
                                     color: VicaColors.muted, fontSize: 12),
                               ),

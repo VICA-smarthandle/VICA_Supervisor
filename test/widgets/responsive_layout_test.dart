@@ -8,23 +8,33 @@
 //   - 지표 카드 셀 높이: 글자 배율 1.3에서 14px 넘침 (높이가 116으로 고정)
 //
 // 문구를 짧게 바꾸면 넘침이 우연히 사라지므로, 현장에서 나올 만한 긴 이름을 씁니다.
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vica_supervisor/app.dart';
+import 'package:vica_supervisor/core/app_settings.dart';
 import 'package:vica_supervisor/models/stack_status.dart';
 import 'package:vica_supervisor/providers/app_mode_provider.dart';
 import 'package:vica_supervisor/providers/auth_provider.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
+import 'package:vica_supervisor/providers/ui_preferences_provider.dart';
 import 'package:vica_supervisor/screens/current_location_screen.dart';
 import 'package:vica_supervisor/screens/dashboard_screen.dart';
+import 'package:vica_supervisor/screens/delivery_screen.dart';
+import 'package:vica_supervisor/screens/login_screen.dart';
 import 'package:vica_supervisor/screens/logs_screen.dart';
 import 'package:vica_supervisor/screens/map_locations_screen.dart';
 import 'package:vica_supervisor/screens/mapping_shell.dart';
 import 'package:vica_supervisor/screens/mode_select_screen.dart';
 import 'package:vica_supervisor/screens/save_location_screen.dart';
 import 'package:vica_supervisor/screens/settings_screen.dart';
+import 'package:vica_supervisor/screens/mode_select_screen.dart'
+    show ModeSelectScreen;
 import 'package:vica_supervisor/screens/system_diagnostics_screen.dart';
 import 'package:vica_supervisor/widgets/vica_ui.dart';
 
@@ -72,6 +82,41 @@ class _Supervisor extends SupervisorProvider {
         ],
       });
 
+  // 지도 모드의 ②③ 단계는 매핑 상태가 있어야 그려집니다. 그 단계 안의 조작판과
+  // 버튼 줄이 실제로 깨졌던 자리라(2026-09-14) 반드시 넣습니다.
+  void injectMapping(String state, {String mapId = '', String detail = ''}) {
+    handleMappingStatusForTest({
+      'data': jsonEncode({
+        'state': state,
+        'detail': detail,
+        'map_id': mapId,
+        'nav2_running': false,
+        'mapping_running': state == 'mapping',
+        'duplicated': <String>[],
+        'prerequisites_missing': <String>[],
+      }),
+    });
+    handleMapPreviewForTest({
+      'data': jsonEncode({
+        'image_url': '/maps/_live/preview.png',
+        'seq': 1,
+        'width': 40,
+        'height': 30,
+        'resolution': 0.05,
+        'origin_x': -1.5,
+        'origin_y': -2.5,
+        'bytes': 4533,
+        'robot_x': 0.5,
+        'robot_y': 0.25,
+        'robot_yaw': 90.0,
+      }),
+    });
+  }
+
+  // 지도를 고른 상태. 장소 목록·배송 후보 카드는 지도가 골라져야 그려지는데,
+  // 그 카드의 개수 배지가 실제로 깨졌던 자리입니다(2026-09-14).
+  void selectFirstMap() => selectMap(const AppSettings(), 'starlight_1f');
+
   void injectRobot() => handleRobotStatusForTest({
         'robot_id': 'vica_robot_01',
         'robot_name': 'VICA 실내 안내 로봇 1호기 (별빛관)',
@@ -87,7 +132,16 @@ class _Supervisor extends SupervisorProvider {
       });
 }
 
-Widget _wrap(Widget child, SupervisorProvider supervisor, double textScale) {
+/// 실제 앱 테마(vicaTheme)로 감쌉니다. 기본 테마로 돌리면 버튼 최소 폭 같은
+/// 테마 규칙이 빠져 실제 앱에서만 깨지는 배치를 못 잡습니다(2026-09-14).
+///
+/// [bare] 가 true 면 화면이 제 Scaffold 를 갖고 있어 그대로 home 에 둡니다.
+Widget _wrap(
+  Widget child,
+  SupervisorProvider supervisor,
+  double textScale, {
+  bool bare = false,
+}) {
   return MediaQuery(
     data: MediaQueryData(textScaler: TextScaler.linear(textScale)),
     child: MultiProvider(
@@ -96,13 +150,19 @@ Widget _wrap(Widget child, SupervisorProvider supervisor, double textScale) {
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ChangeNotifierProvider(create: (_) => AppModeProvider()),
         ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => UiPreferencesProvider()),
       ],
-      child: MaterialApp(home: Scaffold(body: child)),
+      child: MaterialApp(
+        theme: vicaTheme(),
+        home: bare ? child : Scaffold(body: child),
+      ),
     ),
   );
 }
 
-/// 화면을 그리면서 발생한 overflow 경고를 모읍니다.
+/// 화면을 그리면서 발생한 배치 오류를 모읍니다 — 넘침(overflowed)뿐 아니라
+/// "무한 폭" 같은 제약 위반도 함께. 후자는 화면 전체를 못 그리게 하고 터치까지
+/// 죽이므로 넘침보다 더 나쁩니다(2026-09-14 지도 모드 사고).
 ///
 /// 지도 이미지는 네트워크에서 받아오므로 테스트에서는 항상 실패합니다. 그것은
 /// 배치 문제가 아니므로 걸러냅니다.
@@ -116,7 +176,12 @@ Future<List<String>> _overflowsWhilePumping(
   final previous = FlutterError.onError;
   FlutterError.onError = (details) {
     final message = details.exceptionAsString();
-    if (message.contains('overflowed')) {
+    final isImageLoad = message.contains('NetworkImage') ||
+        message.contains('HTTP request failed') ||
+        message.contains('SocketException') ||
+        message.contains('Failed host lookup') ||
+        message.contains('Connection refused');
+    if (!isImageLoad) {
       collected.add(message.split('\n').first);
     }
   };
@@ -154,13 +219,15 @@ void main() {
       '지도 설정': (s) {
         s
           ..injectMaps()
-          ..injectLocations();
+          ..injectLocations()
+          ..selectFirstMap();
         return const SaveLocationScreen();
       },
       '원격 주행': (s) {
         s
           ..injectMaps()
           ..injectLocations()
+          ..selectFirstMap()
           ..injectRobot();
         return const MapLocationsScreen();
       },
@@ -176,7 +243,33 @@ void main() {
         return const ModeSelectScreen();
       },
       '지도 모드': (s) => const MappingShell(),
+      '지도 모드 (작성 중)': (s) {
+        s.injectMapping('mapping');
+        return const MappingShell();
+      },
+      '지도 모드 (저장 중)': (s) {
+        s.injectMapping('saving');
+        return const MappingShell();
+      },
+      // 저장이 끝나 map_id 가 실린 idle 상태 = ④ 완료 단계. 이 단계의 버튼 줄이
+      // 실제로 깨졌던 자리입니다(2026-09-15).
+      '지도 모드 (대기)': (s) {
+        s.injectMapping('idle');
+        return const MappingShell();
+      },
+      '지도 모드 (완료)': (s) {
+        s.injectMapping('idle', mapId: 'map_0915_202648', detail: '저장 완료');
+        return const MappingShell();
+      },
       '설정': (s) => const SettingsScreen(),
+      '물류 배송': (s) {
+        s
+          ..injectMaps()
+          ..injectLocations()
+          ..selectFirstMap()
+          ..injectRobot();
+        return const DeliveryScreen();
+      },
       '알림 및 로그': (s) {
         s
           ..injectMaps()
@@ -185,8 +278,31 @@ void main() {
       },
     };
 
-    for (final entry in screens.entries) {
+    // 제 Scaffold 를 가진 화면들. AppBar·하단 탭·헤더 버튼까지 같이 그립니다.
+    final bareScreens = <String, Widget Function(_Supervisor)>{
+      '로그인': (s) => const LoginScreen(),
+      '설정 페이지': (s) => const SettingsPage(),
+      '주행 모드 셸': (s) {
+        s
+          ..injectHealth(healthMsg())
+          ..injectMaps()
+          ..injectRobot();
+        return const SupervisorShell();
+      },
+      '지도 모드 셸 (작성 중)': (s) {
+        s.injectMapping('mapping');
+        return const MappingShell();
+      },
+    };
+
+    final all = <String, (Widget Function(_Supervisor), bool)>{
+      for (final e in screens.entries) e.key: (e.value, false),
+      for (final e in bareScreens.entries) e.key: (e.value, true),
+    };
+
+    for (final entry in all.entries) {
       testWidgets(entry.key, (tester) async {
+        SharedPreferences.setMockInitialValues({});
         for (final scale in textScales) {
           for (final width in widths) {
             final overflows = await _overflowsWhilePumping(
@@ -195,7 +311,12 @@ void main() {
               scale,
               () {
                 final supervisor = _Supervisor();
-                return _wrap(entry.value(supervisor), supervisor, scale);
+                return _wrap(
+                  entry.value.$1(supervisor),
+                  supervisor,
+                  scale,
+                  bare: entry.value.$2,
+                );
               },
             );
             expect(

@@ -157,13 +157,11 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
         supervisor.consumeGoalAlert();
         showDialog<void>(
           context: context,
-          builder: (dialogContext) => AlertDialog(
-            icon: Icon(
-              alert.isFailure ? Icons.error_outline : Icons.info_outline,
-              color: alert.isFailure ? VicaColors.red : VicaColors.primaryDark,
-            ),
-            title: Text(alert.title),
-            content: Text(alert.description),
+          builder: (dialogContext) => VicaDialog(
+            icon: alert.isFailure ? Icons.error_outline : Icons.info_outline,
+            iconColor: alert.isFailure ? VicaColors.red : VicaColors.primary,
+            title: alert.title,
+            body: alert.description,
             actions: [
               FilledButton(
                 onPressed: () => Navigator.of(dialogContext).pop(),
@@ -182,12 +180,10 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
     final sent = notice.result.sent;
     showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: Icon(
-          sent ? Icons.sms_outlined : Icons.sms_failed_outlined,
-          color: sent ? VicaColors.green : VicaColors.red,
-        ),
-        title: Text(sent ? '도착 문자를 보냈습니다' : '도착 문자가 가지 않았습니다'),
+      builder: (dialogContext) => VicaDialog(
+        icon: sent ? Icons.sms_outlined : Icons.sms_failed_outlined,
+        iconColor: sent ? VicaColors.green : VicaColors.red,
+        title: sent ? '도착 문자를 보냈습니다' : '도착 문자가 가지 않았습니다',
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -201,7 +197,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
               width: double.infinity,
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: VicaColors.softBlue,
+                color: VicaColors.accentTint,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(notice.text),
@@ -247,14 +243,21 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
               ),
               OutlinedButton(
                 onPressed: null,
+                // 개수 배지라 내용 폭만 씁니다(map_locations 의 '개' 배지와 같은 이유).
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 36),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                ),
                 child: Text('${candidates.length}곳'),
               ),
             ],
           ),
           const SizedBox(height: 6),
-          const Text(
-            '연락처가 저장된 장소만 보입니다. 배송을 원하시는 장소는 연락처를 넣어주세요.',
-            style: TextStyle(color: VicaColors.muted, fontSize: 13),
+          Text(
+            vicaKeepWords(vicaBreakAtSentences(
+              '연락처가 저장된 장소만 보입니다. 배송을 원하시는 장소는 연락처를 넣어주세요.',
+            )),
+            style: const TextStyle(color: VicaColors.muted, fontSize: 13),
           ),
           const SizedBox(height: 14),
           if (candidates.isEmpty)
@@ -289,7 +292,9 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
           // 문자가 나갈 수 있습니다.
           CheckboxListTile(
             value: _loaded,
-            onChanged: busy ? null : (value) => setState(() => _loaded = value ?? false),
+            onChanged: busy
+                ? null
+                : (value) => setState(() => _loaded = value ?? false),
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
             title: const Text('물건을 실었습니다'),
@@ -316,17 +321,15 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
     final settings = context.read<SettingsProvider>().settings;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('배송 출발'),
-        content: Text(
-          '${location.name}(으)로 물건을 보냅니다.\n'
-          '도착하면 ${maskContactPhone(location.contactPhone)} 로 문자를 보냅니다.\n\n'
-          '로봇 주변에 사람과 장애물이 없는지 확인하세요.',
-        ),
+      builder: (dialogContext) => VicaDialog(
+        icon: Icons.play_arrow_outlined,
+        title: '배송 출발',
+        body: '${location.name}(으)로 물건을 보냅니다. '
+            '도착하면 ${maskContactPhone(location.contactPhone)} 로 문자를 보냅니다.\n\n'
+            '로봇 주변에 사람과 장애물이 없는지 확인하세요.',
         actions: [
-          TextButton(
+          VicaCancelButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('취소'),
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
@@ -347,7 +350,8 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
       // 실지도 않은 물건을 실었다고 출발하게 됩니다.
       setState(() => _loaded = false);
     }
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   static LocationPoint? _find(List<LocationPoint> locations, String? id) {
@@ -459,7 +463,8 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
               ),
               Text(
                 phaseText,
-                style: TextStyle(color: phaseColor, fontWeight: FontWeight.w700),
+                style:
+                    TextStyle(color: phaseColor, fontWeight: FontWeight.w700),
               ),
             ],
           ),
@@ -472,22 +477,26 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
           if (job.phase == DeliveryPhase.aborted) ...[
             const SizedBox(height: 6),
             Text(
-              '문자를 보내지 않았습니다. 사유: ${job.abortReason}',
+              vicaKeepWords(vicaBreakAtSentences(
+                '문자를 보내지 않았습니다. 사유: ${job.abortReason}',
+              )),
               style: const TextStyle(color: VicaColors.red, fontSize: 13),
             ),
           ],
           if (job.phase == DeliveryPhase.unconfirmed) ...[
             const SizedBox(height: 6),
             Text(
-              '${job.abortReason} 로봇이 문 앞에 있으면 "도착 처리"를, '
-              '아니면 "지우기"를 누르세요.',
+              vicaKeepWords(vicaBreakAtSentences(
+                '${job.abortReason} 로봇이 문 앞에 있으면 "도착 처리"를, '
+                '아니면 "지우기"를 누르세요.',
+              )),
               style: const TextStyle(color: VicaColors.red, fontSize: 13),
             ),
           ],
           if (job.returnNote.isNotEmpty) ...[
             const SizedBox(height: 6),
             Text(
-              '홈 복귀: ${job.returnNote}',
+              vicaKeepWords(vicaBreakAtSentences('홈 복귀: ${job.returnNote}')),
               style: const TextStyle(color: VicaColors.red, fontSize: 13),
             ),
           ],
@@ -511,7 +520,8 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
                 cancelBody: '홈 복귀를 취소합니다. 로봇은 그 자리에 섭니다.',
               ),
             DeliveryPhase.unconfirmed => _unconfirmedButtons(context),
-            DeliveryPhase.completed || DeliveryPhase.aborted =>
+            DeliveryPhase.completed ||
+            DeliveryPhase.aborted =>
               _finishedButtons(),
           },
         ],
@@ -579,7 +589,8 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
       children: [
         Expanded(
           child: FilledButton.icon(
-            onPressed: () => _send(context, (_) => supervisor.confirmDeliveryArrival()),
+            onPressed: () =>
+                _send(context, (_) => supervisor.confirmDeliveryArrival()),
             icon: const Icon(Icons.sms_outlined),
             label: const Text('도착 처리 · 문자'),
           ),

@@ -22,9 +22,11 @@ import 'vica_ui.dart';
 
 /// '아직 확인 안 됨' 경고에 쓰는 색입니다.
 ///
-/// VicaColors 에 경고색이 없습니다. 여기서만 쓰는 값이라 전역 팔레트를 늘리지
-/// 않고 파일 안에 둡니다. 다른 화면에서도 필요해지면 그때 옮깁니다.
-const Color _warnColor = Color(0xFFA8730F);
+/// 예전에는 이 파일이 0xFFA8730F 를 따로 들고 있었습니다. 같은 '주의'를
+/// fault_severity.dart 는 0xFFE0A800 으로 그려 두 화면의 경고색이 서로
+/// 달랐습니다. 팔레트로 올렸으니(2026-09-14) 이제 한 곳에서 바뀝니다.
+/// 이름은 그대로 둡니다 — 이 파일 안에서만 쓰는 짧은 별칭입니다.
+const Color _warnColor = VicaColors.warning;
 
 /// 카드가 지금 무엇을 하고 있는가.
 enum HomeCardMode {
@@ -127,9 +129,12 @@ class HomePositionCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
         ],
-        const Text(
-          '안내가 끝나면 로봇이 이 자리로 돌아옵니다. 지도당 하나만 설정 가능합니다.',
-          style: TextStyle(color: VicaColors.muted, fontSize: 13),
+        Text(
+          // 마침표에서 줄을 나누고 그 안은 어절 단위로 접힙니다(2026-09-15).
+          vicaKeepWords(vicaBreakAtSentences(
+            '안내가 끝나면 로봇이 이 자리로 돌아옵니다. 지도당 하나만 설정 가능합니다.',
+          )),
+          style: const TextStyle(color: VicaColors.muted, fontSize: 13),
         ),
         const SizedBox(height: 14),
         ..._body(context),
@@ -315,7 +320,7 @@ class _SavedHomeSummary extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: VicaColors.softBlue,
+        color: VicaColors.accentTint,
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
@@ -398,7 +403,7 @@ class _ScoreBox extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: VicaColors.softBlue,
+        color: VicaColors.accentTint,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
@@ -490,7 +495,7 @@ class _Step extends StatelessWidget {
           height: 22,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: done ? VicaColors.green : VicaColors.softBlue,
+            color: done ? VicaColors.green : VicaColors.accentTint,
             shape: BoxShape.circle,
           ),
           child: done
@@ -525,7 +530,7 @@ class _InfoBox extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: VicaColors.softBlue,
+        color: VicaColors.accentTint,
         borderRadius: BorderRadius.circular(9),
       ),
       child: Row(
@@ -535,7 +540,8 @@ class _InfoBox extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              text,
+              // 안내 상자 글은 모두 마침표에서 줄을 나누고 어절 단위로 접힙니다.
+              vicaKeepWords(vicaBreakAtSentences(text)),
               style: const TextStyle(color: VicaColors.muted, fontSize: 12.5),
             ),
           ),

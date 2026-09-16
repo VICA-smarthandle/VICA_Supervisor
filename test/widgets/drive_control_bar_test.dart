@@ -10,12 +10,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/widgets/drive_control_bar.dart';
+import 'package:vica_supervisor/widgets/vica_ui.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  Future<SupervisorProvider> pump(WidgetTester tester, {required bool paused}) async {
+  Future<SupervisorProvider> pump(WidgetTester tester,
+      {required bool paused}) async {
     final supervisor = SupervisorProvider();
     addTearDown(supervisor.dispose);
     await tester.pumpWidget(
@@ -50,13 +52,13 @@ void main() {
     expect(find.text('일시정지'), findsNothing);
   });
 
-  testWidgets('취소는 화면이 준 문구로 한 번 묻고, 그만두면 아무것도 안 보낸다',
-      (tester) async {
+  testWidgets('취소는 화면이 준 문구로 한 번 묻고, 그만두면 아무것도 안 보낸다', (tester) async {
     final supervisor = await pump(tester, paused: false);
     await tester.tap(find.text('복귀 취소'));
     await tester.pumpAndSettle();
     expect(find.text('홈 복귀 취소'), findsOneWidget);
-    expect(find.text('홈으로 가던 주행을 취소합니다.'), findsOneWidget);
+    // 팝업 본문은 어절 단위 줄바꿈(vicaKeepWords)을 거치므로 같은 변환으로 찾습니다.
+    expect(find.text(vicaKeepWords('홈으로 가던 주행을 취소합니다.')), findsOneWidget);
 
     await tester.tap(find.text('계속'));
     await tester.pumpAndSettle();

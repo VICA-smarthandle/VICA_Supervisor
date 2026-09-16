@@ -48,7 +48,9 @@ class _HoldingSupervisor extends SupervisorProvider {
 
 Color _buttonColor(WidgetTester tester, IconData icon) {
   final container = tester.widget<Container>(
-    find.ancestor(of: find.byIcon(icon), matching: find.byType(Container)).first,
+    find
+        .ancestor(of: find.byIcon(icon), matching: find.byType(Container))
+        .first,
   );
   return (container.decoration! as BoxDecoration).color!;
 }
@@ -134,7 +136,10 @@ void main() {
     // 값이 코드에서만 바뀌고 문구가 그대로면 사람이 잘못 안다.
     await pump(tester);
     expect(
-      find.textContaining('${SupervisorProvider.teleopMaxLinear} m/s'),
+      // 안내문은 어절 단위 줄바꿈(vicaKeepWords)을 거치므로 같은 변환으로 찾습니다.
+      find.textContaining(
+        vicaKeepWords('${SupervisorProvider.teleopMaxLinear} m/s'),
+      ),
       findsOneWidget,
     );
   });
@@ -151,17 +156,17 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(_buttonColor(tester, Icons.keyboard_arrow_up), VicaColors.softBlue);
+    expect(_buttonColor(tester, Icons.keyboard_arrow_up), VicaColors.card);
 
     final gesture = await tester
         .startGesture(tester.getCenter(find.bySemanticsLabel('앞으로')));
     await tester.pump();
     expect(_buttonColor(tester, Icons.keyboard_arrow_up), VicaColors.primary);
     // 다른 버튼은 그대로다 — 명령이 하나뿐이라 하나만 빛난다.
-    expect(_buttonColor(tester, Icons.keyboard_arrow_down), VicaColors.softBlue);
+    expect(_buttonColor(tester, Icons.keyboard_arrow_down), VicaColors.card);
 
     await gesture.up();
     await tester.pump();
-    expect(_buttonColor(tester, Icons.keyboard_arrow_up), VicaColors.softBlue);
+    expect(_buttonColor(tester, Icons.keyboard_arrow_up), VicaColors.card);
   });
 }

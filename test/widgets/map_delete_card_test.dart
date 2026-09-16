@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/widgets/map_delete_card.dart';
+import 'package:vica_supervisor/widgets/vica_ui.dart';
 
 class _FakeSupervisor extends SupervisorProvider {
   final calls = <String>[];
@@ -103,8 +104,15 @@ void main() {
 
   testWidgets('되돌릴 수 없다는 것을 미리 알린다', (tester) async {
     await pump(tester);
-    expect(find.textContaining('되돌릴 수 없습니다'), findsOneWidget);
-    expect(find.textContaining('현재 주행하는 지도는 삭제할 수 없습니다'), findsOneWidget);
+    // 카드 안내도 어절 단위 줄바꿈(vicaKeepWords)을 거치므로 같은 변환으로 찾습니다.
+    expect(
+      find.textContaining(vicaKeepWords('되돌릴 수 없습니다')),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(vicaKeepWords('현재 주행하는 지도는 삭제할 수 없습니다')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('확인 창에서 그만두면 아무것도 안 지운다', (tester) async {
@@ -121,7 +129,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('지도를 삭제합니다'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(TextButton, '그만두기'));
+    await tester.tap(find.widgetWithText(OutlinedButton, '취소'));
     await tester.pumpAndSettle();
 
     expect(supervisor.calls, isEmpty);
@@ -139,7 +147,7 @@ void main() {
 
     await tester.tap(find.widgetWithText(OutlinedButton, '지도 삭제'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, '지우기'));
+    await tester.tap(find.widgetWithText(FilledButton, '삭제'));
     await tester.pumpAndSettle();
 
     // 장소는 항상 함께 지운다. 지도만 지우고 장소를 남기면 없는 지도를 가리키는
@@ -159,16 +167,19 @@ void main() {
 
     await tester.tap(find.widgetWithText(OutlinedButton, '지도 삭제'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('저장한 장소를 삭제합니다'), findsOneWidget);
-    expect(find.textContaining('되돌릴 수 없습니다'), findsWidgets);
-    await tester.tap(find.widgetWithText(FilledButton, '지우기'));
+    // 팝업 본문은 어절 단위 줄바꿈(vicaKeepWords)을 거치므로 같은 변환으로 찾습니다.
+    expect(
+      find.textContaining(vicaKeepWords('저장한 장소를 삭제합니다')),
+      findsOneWidget,
+    );
+    expect(find.textContaining(vicaKeepWords('되돌릴 수 없습니다')), findsWidgets);
+    await tester.tap(find.widgetWithText(FilledButton, '삭제'));
     await tester.pumpAndSettle();
 
     expect(supervisor.calls, ['lobby_0821:true']);
   });
 
-  testWidgets('지도를 고르면 지금 이름이 채워지고 그대로면 바꾸기 버튼이 닫혀 있다',
-      (tester) async {
+  testWidgets('지도를 고르면 지금 이름이 채워지고 그대로면 바꾸기 버튼이 닫혀 있다', (tester) async {
     await pump(tester);
 
     await tester.tap(find.byType(DropdownButtonFormField<String>).first);

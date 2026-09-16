@@ -11,6 +11,7 @@ import 'package:vica_supervisor/models/stack_status.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/screens/map_locations_screen.dart';
+import 'package:vica_supervisor/widgets/vica_ui.dart';
 
 class _FakeSupervisor extends SupervisorProvider {
   void injectMap() => handleMapListForTest({
@@ -103,7 +104,7 @@ void main() {
       find.widgetWithText(OutlinedButton, '초기 위치 잡기'),
     );
     expect(button.onPressed, isNull);
-    expect(find.textContaining('주행 중에는'), findsOneWidget);
+    expect(find.textContaining(vicaKeepWords('주행 중에는')), findsOneWidget);
   });
 
   testWidgets('일시정지 중에도 잠긴다', (tester) async {
