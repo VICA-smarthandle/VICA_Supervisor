@@ -59,10 +59,19 @@ class ResponsiveMapFrame extends StatelessWidget {
         final preferredHeight = constraints.maxWidth / aspectRatio;
         final height = preferredHeight.clamp(minHeight, maxHeight).toDouble();
 
-        return SizedBox(
+        // 흰 판 + 얇은 테두리(2026-09-30 사용자 요청). 미탐색(회색)이 넓은
+        // 지도는 판 없이 두면 지도가 어디까지인지, 어디를 눌러야 하는지 알기
+        // 어려웠습니다. 모양은 레일 칸 시안(B단계)의 지도 판과 같습니다.
+        return Container(
           height: height,
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: VicaColors.card,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: VicaColors.border),
+          ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(11),
             child: child,
           ),
         );
@@ -119,6 +128,7 @@ class MapCanvas extends StatelessWidget {
     this.onKeepoutPanEnd,
     this.onSelectKeepoutZone,
     this.routeGraph,
+    this.showLocationLabels = true,
   });
 
   final VicaMap map;
@@ -171,6 +181,11 @@ class MapCanvas extends StatelessWidget {
   /// 로봇이 따라 달리는 레일(A단계, 2026-09-30). 금지구역처럼 어느 화면이든
   /// 항상 보이고 터치는 받지 않습니다. 없으면 아무것도 그리지 않습니다.
   final RouteGraph? routeGraph;
+
+  /// false 면 장소 점을 길게 눌러도 이름이 뜨지 않습니다. 초기 위치를 찍는
+  /// 동안은 장소 점이 '고를 대상'이 아니라 참고용 배경이라, 이름이 뜨면 무엇을
+  /// 고르는 중인지 헷갈립니다(2026-09-30 사용자 요청).
+  final bool showLocationLabels;
 
   String get _imageUrl {
     if (map.imageUrl.startsWith('http://') ||
@@ -303,7 +318,7 @@ class MapCanvas extends StatelessWidget {
                           : _Marker(
                               offset:
                                   _scaledOffset(location.x, location.y, scale),
-                              label: location.name,
+                              label: showLocationLabels ? location.name : '',
                               color: Colors.blue,
                               size: _markerSize,
                               onTap: onSelectLocation == null

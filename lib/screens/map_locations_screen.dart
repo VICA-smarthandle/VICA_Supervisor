@@ -118,7 +118,11 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
             settings: settings,
             supervisor: supervisor,
             locations: locations,
-            selectedLocationId: supervisor.selectedLocationId,
+            // 초기 위치를 찍는 동안은 장소 점을 눌러도 고르지 않고 이름도
+            // 띄우지 않습니다. 짚은 점과 장소 표시가 섞이면 무엇을 고르는
+            // 중인지 헷갈립니다(2026-09-30 사용자 요청).
+            selectedLocationId: _picking ? null : supervisor.selectedLocationId,
+            showLocationLabels: !_picking,
             pickedLocation: _picking && _picked != null
                 ? LocationPoint(
                     locationId: '_initial_pose',
@@ -143,8 +147,9 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                 ? supervisor.poseCheck!.scanHits
                 : supervisor.committedScanHits,
             onTapMap: _picking ? _onTapMap : null,
-            onSelectLocation: (location) =>
-                supervisor.selectLocation(location.locationId),
+            onSelectLocation: _picking
+                ? null
+                : (location) => supervisor.selectLocation(location.locationId),
           ),
           const SizedBox(height: 20),
           if (_picking)

@@ -30,6 +30,7 @@ class DriveMapCanvas extends StatelessWidget {
     this.pickedLocation,
     this.poseArrow,
     this.scanHits = const [],
+    this.showLocationLabels = true,
   });
 
   final VicaMap map;
@@ -46,6 +47,9 @@ class DriveMapCanvas extends StatelessWidget {
   final LocationPoint? pickedLocation;
   final MapPoseArrow? poseArrow;
   final List<Offset> scanHits;
+
+  /// 초기 위치를 찍는 동안 false. MapCanvas.showLocationLabels 참고.
+  final bool showLocationLabels;
 
   @override
   Widget build(BuildContext context) {
@@ -68,6 +72,7 @@ class DriveMapCanvas extends StatelessWidget {
         routeGraph: supervisor.routeGraphFor(map.mapId),
         onTapMap: onTapMap,
         onSelectLocation: onSelectLocation,
+        showLocationLabels: showLocationLabels,
       ),
     );
   }
@@ -98,7 +103,8 @@ class CurrentMapNotice extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.warning_amber_rounded, size: 18, color: VicaColors.red),
+          const Icon(Icons.warning_amber_rounded,
+              size: 18, color: VicaColors.red),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
