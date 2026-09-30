@@ -82,13 +82,51 @@ void main() {
     final supervisor = _FakeSupervisor()..injectMaps(mapListMsg());
     await tester.pumpWidget(wrap(supervisor));
     await tester.pump();
+    // 칸은 모두 접힌 채로 시작하므로(2026-09-30) 장소 저장 칸을 눌러 엽니다.
+    await tester.tap(find.text('장소 저장'));
+    await tester.pump();
     return supervisor;
   }
+
+  // 버튼 문구는 어절 단위 줄바꿈(vicaKeepWords)을 거치므로 같은 변환으로 찾습니다.
+  final enterInfo = vicaKeepWords('장소 정보 입력');
+  final editSaved = vicaKeepWords('선택 장소 수정');
+  final deleteSaved = vicaKeepWords('선택 장소 삭제');
+
+  testWidgets('처음 들어가면 어느 칸도 펼쳐져 있지 않다', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1200, 2400);
+    addTearDown(() {
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetPhysicalSize();
+    });
+    final supervisor = _FakeSupervisor()..injectMaps(mapListMsg());
+    await tester.pumpWidget(wrap(supervisor));
+    await tester.pump();
+
+    // 장소 저장 칸의 내용(정보 입력 버튼)이 보이지 않아야 합니다.
+    expect(find.text('장소 저장'), findsOneWidget);
+    expect(find.text(enterInfo), findsNothing);
+
+    // 눌러야 열립니다 — 다른 칸과 같습니다.
+    await tester.tap(find.text('장소 저장'));
+    await tester.pump();
+    expect(find.text(enterInfo), findsOneWidget);
+  });
+
+  testWidgets('수정·삭제 버튼 문구는 어절 단위로만 줄이 바뀐다', (tester) async {
+    final supervisor = await pumpWithMap(tester);
+    supervisor.injectLocations([_savedRestroom]);
+    await tester.pump();
+
+    expect(find.text(editSaved), findsOneWidget);
+    expect(find.text(deleteSaved), findsOneWidget);
+  });
 
   testWidgets('지도를 누르면 시트가 뜨지 않고 좌표만 잡힌다', (tester) async {
     await pumpWithMap(tester);
 
-    expect(find.text('장소 정보 입력'), findsOneWidget);
+    expect(find.text(enterInfo), findsOneWidget);
     expect(find.textContaining(vicaKeepWords('지도를 눌러')), findsOneWidget);
 
     // MapCanvas 가 좌표를 돌려주는 지점을 직접 부릅니다. 실제 탭은 지도 이미지
@@ -123,7 +161,7 @@ void main() {
     await pumpWithMap(tester);
 
     final button = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, '장소 정보 입력'),
+      find.widgetWithText(FilledButton, enterInfo),
     );
     expect(button.onPressed, isNull);
   });
@@ -136,7 +174,7 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.widgetWithText(FilledButton, '장소 정보 입력'));
+    await tester.tap(find.widgetWithText(FilledButton, enterInfo));
     await tester.pumpAndSettle();
 
     expect(find.text('도착 방향'), findsOneWidget);
@@ -149,7 +187,7 @@ void main() {
       const Offset(1.5, -2.25),
     );
     await tester.pump();
-    await tester.tap(find.widgetWithText(FilledButton, '장소 정보 입력'));
+    await tester.tap(find.widgetWithText(FilledButton, enterInfo));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byType(DropdownButtonFormField<String>).last);
@@ -183,7 +221,7 @@ void main() {
     await tester.pump();
 
     // 저장된 장소가 하나뿐이라 드롭다운 기본 선택이 그것이다.
-    final edit = find.widgetWithText(OutlinedButton, '선택 장소 수정');
+    final edit = find.widgetWithText(OutlinedButton, editSaved);
     expect(edit, findsOneWidget);
     await tester.tap(edit);
     await tester.pumpAndSettle();
@@ -196,7 +234,7 @@ void main() {
   testWidgets('저장된 장소가 없으면 수정 버튼은 잠긴다', (tester) async {
     await pumpWithMap(tester);
     final button = tester.widget<OutlinedButton>(
-      find.widgetWithText(OutlinedButton, '선택 장소 수정'),
+      find.widgetWithText(OutlinedButton, editSaved),
     );
     expect(button.onPressed, isNull);
   });

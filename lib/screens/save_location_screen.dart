@@ -62,9 +62,10 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   Offset? _pickedRos;
   String? _deleteTargetId;
 
-  // 지금 펼쳐 둔 칸입니다. 처음에는 장소 저장이 열려 있습니다 — 가장 자주 하는
-  // 일이고, 아무것도 안 열려 있으면 지도를 눌러도 반응이 없어 고장으로 보입니다.
-  _SettingsPanel _panel = _SettingsPanel.location;
+  // 지금 펼쳐 둔 칸입니다. 처음에는 아무 칸도 열려 있지 않습니다 — 다른 칸과
+  // 똑같이 눌러야 열립니다(2026-09-30 사용자 결정). 종전에는 장소 저장이 열린
+  // 채로 시작했는데, 들어올 때마다 지도가 위로 밀려 작아졌습니다.
+  _SettingsPanel _panel = _SettingsPanel.none;
 
   // ---- 홈 위치 ----------------------------------------------------------
   //
@@ -473,7 +474,11 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                             locations,
                           ),
                   icon: const Icon(Icons.edit_location_alt_outlined),
-                  label: Text(_editingSaved == null ? '장소 정보 입력' : '수정 내용 입력'),
+                  // 좁은 창에서 끝 글자 하나만 다음 줄로 떨어지지 않게 어절 단위로
+                  // 접습니다(2026-09-30). 아래 수정·삭제 버튼도 같습니다.
+                  label: Text(vicaKeepWords(
+                    _editingSaved == null ? '장소 정보 입력' : '수정 내용 입력',
+                  )),
                 ),
               ),
               const SizedBox(width: 10),
@@ -536,7 +541,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                           locations,
                         ),
                 icon: const Icon(Icons.edit_location_alt_outlined),
-                label: const Text('선택 장소 수정'),
+                label: Text(vicaKeepWords('선택 장소 수정')),
               ),
             ),
             const SizedBox(width: 10),
@@ -546,7 +551,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                     ? null
                     : () => supervisor.deleteLocation(settings, deleteTarget),
                 icon: const Icon(Icons.delete_outline),
-                label: const Text('선택 장소 삭제'),
+                label: Text(vicaKeepWords('선택 장소 삭제')),
               ),
             ),
           ],
