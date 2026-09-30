@@ -1,13 +1,14 @@
 // 이 파일은 지도 이미지, 저장된 장소 마커, 선택 마커, 현재 로봇 위치를 한 화면에 표시합니다.
 import 'dart:ui' show PointMode;
 
-import 'package:flutter/foundation.dart' show kIsWeb, listEquals;
+import 'package:flutter/foundation.dart' show kIsWeb, listEquals, mapEquals;
 import 'package:flutter/material.dart';
 
 import '../core/app_settings.dart';
 import '../core/map_coordinate.dart';
 import '../models/keepout_zone.dart';
 import '../models/location_point.dart';
+import '../models/route_edit.dart';
 import '../models/robot_status.dart';
 import '../models/route_graph.dart';
 import '../models/vica_map.dart';
@@ -129,6 +130,14 @@ class MapCanvas extends StatelessWidget {
     this.onSelectKeepoutZone,
     this.routeGraph,
     this.showLocationLabels = true,
+    this.routeEditMode = false,
+    this.routeSketch,
+    this.routePreview,
+    this.routeIssues = const [],
+    this.routeSelectedNode,
+    this.onRouteDragStart,
+    this.onRouteDragUpdate,
+    this.onRouteDragEnd,
   });
 
   final VicaMap map;
@@ -187,6 +196,25 @@ class MapCanvas extends StatelessWidget {
   /// 고르는 중인지 헷갈립니다(2026-09-30 사용자 요청).
   final bool showLocationLabels;
 
+  /// 레일 편집 중(2026-09-30). 금지구역 편집처럼 지도 이동·확대가 잠기고, 탭은
+  /// [onTapMap] 으로, 길게 눌러 끌기는 노드 옮기기로 갑니다.
+  final bool routeEditMode;
+
+  /// 관리자 스케치(굵은 점과 선). 편집 중에만 넘깁니다.
+  final RouteSketch? routeSketch;
+
+  /// 로봇이 다듬은 모양(미리보기). 연한 굵은 선으로 스케치 아래에 깝니다.
+  final RouteGraph? routePreview;
+
+  /// 검사에서 걸린 자리. 빨간 번호로 찍고, 레일 칸 목록과 번호가 같습니다.
+  final List<RouteIssue> routeIssues;
+
+  /// 선 잇기에서 먼저 고른 노드.
+  final int? routeSelectedNode;
+  final ValueChanged<Offset>? onRouteDragStart;
+  final ValueChanged<Offset>? onRouteDragUpdate;
+  final VoidCallback? onRouteDragEnd;
+
   String get _imageUrl {
     if (map.imageUrl.startsWith('http://') ||
         map.imageUrl.startsWith('https://')) {
@@ -217,8 +245,8 @@ class MapCanvas extends StatelessWidget {
             // 금지구역을 그리는 동안에는 확대·이동을 잠급니다. 켜 두면 손가락을
             // 끌 때 지도가 같이 움직여서, 사각형을 그리는 중인지 지도를 미는
             // 중인지 Flutter 가 갈라낼 수 없습니다.
-            panEnabled: !keepoutEditMode,
-            scaleEnabled: !keepoutEditMode,
+            panEnabled: !keepoutEditMode && !routeEditMode,
+            scaleEnabled: !keepoutEditMode && !routeEditMode,
             child: GestureDetector(
               // 이 GestureDetector 는 InteractiveViewer 의 **자식 안쪽**에
               // 있습니다. 그래서 details.localPosition 은 확대·이동이 이미
@@ -245,6 +273,19 @@ class MapCanvas extends StatelessWidget {
                       )
                   : null,
               onPanEnd: keepoutEditMode ? (_) => onKeepoutPanEnd?.call() : null,
+              // 레일 편집: 노드를 길게 눌러 끌어 옮깁니다(확정 2026-09-30).
+              onLongPressStart: routeEditMode
+                  ? (details) => onRouteDragStart?.call(
+                        _rosFromLocal(details.localPosition, scale),
+                      )
+                  : null,
+              onLongPressMoveUpdate: routeEditMode
+                  ? (details) => onRouteDragUpdate?.call(
+                        _rosFromLocal(details.localPosition, scale),
+                      )
+                  : null,
+              onLongPressEnd:
+                  routeEditMode ? (_) => onRouteDragEnd?.call() : null,
               child: SizedBox(
                 width: displaySize.width,
                 height: displaySize.height,
@@ -289,6 +330,21 @@ class MapCanvas extends StatelessWidget {
                             painter: RouteRailPainter.fromGraph(
                               routeGraph!,
                               (x, y) => _scaledOffset(x, y, scale),
+                            ),
+                          ),
+                        ),
+                      ),
+                    // 레일 편집 층: 미리보기(연한 굵은 선) → 스케치 → 검사 번호.
+                    if (routeEditMode)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: CustomPaint(
+                            painter: RouteSketchPainter.build(
+                              sketch: routeSketch ?? RouteSketch.empty,
+                              preview: routePreview,
+                              issues: routeIssues,
+                              selected: routeSelectedNode,
+                              toPixel: (x, y) => _scaledOffset(x, y, scale),
                             ),
                           ),
                         ),
@@ -889,4 +945,127 @@ class _ScanHitPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_ScanHitPainter old) => old.points != points;
+}
+
+/// 레일 편집 층(2026-09-30, B단계 시안 ③④).
+///
+///   미리보기  로봇이 다듬은 모양. 앱 기본색 30 %, 굵게.
+///   스케치    관리자가 그린 선(진한 색 2 px)과 노드(흰 속 원). 고른 노드는 채운 원.
+///   검사      빨간 원 + 번호. 레일 칸 목록의 번호와 같다.
+class RouteSketchPainter extends CustomPainter {
+  const RouteSketchPainter({
+    required this.previewSegments,
+    required this.sketchSegments,
+    required this.nodes,
+    required this.selected,
+    required this.issues,
+  });
+
+  factory RouteSketchPainter.build({
+    required RouteSketch sketch,
+    required RouteGraph? preview,
+    required List<RouteIssue> issues,
+    required int? selected,
+    required Offset Function(double x, double y) toPixel,
+  }) {
+    List<Offset> segs(Map<int, Offset> nodes, List<RouteEdge> edges) => [
+          for (final e in edges)
+            if (nodes[e.a] != null && nodes[e.b] != null) ...[
+              toPixel(nodes[e.a]!.dx, nodes[e.a]!.dy),
+              toPixel(nodes[e.b]!.dx, nodes[e.b]!.dy),
+            ],
+        ];
+    return RouteSketchPainter(
+      previewSegments:
+          preview == null ? const [] : segs(preview.nodes, preview.edges),
+      sketchSegments: segs(sketch.nodes, sketch.edges),
+      nodes: {
+        for (final entry in sketch.nodes.entries)
+          entry.key: toPixel(entry.value.dx, entry.value.dy),
+      },
+      selected: selected,
+      issues: [for (final i in issues) toPixel(i.x, i.y)],
+    );
+  }
+
+  final List<Offset> previewSegments;
+  final List<Offset> sketchSegments;
+  final Map<int, Offset> nodes;
+  final int? selected;
+  final List<Offset> issues;
+
+  static const double previewWidth = 3.2 * _markerScale;
+  static const double sketchWidth = 2.0 * _markerScale;
+  static const double nodeRadius = 4.5 * _markerScale;
+  static const double issueRadius = 8.0 * _markerScale;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (previewSegments.isNotEmpty) {
+      canvas.drawPoints(
+        PointMode.lines,
+        previewSegments,
+        Paint()
+          ..color = VicaColors.primary.withValues(alpha: 0.3)
+          ..strokeWidth = previewWidth
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+    canvas.drawPoints(
+      PointMode.lines,
+      sketchSegments,
+      Paint()
+        ..color = VicaColors.primaryDark
+        ..strokeWidth = sketchWidth
+        ..strokeCap = StrokeCap.round,
+    );
+    final ring = Paint()
+      ..color = VicaColors.primaryDark
+      ..strokeWidth = 1.6 * _markerScale
+      ..style = PaintingStyle.stroke;
+    nodes.forEach((id, p) {
+      canvas.drawCircle(
+        p,
+        nodeRadius,
+        Paint()..color = id == selected ? VicaColors.primaryDark : Colors.white,
+      );
+      canvas.drawCircle(p, nodeRadius, ring);
+    });
+    for (var i = 0; i < issues.length; i++) {
+      final p = issues[i];
+      canvas.drawCircle(
+        p,
+        issueRadius,
+        Paint()..color = VicaColors.red.withValues(alpha: 0.18),
+      );
+      canvas.drawCircle(
+        p,
+        issueRadius,
+        Paint()
+          ..color = VicaColors.red
+          ..strokeWidth = 1.2 * _markerScale
+          ..style = PaintingStyle.stroke,
+      );
+      final text = TextPainter(
+        text: TextSpan(
+          text: '${i + 1}',
+          style: const TextStyle(
+            color: VicaColors.red,
+            fontSize: 9 * _markerScale + 2,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      text.paint(canvas, p + Offset(issueRadius + 1, -text.height / 2));
+    }
+  }
+
+  @override
+  bool shouldRepaint(RouteSketchPainter old) =>
+      !listEquals(old.previewSegments, previewSegments) ||
+      !listEquals(old.sketchSegments, sketchSegments) ||
+      !mapEquals(old.nodes, nodes) ||
+      old.selected != selected ||
+      !listEquals(old.issues, issues);
 }

@@ -12,6 +12,7 @@ import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/screens/save_location_screen.dart';
 import 'package:vica_supervisor/widgets/vica_ui.dart';
 import 'package:vica_supervisor/widgets/map_canvas.dart';
+import 'package:vica_supervisor/widgets/rail_card.dart';
 
 class _FakeSupervisor extends SupervisorProvider {
   void injectMaps(Map<String, Object?> message) =>
@@ -237,5 +238,27 @@ void main() {
       find.widgetWithText(OutlinedButton, editSaved),
     );
     expect(button.onPressed, isNull);
+  });
+
+  testWidgets('레일 칸은 금지구역 다음·지도 관리 위에, 접힌 채로 있다(2026-09-30 확정)',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1200, 2400);
+    addTearDown(() {
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetPhysicalSize();
+    });
+    final supervisor = _FakeSupervisor()..injectMaps(mapListMsg());
+    await tester.pumpWidget(wrap(supervisor));
+    await tester.pump();
+    final keepout = tester.getTopLeft(find.text('금지구역')).dy;
+    final rail = tester.getTopLeft(find.text('레일')).dy;
+    final manage = tester.getTopLeft(find.text('지도 관리')).dy;
+    expect(keepout < rail && rail < manage, isTrue);
+    expect(find.byType(RailCard), findsNothing, reason: '접힌 채 시작');
+
+    await tester.tap(find.text('레일'));
+    await tester.pump();
+    expect(find.byType(RailCard), findsOneWidget);
   });
 }

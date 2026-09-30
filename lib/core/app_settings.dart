@@ -37,6 +37,10 @@ class AppSettings {
     this.keepoutGetService = '/vica/keepout/get',
     this.keepoutSaveService = '/vica/keepout/save',
     this.keepoutStateTopic = '/vica/keepout/state',
+    this.routeDraftService = '/vica/route/draft',
+    this.routeSaveService = '/vica/route/save',
+    this.routeGetService = '/vica/route/get',
+    this.routeStateTopic = '/vica/route/state',
     this.missionReturnHomeService = '/vica/mission/return_home',
     this.goalEventTopic = '/vica_goal_event',
     this.robotStatusTopic = '/robot_status',
@@ -100,6 +104,12 @@ class AppSettings {
   final String keepoutGetService;
   final String keepoutSaveService;
   final String keepoutStateTopic;
+
+  // 지도별 레일(route graph) 편집. route_graph_node 가 제공합니다(2026-09-30).
+  final String routeDraftService;
+  final String routeSaveService;
+  final String routeGetService;
+  final String routeStateTopic;
 
   // 홈 복귀. **관리자 전용 경로입니다.**
   //
@@ -169,6 +179,10 @@ class AppSettings {
     String? keepoutGetService,
     String? keepoutSaveService,
     String? keepoutStateTopic,
+    String? routeDraftService,
+    String? routeSaveService,
+    String? routeGetService,
+    String? routeStateTopic,
     String? missionReturnHomeService,
     String? goalEventTopic,
     String? missionRequestService,
@@ -221,6 +235,10 @@ class AppSettings {
       keepoutGetService: keepoutGetService ?? this.keepoutGetService,
       keepoutSaveService: keepoutSaveService ?? this.keepoutSaveService,
       keepoutStateTopic: keepoutStateTopic ?? this.keepoutStateTopic,
+      routeDraftService: routeDraftService ?? this.routeDraftService,
+      routeSaveService: routeSaveService ?? this.routeSaveService,
+      routeGetService: routeGetService ?? this.routeGetService,
+      routeStateTopic: routeStateTopic ?? this.routeStateTopic,
       missionReturnHomeService:
           missionReturnHomeService ?? this.missionReturnHomeService,
       goalEventTopic: goalEventTopic ?? this.goalEventTopic,

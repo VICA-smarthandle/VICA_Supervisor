@@ -6,7 +6,8 @@
 //
 // 문구(사용자 확정): "새 장소 '…'이 레일에서 … m 떨어져 있습니다.
 //                     레일 없이 자유주행함을 주의하세요."
-// 버튼은 지금 [확인] 하나입니다. 확정안의 [레일 편집]은 레일 칸이 생기면 붙입니다.
+// 버튼: [확인] [레일 편집]. 레일 편집은 true 를 돌려주고, 지도 설정 화면이 레일
+// 칸을 펼칩니다.
 import 'package:flutter/material.dart';
 
 import 'vica_ui.dart';
@@ -49,9 +50,13 @@ class RailFarPlaceDialog extends StatelessWidget {
       title: '새 장소가 레일에서 떨어져 있습니다',
       body: railFarPlaceMessage(name, meters),
       actions: [
+        VicaCancelButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          label: '확인',
+        ),
         FilledButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('확인'),
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('레일 편집'),
         ),
       ],
     );

@@ -12,6 +12,7 @@ import '../core/destination_categories.dart';
 import '../models/home_position.dart';
 import '../models/location_point.dart';
 import '../models/pose_check_result.dart';
+import '../models/vica_map.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../ros/ros_bridge_client.dart';
@@ -21,7 +22,9 @@ import '../widgets/drive_map_canvas.dart';
 import '../widgets/keepout_card.dart';
 import '../widgets/map_canvas.dart';
 import '../models/route_graph.dart' show kRailHandoffMeters;
+import '../widgets/rail_card.dart';
 import '../widgets/rail_far_place_dialog.dart';
+import '../widgets/route_dialogs.dart';
 import '../widgets/map_delete_card.dart';
 import '../widgets/vica_ui.dart';
 
@@ -30,7 +33,7 @@ import '../widgets/vica_ui.dart';
 /// 셋 다 지도를 보면서 하는 일이라 모두 펼쳐 두면 지도가 손톱만 해집니다.
 /// 그리고 셋은 지도 터치를 서로 다르게 씁니다 — 장소 찍기·홈 찍기·사각형 끌기.
 /// 펼친 칸이 지도 조작권을 가지므로 지금 무엇을 찍는 중인지가 드러납니다.
-enum _SettingsPanel { none, location, home, keepout, mapDelete }
+enum _SettingsPanel { none, location, home, keepout, rail, mapDelete }
 
 class SaveLocationScreen extends StatefulWidget {
   const SaveLocationScreen({super.key});
@@ -116,6 +119,11 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     // 주황 점이 동시에 뜨는 상태는 없습니다. draft 가 있으면 그쪽이 우선입니다.
     final pickedLocation =
         (draft != null || map == null) ? null : _previewLocation(map.mapId);
+    // 레일 칸을 펼치고 그 지도의 편집을 시작했을 때만 지도가 레일 그림판입니다.
+    final railEditing = map != null &&
+        _panel == _SettingsPanel.rail &&
+        supervisor.routeEditing &&
+        supervisor.routeEditMapId == map.mapId;
 
     return VicaPage(
       title: '지도 설정',
@@ -180,7 +188,18 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               selectedKeepoutZoneId: supervisor.selectedKeepoutZoneId,
               // 레일은 어느 칸을 펼쳤든 항상 보입니다(2026-09-30). 장소를 찍을
               // 때 로봇이 다니는 길이 어디인지 알고 찍어야 합니다.
-              routeGraph: supervisor.routeGraphFor(map.mapId),
+              // 레일을 편집하는 동안에는 저장된 레일 대신 스케치·미리보기를 그립니다.
+              routeGraph:
+                  railEditing ? null : supervisor.routeGraphFor(map.mapId),
+              routeEditMode: railEditing,
+              routeSketch: railEditing ? supervisor.routeSketch : null,
+              routePreview: railEditing ? supervisor.routePreview : null,
+              routeIssues:
+                  railEditing ? supervisor.routeChecks.errors : const [],
+              routeSelectedNode: supervisor.routeConnectFrom,
+              onRouteDragStart: supervisor.routeDragStart,
+              onRouteDragUpdate: supervisor.routeDragUpdate,
+              onRouteDragEnd: supervisor.routeDragEnd,
               // 금지구역 칸을 펼치고 '편집'을 눌렀을 때만 지도가 그림판이 됩니다.
               keepoutEditMode:
                   _panel == _SettingsPanel.keepout && supervisor.keepoutEditing,
@@ -211,6 +230,11 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               // 사라져 처음부터 다시 해야 했습니다. 이제 누르는 것은 '점 옮기기'
               // 뿐이고, 시트는 아래 '장소 정보 입력' 버튼이 엽니다.
               onTapMap: (ros) {
+                // 레일 편집 중이면 누르기는 도구(노드 추가·선 잇기·지우기)입니다.
+                if (railEditing) {
+                  supervisor.routeTap(ros);
+                  return;
+                }
                 // 홈을 찍는 중이면 장소가 아니라 홈 좌표가 됩니다. 한 지도에서
                 // 두 가지를 찍으므로 지금 무엇을 찍는 중인지로 갈라야 합니다.
                 if (_homeMode == HomeCardMode.picking) {
@@ -347,6 +371,38 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               onSelect: supervisor.selectKeepoutZone,
             ),
           ),
+          // 레일 칸(B단계, 2026-09-30 사용자 확정): 금지구역 다음·지도 관리 위.
+          // 둘 다 "로봇이 어디로 다니나"를 정하는 일이라 붙여 둡니다.
+          VicaExpandPanel(
+            title: '레일',
+            icon: Icons.alt_route,
+            summary: _railSummary(supervisor, map.mapId),
+            summaryColor: railEditing ? VicaColors.primary : null,
+            expanded: _panel == _SettingsPanel.rail,
+            onTap: () => _openPanel(context, supervisor, _SettingsPanel.rail),
+            child: RailCard(
+              info: supervisor.routeInfoFor(map.mapId),
+              editing: railEditing,
+              state: supervisor.routeState,
+              message: supervisor.routeMessage,
+              connected:
+                  supervisor.connectionState == RosConnectionState.connected,
+              drivingHold: (supervisor.primaryRobot?.currentGoal.trim() ?? '')
+                  .isNotEmpty,
+              sketch: supervisor.routeSketch,
+              tool: supervisor.routeTool,
+              checks: supervisor.routeChecks,
+              onStartEdit: () => supervisor.enterRouteEdit(settings, map),
+              onDraft: () => _railDraft(context, supervisor, settings, map),
+              onReload: () {
+                supervisor.requestRouteInfo(settings, map.mapId);
+                supervisor.loadRouteGraph(settings, map.mapId);
+              },
+              onSave: () => _railSave(context, supervisor, settings, map),
+              onCancel: supervisor.cancelRouteEdit,
+              onTool: supervisor.setRouteTool,
+            ),
+          ),
           // 지도 삭제도 다른 셋과 같은 접히는 칸입니다. 되돌릴 수 없는 일이라
           // 목록 맨 아래에 두고 **기본으로 접어** 둡니다 — 지도를 고르는
           // 자리(맨 위)에서 멀고, 펼치는 손짓이 한 번 더 필요합니다.
@@ -411,6 +467,29 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       }
     }
 
+    // 레일도 같습니다(팝업 A). 바뀐 것이 없으면 묻지 않고 편집만 닫습니다.
+    if (_panel == _SettingsPanel.rail &&
+        target != _SettingsPanel.rail &&
+        supervisor.routeEditing) {
+      if (supervisor.routeDirty) {
+        if (!context.mounted) {
+          return;
+        }
+        final leave = await showRouteLeaveDialog(context);
+        if (!leave) {
+          return;
+        }
+      }
+      supervisor.cancelRouteEdit();
+    }
+    if (target == _SettingsPanel.rail && context.mounted) {
+      final settings = context.read<SettingsProvider>().settings;
+      final mapId = supervisor.selectedMap?.mapId;
+      if (mapId != null) {
+        supervisor.requestRouteInfo(settings, mapId);
+      }
+    }
+
     setState(() {
       _panel = target;
       if (target != _SettingsPanel.location) {
@@ -423,6 +502,74 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
         _homeStanding = null;
       }
     });
+  }
+
+  // ------------------------------------------------------------------
+  // 레일 칸
+  // ------------------------------------------------------------------
+
+  String _railSummary(SupervisorProvider supervisor, String mapId) {
+    if (supervisor.routeEditing && supervisor.routeEditMapId == mapId) {
+      return '편집 중';
+    }
+    final info = supervisor.routeInfoFor(mapId);
+    if (info == null) {
+      return supervisor.routeGraphFor(mapId) == null ? '없음' : '있음';
+    }
+    if (!info.found) {
+      return '없음';
+    }
+    final nodes = info.checks.summary.nodeCount;
+    return info.status == 'apply_pending'
+        ? '적용 대기 · 노드 $nodes'
+        : '적용됨 · 노드 $nodes';
+  }
+
+  /// 자동 초안. 지금 레일이나 편집 중인 스케치가 있으면 먼저 묻습니다(팝업 B).
+  Future<void> _railDraft(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    AppSettings settings,
+    VicaMap map,
+  ) async {
+    final hasSomething = supervisor.routeInfoFor(map.mapId)?.found == true ||
+        (supervisor.routeEditing && !supervisor.routeSketch.isEmpty);
+    if (hasSomething && !await showRouteDraftDialog(context)) {
+      return;
+    }
+    await supervisor.requestRouteDraft(settings, map);
+  }
+
+  Future<void> _railSave(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    AppSettings settings,
+    VicaMap map, {
+    bool overwrite = false,
+  }) async {
+    final outcome =
+        await supervisor.saveRoute(settings, map.mapId, overwrite: overwrite);
+    if (!context.mounted) {
+      return;
+    }
+    switch (outcome) {
+      case RouteSaveOutcome.saved:
+        _showSnack(context, supervisor.routeMessage);
+      case RouteSaveOutcome.conflict:
+        final choice = await showRouteConflictDialog(context);
+        if (!context.mounted || choice == null) {
+          return;
+        }
+        if (choice == RouteConflictChoice.overwrite) {
+          await _railSave(context, supervisor, settings, map, overwrite: true);
+        } else {
+          await supervisor.reloadRouteDiscardingEdits(settings, map);
+        }
+      case RouteSaveOutcome.checkFailed:
+      case RouteSaveOutcome.failed:
+        // 칸 안에 번호 목록·문구로 보입니다(팝업 아님, 시안 ④).
+        break;
+    }
   }
 
   void _showSnack(BuildContext context, String message) {
@@ -928,10 +1075,13 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     if (meters == null || meters <= kRailHandoffMeters || !context.mounted) {
       return;
     }
-    await showDialog<void>(
+    final editRail = await showDialog<bool>(
       context: context,
       builder: (_) => RailFarPlaceDialog(name: draft.name, meters: meters),
     );
+    if (editRail == true && context.mounted && _panel != _SettingsPanel.rail) {
+      await _openPanel(context, supervisor, _SettingsPanel.rail);
+    }
   }
 
   /// 결과 문구를 띄웁니다.

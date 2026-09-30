@@ -19,6 +19,7 @@ import '../models/map_preview.dart';
 import '../models/pose_check_result.dart';
 import '../models/mapping_status.dart';
 import '../models/robot_status.dart';
+import '../models/route_edit.dart';
 import '../models/route_graph.dart';
 import '../models/stack_status.dart';
 import '../models/supervisor_log.dart';
@@ -26,6 +27,7 @@ import '../models/vica_map.dart';
 import '../ros/ros_bridge_client.dart';
 import '../services/delivery_job_store.dart';
 import '../services/delivery_notifier.dart';
+import '../services/map_wall_mask.dart';
 import '../services/route_graph_loader.dart';
 
 enum EmergencyStopState {
@@ -47,6 +49,51 @@ enum KeepoutSaveState {
   failed,
 }
 
+/// 레일 칸의 상태입니다(2026-09-30). 버튼 잠금과 문구가 이 값으로 정해집니다.
+enum RouteEditState {
+  idle,
+  loading,
+  drafting,
+  editing,
+  saving,
+  succeeded,
+  failed,
+}
+
+/// [SupervisorProvider.saveRoute] 결과. 화면이 팝업(F)을 띄울지 이것으로 정합니다.
+enum RouteSaveOutcome { saved, conflict, checkFailed, failed }
+
+/// 레일 서비스 한 번 부르기. 시험은 rosbridge 없이 이것만 바꿔 끼웁니다.
+typedef RouteServiceCall = Future<Map<String, Object?>> Function(
+  String service,
+  String type,
+  Map<String, Object?> args,
+  Duration timeout,
+);
+
+/// 지도 그림에서 벽 지도를 만듭니다. 시험은 이것을 바꿔 끼웁니다.
+typedef WallMaskLoader = Future<MapWallMask?> Function(
+    String imageUrl, VicaMap map);
+
+/// 레일 칸이 받아 둔 로봇 쪽 레일 정보(GetRoute).
+class RouteInfo {
+  const RouteInfo({
+    required this.found,
+    this.sketch = RouteSketch.empty,
+    this.version = '',
+    this.status = 'none',
+    this.checks = RouteChecks.none,
+  });
+
+  final bool found;
+  final RouteSketch sketch;
+  final String version;
+
+  /// applied | apply_pending | none
+  final String status;
+  final RouteChecks checks;
+}
+
 class SupervisorProvider extends ChangeNotifier {
   /// [deliveryNotifier] 를 안 주면 기기에 맞는 것을 고릅니다 — 안드로이드는 SMS,
   /// 그 밖은 미리보기. 시험은 호스트(리눅스)에서 돌아 자동으로 미리보기가 됩니다.
@@ -54,10 +101,14 @@ class SupervisorProvider extends ChangeNotifier {
     DeliveryNotifier? deliveryNotifier,
     DeliveryJobStore? deliveryJobStore,
     RouteGraphLoader? routeGraphLoader,
+    RouteServiceCall? routeServiceCall,
+    WallMaskLoader? wallMaskLoader,
   })  : _deliveryNotifier = deliveryNotifier ?? createDeliveryNotifier(),
         _deliveryStore =
             deliveryJobStore ?? const SharedPreferencesDeliveryJobStore(),
-        _routeGraphLoader = routeGraphLoader ?? const RouteGraphLoader();
+        _routeGraphLoader = routeGraphLoader ?? const RouteGraphLoader(),
+        _routeServiceCall = routeServiceCall,
+        _wallMaskLoader = wallMaskLoader ?? MapWallMask.load;
 
   static const _nav2UnavailableReason = 'Nav2/AMCL 미실행';
   static const _nav2UnavailableMessage =
@@ -352,6 +403,11 @@ class SupervisorProvider extends ChangeNotifier {
       ..subscribe(
         topic: settings.keepoutStateTopic,
         handler: _handleKeepoutState,
+      )
+      // 요청 없이 생긴 레일 변화(주행이 끝나 미뤄 둔 적용이 된 경우·실패한 경우).
+      ..subscribe(
+        topic: settings.routeStateTopic,
+        handler: _handleRouteState,
       );
   }
 
@@ -2007,6 +2063,482 @@ class SupervisorProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- 레일 편집 (2026-09-30, 설계서 2026-09-28-app-route-editor-design.md 2부) ----
+  //
+  // 앱은 스케치(노드와 선)만 만들고, 다듬기·검사·저장·적용은 젯슨
+  // route_graph_node 가 합니다. 금지구역 편집과 같은 모양입니다.
+
+  final RouteServiceCall? _routeServiceCall;
+  final WallMaskLoader _wallMaskLoader;
+  final Map<String, RouteInfo> _routeInfoByMap = {};
+  final Map<String, MapWallMask> _wallMasks = {};
+
+  RouteEditState _routeState = RouteEditState.idle;
+  String _routeMessage = '';
+  bool _routeEditing = false;
+  String? _routeEditMapId;
+  RouteSketch _routeSketch = RouteSketch.empty;
+  String _routeBaseEncoded = '';
+  String _routeBaseVersion = '';
+  RouteEditTool _routeTool = RouteEditTool.addNode;
+  int? _routeConnectFrom;
+  int? _routeDragNode;
+  RouteGraph? _routePreview;
+  RouteChecks _routeChecks = RouteChecks.none;
+  Timer? _routePreviewTimer;
+  int _routePreviewSeq = 0;
+  AppSettings? _routeSettings;
+
+  /// 셸이 띄울 레일 적용 실패 팝업(D). 문구 그대로.
+  String? _pendingRouteAlert;
+
+  /// 셸이 띄울 짧은 알림 띠(주행이 끝나 적용됨 등).
+  String? _pendingRouteToast;
+
+  /// 노드를 고르는 손가락 반경(m).
+  static const double routeHitRadiusM = 0.6;
+
+  RouteInfo? routeInfoFor(String? mapId) =>
+      mapId == null ? null : _routeInfoByMap[mapId];
+  RouteEditState get routeState => _routeState;
+  String get routeMessage => _routeMessage;
+  bool get routeEditing => _routeEditing;
+  String? get routeEditMapId => _routeEditMapId;
+  RouteSketch get routeSketch => _routeSketch;
+  RouteEditTool get routeTool => _routeTool;
+  int? get routeConnectFrom => _routeConnectFrom;
+  RouteGraph? get routePreview => _routePreview;
+  RouteChecks get routeChecks => _routeChecks;
+  bool get routeDirty =>
+      _routeEditing && _routeSketch.encode() != _routeBaseEncoded;
+  String? get pendingRouteAlert => _pendingRouteAlert;
+  String? get pendingRouteToast => _pendingRouteToast;
+
+  void consumeRouteAlert() {
+    _pendingRouteAlert = null;
+  }
+
+  void consumeRouteToast() {
+    _pendingRouteToast = null;
+  }
+
+  Future<Map<String, Object?>> _callRoute(
+    AppSettings settings,
+    String service,
+    String type,
+    Map<String, Object?> args, {
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    final injected = _routeServiceCall;
+    if (injected != null) {
+      return injected(service, type, args, timeout);
+    }
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      throw StateError('ROS Bridge에 연결되지 않았습니다.');
+    }
+    final response = await client.callService(
+      service: service,
+      type: type,
+      args: args,
+      timeout: timeout,
+    );
+    return response.values;
+  }
+
+  bool get _routeCanCall =>
+      _routeServiceCall != null ||
+      (_client != null && _connectionState == RosConnectionState.connected);
+
+  /// 로봇의 레일 요약·스케치·판을 받습니다. 레일 칸을 열 때와 저장 뒤에 부릅니다.
+  Future<void> requestRouteInfo(AppSettings settings, String mapId) async {
+    if (!_routeCanCall) {
+      return;
+    }
+    try {
+      final v = await _callRoute(
+        settings,
+        settings.routeGetService,
+        'vica_interfaces/srv/GetRoute',
+        {'map_id': mapId},
+      );
+      _routeInfoByMap[mapId] = RouteInfo(
+        found: v['found'] == true,
+        sketch: RouteSketch.decode(v['sketch_json']),
+        version: v['version'] as String? ?? '',
+        status: v['status'] as String? ?? 'none',
+        checks: RouteChecks.decode(v['checks_json']),
+      );
+    } catch (error) {
+      _addLog(LogFilter.coordinateTransfer, '레일 정보를 받지 못했습니다: $error');
+    }
+    notifyListeners();
+  }
+
+  /// 편집을 시작합니다. [initial] 이 없으면 로봇에 저장된 스케치에서 시작합니다.
+  void enterRouteEdit(
+    AppSettings settings,
+    VicaMap map, {
+    RouteSketch? initial,
+    RouteGraph? preview,
+    RouteChecks? checks,
+  }) {
+    final info = _routeInfoByMap[map.mapId];
+    _routeSettings = settings;
+    _routeEditing = true;
+    _routeEditMapId = map.mapId;
+    final base = info?.sketch ?? RouteSketch.empty;
+    _routeBaseEncoded = base.encode();
+    _routeSketch = initial ?? base;
+    _routeBaseVersion = info?.version ?? '';
+    _routeTool = RouteEditTool.addNode;
+    _routeConnectFrom = null;
+    _routeDragNode = null;
+    _routePreview = preview;
+    _routeChecks = checks ?? RouteChecks.none;
+    _routeState = RouteEditState.editing;
+    _routeMessage = '';
+    notifyListeners();
+    if (!_wallMasks.containsKey(map.mapId)) {
+      unawaited(_loadWallMask(settings, map));
+    }
+    if (preview == null && !_routeSketch.isEmpty) {
+      _scheduleRoutePreview();
+    }
+  }
+
+  Future<void> _loadWallMask(AppSettings settings, VicaMap map) async {
+    final url = map.imageUrl.startsWith('http')
+        ? map.imageUrl
+        : '${settings.mapHttpBaseUrl.replaceAll(RegExp(r'/$'), '')}'
+            '${map.imageUrl.startsWith('/') ? '' : '/'}${map.imageUrl}';
+    final mask = await _wallMaskLoader(url, map);
+    if (mask != null) {
+      _wallMasks[map.mapId] = mask;
+    }
+  }
+
+  @visibleForTesting
+  void setWallMaskForTest(String mapId, MapWallMask mask) {
+    _wallMasks[mapId] = mask;
+  }
+
+  void cancelRouteEdit() {
+    _routePreviewTimer?.cancel();
+    _routeEditing = false;
+    _routeEditMapId = null;
+    _routeSketch = RouteSketch.empty;
+    _routeConnectFrom = null;
+    _routeDragNode = null;
+    _routePreview = null;
+    _routeChecks = RouteChecks.none;
+    _routeState = RouteEditState.idle;
+    _routeMessage = '';
+    notifyListeners();
+  }
+
+  void setRouteTool(RouteEditTool tool) {
+    _routeTool = tool;
+    _routeConnectFrom = null;
+    notifyListeners();
+  }
+
+  bool _crossesWall(Offset a, Offset b) {
+    final mask = _routeEditMapId == null ? null : _wallMasks[_routeEditMapId];
+    return mask != null && mask.crossesWall(a, b);
+  }
+
+  /// 편집 중 지도 한 번 누르기. 도구에 따라 노드 추가·선 잇기·지우기.
+  void routeTap(Offset ros) {
+    if (!_routeEditing) {
+      return;
+    }
+    final sketch = _routeSketch;
+    final hit = sketch.nodeNear(ros, routeHitRadiusM);
+    switch (_routeTool) {
+      case RouteEditTool.addNode:
+        if (hit != null) {
+          return; // 이미 노드가 있는 자리
+        }
+        _routeSketch = sketch.addNode(ros);
+      case RouteEditTool.connect:
+        if (hit == null) {
+          _routeConnectFrom = null;
+          notifyListeners();
+          return;
+        }
+        final from = _routeConnectFrom;
+        if (from == null || from == hit) {
+          _routeConnectFrom = from == hit ? null : hit;
+          notifyListeners();
+          return;
+        }
+        // 벽을 가로지르면 화면 표시 없이 잇지 않습니다(사용자 결정 2026-09-30).
+        if (_crossesWall(sketch.nodes[from]!, sketch.nodes[hit]!)) {
+          return;
+        }
+        _routeSketch = sketch.connect(from, hit);
+        _routeConnectFrom = null;
+      case RouteEditTool.erase:
+        if (hit != null) {
+          _routeSketch = sketch.removeNode(hit);
+        } else {
+          final edge = sketch.edgeNear(ros, routeHitRadiusM * 0.6);
+          if (edge == null) {
+            return;
+          }
+          _routeSketch = sketch.removeEdge(edge);
+        }
+    }
+    notifyListeners();
+    _scheduleRoutePreview();
+  }
+
+  /// 노드를 길게 눌러 끌기 시작.
+  void routeDragStart(Offset ros) {
+    if (!_routeEditing) {
+      return;
+    }
+    _routeDragNode = _routeSketch.nodeNear(ros, routeHitRadiusM);
+  }
+
+  void routeDragUpdate(Offset ros) {
+    final id = _routeDragNode;
+    if (id == null) {
+      return;
+    }
+    // 옮긴 자리에서 이어진 선이 벽을 가로지르면 그 자리로는 옮기지 않습니다.
+    for (final e in _routeSketch.edges) {
+      if (e.a != id && e.b != id) {
+        continue;
+      }
+      final other = _routeSketch.nodes[e.a == id ? e.b : e.a]!;
+      if (_crossesWall(ros, other)) {
+        return;
+      }
+    }
+    _routeSketch = _routeSketch.moveNode(id, ros);
+    notifyListeners();
+  }
+
+  void routeDragEnd() {
+    if (_routeDragNode != null) {
+      _routeDragNode = null;
+      _scheduleRoutePreview();
+    }
+  }
+
+  /// 편집이 멈추고 0.5초 뒤 로봇에 미리보기를 받습니다(누를 때마다 부르지 않게).
+  void _scheduleRoutePreview() {
+    _routePreviewTimer?.cancel();
+    final settings = _routeSettings;
+    final mapId = _routeEditMapId;
+    if (settings == null || mapId == null) {
+      return;
+    }
+    _routePreviewTimer = Timer(const Duration(milliseconds: 500), () {
+      unawaited(requestRoutePreview(settings, mapId));
+    });
+  }
+
+  /// 스케치를 로봇이 다듬은 모양과 검사 결과를 받습니다. 파일은 쓰지 않습니다.
+  Future<void> requestRoutePreview(AppSettings settings, String mapId) async {
+    if (!_routeEditing || !_routeCanCall) {
+      return;
+    }
+    if (_routeSketch.edges.isEmpty) {
+      _routePreview = null;
+      _routeChecks = RouteChecks.none;
+      notifyListeners();
+      return;
+    }
+    final seq = ++_routePreviewSeq;
+    try {
+      final v = await _callRoute(
+        settings,
+        settings.routeSaveService,
+        'vica_interfaces/srv/SaveRoute',
+        {
+          'map_id': mapId,
+          'sketch_json': _routeSketch.encode(),
+          'preview_only': true,
+          'apply_now': false,
+          'base_version': _routeBaseVersion,
+          'overwrite': false,
+        },
+      );
+      if (seq != _routePreviewSeq || !_routeEditing) {
+        return; // 그 사이 스케치가 또 바뀌었습니다
+      }
+      _routePreview = decodeRoutePreview(v['preview_json']);
+      _routeChecks = RouteChecks.decode(v['checks_json']);
+    } catch (_) {
+      // 미리보기는 없어도 편집할 수 있습니다. route_graph_node 가 아직 없으면 여기로 옵니다.
+    }
+    notifyListeners();
+  }
+
+  /// 자동 초안을 받아 편집을 시작합니다. 수 초 걸립니다(0903_d 약 6.5 s).
+  Future<void> requestRouteDraft(AppSettings settings, VicaMap map) async {
+    if (!_routeCanCall) {
+      _routeState = RouteEditState.failed;
+      _routeMessage = 'ROS Bridge에 연결되지 않았습니다.';
+      notifyListeners();
+      return;
+    }
+    _routeState = RouteEditState.drafting;
+    _routeMessage = '초안을 만들고 있습니다. 10초쯤 걸립니다.';
+    notifyListeners();
+    try {
+      final v = await _callRoute(
+        settings,
+        settings.routeDraftService,
+        'vica_interfaces/srv/DraftRoute',
+        {'map_id': map.mapId, 'shape': 'auto'},
+        timeout: const Duration(seconds: 45),
+      );
+      if (v['accepted'] != true) {
+        _routeState = RouteEditState.failed;
+        _routeMessage = v['message'] as String? ?? '초안을 만들지 못했습니다.';
+        notifyListeners();
+        return;
+      }
+      if (!_routeInfoByMap.containsKey(map.mapId)) {
+        await requestRouteInfo(settings, map.mapId);
+      }
+      enterRouteEdit(
+        settings,
+        map,
+        initial: RouteSketch.decode(v['sketch_json']),
+        preview: decodeRoutePreview(v['preview_json']),
+        checks: RouteChecks.decode(v['checks_json']),
+      );
+      _routeMessage = v['message'] as String? ?? '';
+      notifyListeners();
+    } catch (error) {
+      _routeState = RouteEditState.failed;
+      _routeMessage = '초안을 만들지 못했습니다: $error';
+      notifyListeners();
+    }
+  }
+
+  /// 스케치를 저장하고 적용합니다. [overwrite] 는 팝업 F 에서 '덮어쓰기'를 골랐을 때.
+  Future<RouteSaveOutcome> saveRoute(
+    AppSettings settings,
+    String mapId, {
+    bool overwrite = false,
+  }) async {
+    if (_routeState == RouteEditState.saving) {
+      return RouteSaveOutcome.failed;
+    }
+    if (!_routeCanCall) {
+      _routeState = RouteEditState.failed;
+      _routeMessage = 'ROS Bridge에 연결되지 않았습니다.';
+      notifyListeners();
+      return RouteSaveOutcome.failed;
+    }
+    _routeConnectFrom = null;
+    _routeState = RouteEditState.saving;
+    _routeMessage = '레일을 저장하고 있습니다.';
+    notifyListeners();
+    try {
+      final v = await _callRoute(
+        settings,
+        settings.routeSaveService,
+        'vica_interfaces/srv/SaveRoute',
+        {
+          'map_id': mapId,
+          'sketch_json': _routeSketch.encode(),
+          'preview_only': false,
+          'apply_now': true,
+          'base_version': _routeBaseVersion,
+          'overwrite': overwrite,
+        },
+        // 젯슨이 다듬고 검사하고(1 s 안팎) route_server 응답까지 기다립니다(노드 3 s).
+        timeout: const Duration(seconds: 15),
+      );
+      final reason = v['reason'] as String? ?? '';
+      _routeMessage = v['message'] as String? ?? '';
+      if (v['preview_json'] is String &&
+          (v['preview_json'] as String).isNotEmpty) {
+        _routePreview = decodeRoutePreview(v['preview_json']);
+      }
+      _routeChecks = RouteChecks.decode(v['checks_json']);
+      if (v['accepted'] != true) {
+        _routeState = RouteEditState.editing;
+        notifyListeners();
+        if (reason == 'conflict') {
+          return RouteSaveOutcome.conflict;
+        }
+        if (reason == 'check_failed') {
+          return RouteSaveOutcome.checkFailed;
+        }
+        _routeState = RouteEditState.failed;
+        notifyListeners();
+        return RouteSaveOutcome.failed;
+      }
+      // 저장됨. 적용이 안 됐으면 이유별로 알린다.
+      if (reason == 'apply_failed' ||
+          reason == 'apply_timeout' ||
+          reason == 'no_route_server') {
+        _pendingRouteAlert = _routeMessage;
+      }
+      _routePreviewTimer?.cancel();
+      _routeEditing = false;
+      _routeEditMapId = null;
+      _routeSketch = RouteSketch.empty;
+      _routePreview = null;
+      _routeChecks = RouteChecks.none;
+      _routeState = RouteEditState.succeeded;
+      _addLog(LogFilter.coordinateTransfer, '레일 저장: $_routeMessage');
+      notifyListeners();
+      await requestRouteInfo(settings, mapId);
+      await loadRouteGraph(settings, mapId);
+      return RouteSaveOutcome.saved;
+    } catch (error) {
+      _routeState = RouteEditState.failed;
+      _routeMessage = '레일 저장 실패: $error';
+      notifyListeners();
+      return RouteSaveOutcome.failed;
+    }
+  }
+
+  /// 팝업 F '새 레일 불러오기' — 내 편집을 버리고 로봇의 최신 레일로 다시 시작.
+  Future<void> reloadRouteDiscardingEdits(
+      AppSettings settings, VicaMap map) async {
+    await requestRouteInfo(settings, map.mapId);
+    await loadRouteGraph(settings, map.mapId);
+    enterRouteEdit(settings, map);
+  }
+
+  /// 요청 없이 도착한 레일 소식 — 주행이 끝나 미뤄 둔 적용이 됐거나 실패한 경우.
+  void _handleRouteState(Map<String, Object?> message) {
+    final mapId = message['map_id'] as String? ?? '';
+    final applied = message['applied'] == true;
+    final text = message['message'] as String? ?? '';
+    final info = _routeInfoByMap[mapId];
+    if (info != null) {
+      _routeInfoByMap[mapId] = RouteInfo(
+        found: info.found,
+        sketch: info.sketch,
+        version: info.version,
+        status: applied ? 'applied' : info.status,
+        checks: info.checks,
+      );
+    }
+    if (applied) {
+      _pendingRouteToast = '주행이 끝나 새 레일을 적용했습니다.';
+    } else {
+      _pendingRouteAlert = text.isEmpty ? '레일을 적용하지 못했습니다.' : text;
+    }
+    _addLog(LogFilter.coordinateTransfer, '레일 상태: $text');
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  void handleRouteStateForTest(Map<String, Object?> message) =>
+      _handleRouteState(message);
+
   // ---- 매핑 세션 제어 ---------------------------------------------------
   //
   // 앱은 프로세스를 직접 띄우지 않습니다. 젯슨에 상주하는 mapping_supervisor_node
@@ -2581,6 +3113,7 @@ class SupervisorProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _routePreviewTimer?.cancel();
     _teleopTimer?.cancel();
     _reconnectTimer?.cancel();
     _deliveryReturnTimer?.cancel();

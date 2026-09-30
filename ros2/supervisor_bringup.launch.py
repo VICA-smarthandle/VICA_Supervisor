@@ -23,6 +23,8 @@ WORKSPACE_ROOT = SUPERVISOR_ROOT.parent.parent
 MAP_LIST_NODE = SUPERVISOR_ROOT / "map_list_node.py"
 STATUS_NODE = SUPERVISOR_ROOT / "vica_status_app_node.py"
 KEEPOUT_NODE = SUPERVISOR_ROOT / "keepout_map_node.py"
+# 레일 편집(2026-09-30). 금지구역 노드와 따로 둔다 — route_graph_node.py 맨 위 참고.
+ROUTE_NODE = SUPERVISOR_ROOT / "route_graph_node.py"
 MAP_HTTP_SERVER = SUPERVISOR_ROOT / "map_http_server.py"
 
 
@@ -102,6 +104,10 @@ def generate_launch_description() -> LaunchDescription:
             # (마스크 서버 두 대)은 vica_nav2 의 launch 가 담당합니다.
             ExecuteProcess(
                 cmd=[sys.executable, str(KEEPOUT_NODE)],
+                output="screen",
+            ),
+            ExecuteProcess(
+                cmd=[sys.executable, str(ROUTE_NODE)],
                 output="screen",
             ),
             ExecuteProcess(

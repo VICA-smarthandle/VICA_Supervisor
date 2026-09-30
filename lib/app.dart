@@ -19,6 +19,7 @@ import 'providers/supervisor_provider.dart';
 import 'providers/ui_preferences_provider.dart';
 import 'ros/ros_bridge_client.dart';
 import 'widgets/goal_alert_dialog.dart';
+import 'widgets/route_dialogs.dart';
 import 'widgets/vica_ui.dart';
 import 'screens/current_location_screen.dart';
 import 'screens/dashboard_screen.dart';
@@ -372,6 +373,34 @@ class _SupervisorShellState extends State<SupervisorShell> {
           context: context,
           builder: (_) => GoalAlertDialog(event: alert),
         );
+      });
+    }
+
+    // 레일 적용 실패(팝업 D)와 주행 뒤 적용 완료(알림 띠). 주행 실패 팝업과 같은
+    // 이유로 셸이 맡습니다 — 주행이 끝나 적용하다 실패하면 관리자가 어느 화면에
+    // 있을지 모릅니다(2026-09-30).
+    final routeAlert = supervisor.pendingRouteAlert;
+    if (routeAlert != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        supervisor.consumeRouteAlert();
+        showDialog<void>(
+          context: context,
+          builder: (_) => RouteApplyFailedDialog(reason: routeAlert),
+        );
+      });
+    }
+    final routeToast = supervisor.pendingRouteToast;
+    if (routeToast != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        supervisor.consumeRouteToast();
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(routeToast)));
       });
     }
 
@@ -873,6 +902,20 @@ class _SupervisorShellState extends State<SupervisorShell> {
         return;
       }
       supervisor.setDraftLocation(null);
+    }
+
+    // ④ 저장 안 한 레일 편집 — 팝업 A 와 같은 물음입니다.
+    if (supervisor.routeDirty) {
+      if (!context.mounted) {
+        return;
+      }
+      final leave = await showRouteLeaveDialog(context);
+      if (!leave || !context.mounted) {
+        return;
+      }
+    }
+    if (supervisor.routeEditing) {
+      supervisor.cancelRouteEdit();
     }
 
     context.read<AppModeProvider>().clear();
