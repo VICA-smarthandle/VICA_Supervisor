@@ -1,5 +1,7 @@
 // 이 파일은 지도 이미지, 저장된 장소 마커, 선택 마커, 현재 로봇 위치를 한 화면에 표시합니다.
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:ui' show PointMode;
+
+import 'package:flutter/foundation.dart' show kIsWeb, listEquals;
 import 'package:flutter/material.dart';
 
 import '../core/app_settings.dart';
@@ -7,6 +9,7 @@ import '../core/map_coordinate.dart';
 import '../models/keepout_zone.dart';
 import '../models/location_point.dart';
 import '../models/robot_status.dart';
+import '../models/route_graph.dart';
 import '../models/vica_map.dart';
 import 'vica_ui.dart';
 
@@ -115,6 +118,7 @@ class MapCanvas extends StatelessWidget {
     this.onKeepoutPanUpdate,
     this.onKeepoutPanEnd,
     this.onSelectKeepoutZone,
+    this.routeGraph,
   });
 
   final VicaMap map;
@@ -163,6 +167,10 @@ class MapCanvas extends StatelessWidget {
   final ValueChanged<Offset>? onKeepoutPanUpdate;
   final VoidCallback? onKeepoutPanEnd;
   final ValueChanged<String?>? onSelectKeepoutZone;
+
+  /// 로봇이 따라 달리는 레일(A단계, 2026-09-30). 금지구역처럼 어느 화면이든
+  /// 항상 보이고 터치는 받지 않습니다. 없으면 아무것도 그리지 않습니다.
+  final RouteGraph? routeGraph;
 
   String get _imageUrl {
     if (map.imageUrl.startsWith('http://') ||
@@ -254,6 +262,21 @@ class MapCanvas extends StatelessWidget {
                       _KeepoutRect(
                         rect: _zoneRect(draftKeepoutZone!, scale),
                         draft: true,
+                      ),
+                    // 레일은 금지구역 **위**, 장소 점·라이다 점 **아래**입니다.
+                    // 금지구역 색 면에 가려지면 안 되고, 장소 점을 덮어도 안
+                    // 됩니다. 확대하면 지도와 같이 커집니다(금지구역 테두리와
+                    // 같은 규칙).
+                    if (routeGraph != null && !routeGraph!.isEmpty)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: CustomPaint(
+                            painter: RouteRailPainter.fromGraph(
+                              routeGraph!,
+                              (x, y) => _scaledOffset(x, y, scale),
+                            ),
+                          ),
+                        ),
                       ),
                     // 라이다 점은 마커보다 **아래**입니다. 점 180개가 장소
                     // 마커와 로봇 화살표를 덮으면 정작 봐야 할 것이 가립니다.
@@ -732,6 +755,91 @@ class _KeepoutPainter extends CustomPainter {
   @override
   bool shouldRepaint(_KeepoutPainter old) =>
       old.selected != selected || old.draft != draft;
+}
+
+/// 레일(route graph)을 지도 위에 그립니다.
+///
+/// 모양은 2026-09-30 사용자가 시안에서 확정한 것입니다.
+///   선      앱 기본색(primary), 굵기 1.0 px. 레일은 벽에서 0.9 m 이상 떨어져
+///           만들어지므로 흰 테두리는 두지 않습니다.
+///   역 점   끝 역·갈림길 역에만 찍습니다. 지름 2.2 px, 흰 속에 같은 색 테두리.
+///           중간 역(1 m 간격)은 찍지 않습니다 — 축소 화면에서 구슬 목걸이가 됩니다.
+/// 좌표는 지도 그림 위의 픽셀이라 확대하면 지도와 같이 커집니다.
+///
+/// 위젯 대신 CustomPainter 하나를 씁니다. 엣지 60개·역 60개를 Positioned 로
+/// 두면 확대·이동마다 레이아웃이 다시 계산돼 화면이 버벅입니다(라이다 점과 같은
+/// 이유).
+class RouteRailPainter extends CustomPainter {
+  const RouteRailPainter({
+    required this.segments,
+    required this.keyPoints,
+  });
+
+  /// ROS 좌표 → 지도 픽셀 변환은 MapCanvas 가 하고, 여기는 픽셀만 받습니다.
+  factory RouteRailPainter.fromGraph(
+    RouteGraph graph,
+    Offset Function(double x, double y) toPixel,
+  ) {
+    final pixels = <int, Offset>{
+      for (final entry in graph.nodes.entries)
+        entry.key: toPixel(entry.value.dx, entry.value.dy),
+    };
+    final segments = <Offset>[];
+    for (final edge in graph.edges) {
+      final a = pixels[edge.a];
+      final b = pixels[edge.b];
+      if (a == null || b == null) {
+        continue;
+      }
+      segments
+        ..add(a)
+        ..add(b);
+    }
+    final keyIds = graph.keyNodeIds;
+    return RouteRailPainter(
+      segments: List.unmodifiable(segments),
+      keyPoints: List.unmodifiable([
+        for (final id in keyIds)
+          if (pixels[id] != null) pixels[id]!,
+      ]),
+    );
+  }
+
+  /// [시작, 끝, 시작, 끝, ...] 짝으로 늘어놓은 선분.
+  final List<Offset> segments;
+
+  /// 점을 찍을 역(끝·갈림길).
+  final List<Offset> keyPoints;
+
+  static const Color color = VicaColors.primary;
+  static const double railWidth = 1.0;
+  static const double keyDotRadius = 1.1;
+  static const double keyDotBorder = 0.7;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rail = Paint()
+      ..color = color
+      ..strokeWidth = railWidth
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    canvas.drawPoints(PointMode.lines, segments, rail);
+
+    final fill = Paint()..color = Colors.white;
+    final ring = Paint()
+      ..color = color
+      ..strokeWidth = keyDotBorder
+      ..style = PaintingStyle.stroke;
+    for (final point in keyPoints) {
+      canvas.drawCircle(point, keyDotRadius, fill);
+      canvas.drawCircle(point, keyDotRadius, ring);
+    }
+  }
+
+  @override
+  bool shouldRepaint(RouteRailPainter old) =>
+      !listEquals(old.segments, segments) ||
+      !listEquals(old.keyPoints, keyPoints);
 }
 
 /// 라이다 점을 지도 위에 찍습니다.

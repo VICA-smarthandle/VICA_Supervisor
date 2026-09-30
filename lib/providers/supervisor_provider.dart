@@ -19,12 +19,14 @@ import '../models/map_preview.dart';
 import '../models/pose_check_result.dart';
 import '../models/mapping_status.dart';
 import '../models/robot_status.dart';
+import '../models/route_graph.dart';
 import '../models/stack_status.dart';
 import '../models/supervisor_log.dart';
 import '../models/vica_map.dart';
 import '../ros/ros_bridge_client.dart';
 import '../services/delivery_job_store.dart';
 import '../services/delivery_notifier.dart';
+import '../services/route_graph_loader.dart';
 
 enum EmergencyStopState {
   inactive,
@@ -51,9 +53,11 @@ class SupervisorProvider extends ChangeNotifier {
   SupervisorProvider({
     DeliveryNotifier? deliveryNotifier,
     DeliveryJobStore? deliveryJobStore,
+    RouteGraphLoader? routeGraphLoader,
   })  : _deliveryNotifier = deliveryNotifier ?? createDeliveryNotifier(),
         _deliveryStore =
-            deliveryJobStore ?? const SharedPreferencesDeliveryJobStore();
+            deliveryJobStore ?? const SharedPreferencesDeliveryJobStore(),
+        _routeGraphLoader = routeGraphLoader ?? const RouteGraphLoader();
 
   static const _nav2UnavailableReason = 'Nav2/AMCL 미실행';
   static const _nav2UnavailableMessage =
@@ -513,6 +517,35 @@ class SupervisorProvider extends ChangeNotifier {
     }
     unawaited(refreshHome(settings, mapId));
     unawaited(requestKeepoutList(settings, mapId));
+    unawaited(loadRouteGraph(settings, mapId));
+  }
+
+  // ---- 레일 (route graph) 표시 ----------------------------------------------
+  //
+  // 로봇이 따라 달리는 레일을 지도 위에 겹쳐 보입니다(A단계, 2026-09-30).
+  // 지도 그림과 같은 HTTP 서버에서 <지도>_route.geojson 을 받습니다. 파일이
+  // 없는 지도는 레일이 없는 것이니 아무것도 그리지 않고 알리지도 않습니다.
+  // 편집·저장은 다음 단계이고, 여기서는 읽기만 합니다.
+
+  final RouteGraphLoader _routeGraphLoader;
+  final Map<String, RouteGraph> _routeGraphsByMap = {};
+
+  /// 이 지도의 레일. 없으면 null 이고 오류가 아닙니다.
+  RouteGraph? routeGraphFor(String? mapId) =>
+      mapId == null ? null : _routeGraphsByMap[mapId];
+
+  /// 레일 파일을 받아 둡니다. 지도 데이터를 새로 받을 때마다 함께 부릅니다.
+  Future<void> loadRouteGraph(AppSettings settings, String mapId) async {
+    final graph = await _routeGraphLoader.load(settings.mapHttpBaseUrl, mapId);
+    final before = _routeGraphsByMap[mapId];
+    if (graph == null) {
+      _routeGraphsByMap.remove(mapId);
+    } else {
+      _routeGraphsByMap[mapId] = graph;
+    }
+    if (before != null || graph != null) {
+      notifyListeners();
+    }
   }
 
   void requestLocationList(AppSettings settings, String mapId) {

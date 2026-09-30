@@ -64,6 +64,8 @@ class DriveMapCanvas extends StatelessWidget {
         // 여기서 채웁니다.
         homePoint: supervisor.homePointFor(map.mapId),
         keepoutZones: supervisor.keepoutZonesFor(map.mapId),
+        // 레일도 주행 화면이면 늘 보입니다(2026-09-30 사용자 결정).
+        routeGraph: supervisor.routeGraphFor(map.mapId),
         onTapMap: onTapMap,
         onSelectLocation: onSelectLocation,
       ),

@@ -176,6 +176,9 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               keepoutZones: supervisor.keepoutZonesFor(map.mapId),
               draftKeepoutZone: supervisor.draftKeepoutZone,
               selectedKeepoutZoneId: supervisor.selectedKeepoutZoneId,
+              // 레일은 어느 칸을 펼쳤든 항상 보입니다(2026-09-30). 장소를 찍을
+              // 때 로봇이 다니는 길이 어디인지 알고 찍어야 합니다.
+              routeGraph: supervisor.routeGraphFor(map.mapId),
               // 금지구역 칸을 펼치고 '편집'을 눌렀을 때만 지도가 그림판이 됩니다.
               keepoutEditMode:
                   _panel == _SettingsPanel.keepout && supervisor.keepoutEditing,
