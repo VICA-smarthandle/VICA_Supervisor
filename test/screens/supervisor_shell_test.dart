@@ -16,6 +16,8 @@ import 'package:vica_supervisor/providers/auth_provider.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/providers/ui_preferences_provider.dart';
+import 'package:vica_supervisor/widgets/goal_alert_dialog.dart';
+import 'package:vica_supervisor/widgets/vica_ui.dart';
 
 // 넓은 창이라 사이드바(NavigationRail)가 섭니다. 900 이 그 경계입니다.
 const _wide = Size(1400, 1100);
@@ -82,5 +84,83 @@ void main() {
   testWidgets('삭제한 로봇 관리는 메뉴에 남아 있지 않다', (tester) async {
     await pumpShell(tester);
     expect(find.text('로봇 관리'), findsNothing);
+  });
+
+  // ---- 주행 실패 팝업 (2026-09-30) -------------------------------------------
+  //
+  // 종전에는 원격 주행·물류 배송 화면이 각자 팝업을 띄웠습니다. 셸은 지금 보는
+  // 화면 하나만 그리므로 **대시보드를 보고 있을 때 실패가 오면 아무것도 뜨지
+  // 않았습니다.** 이제 셸이 띄우므로 어느 화면이든 뜹니다.
+
+  testWidgets('대시보드를 보고 있어도 주행 실패 팝업이 뜬다', (tester) async {
+    await pumpShell(tester);
+    // 첫 화면은 대시보드입니다 — 원격 주행 화면이 아닙니다.
+    expect(find.widgetWithText(AppBar, '대시보드'), findsOneWidget);
+
+    final supervisor = tester
+        .element(find.byType(SupervisorShell))
+        .read<SupervisorProvider>();
+    supervisor.handleGoalEventForTest({
+      'event': 'goal_failed',
+      'name': '화장실',
+      'reason': 'Nav2 task failed',
+      'map_id': 'm1',
+    });
+    await tester.pumpAndSettle();
+
+    // 같은 제목·사유가 대시보드의 알림 목록에도 한 줄로 남으므로 팝업 안으로
+    // 좁혀서 찾습니다.
+    final dialog = find.byType(GoalAlertDialog);
+    Finder inDialog(Finder matching) =>
+        find.descendant(of: dialog, matching: matching);
+
+    expect(dialog, findsOneWidget);
+    expect(inDialog(find.text('주행 실패')), findsOneWidget);
+    // 본문 세 줄은 어절 단위 줄바꿈(vicaKeepWords)을 거치므로 같은 변환으로 찾습니다.
+    expect(
+      inDialog(find.textContaining(vicaKeepWords('목적지까지 주행에 실패했습니다.'))),
+      findsOneWidget,
+    );
+    expect(
+      inDialog(find.textContaining(vicaKeepWords('비카가 관리자를 호출했습니다.'))),
+      findsOneWidget,
+    );
+    // 목적지·사유는 본문이 아니라 아래 칸에 따로 보입니다.
+    expect(inDialog(find.text('목적지')), findsOneWidget);
+    expect(inDialog(find.text('화장실')), findsOneWidget);
+    expect(inDialog(find.text('사유')), findsOneWidget);
+    expect(inDialog(find.text('Nav2 task failed')), findsOneWidget);
+
+    // 확인을 누르면 닫히고, 같은 알림이 다시 뜨지 않습니다.
+    await tester.tap(inDialog(find.widgetWithText(FilledButton, '확인')));
+    await tester.pumpAndSettle();
+    expect(dialog, findsNothing);
+    expect(supervisor.pendingGoalAlert, isNull);
+  });
+
+  testWidgets('사유가 없는 취소 팝업은 사유 칸을 그리지 않는다', (tester) async {
+    await pumpShell(tester);
+    final supervisor = tester
+        .element(find.byType(SupervisorShell))
+        .read<SupervisorProvider>();
+    supervisor.handleGoalEventForTest({
+      'event': 'return_home_canceled',
+      'name': '',
+      'reason': '',
+      'map_id': 'm1',
+    });
+    await tester.pumpAndSettle();
+
+    // 같은 제목이 대시보드의 알림 목록에도 한 줄로 남으므로 팝업 안으로 좁힙니다.
+    final dialog = find.byType(GoalAlertDialog);
+    Finder inDialog(String text) =>
+        find.descendant(of: dialog, matching: find.text(text));
+
+    expect(dialog, findsOneWidget);
+    expect(inDialog('홈 복귀가 취소되었습니다'), findsOneWidget);
+    // 홈은 카탈로그에 없어 이름이 비어 오지만 목적지 칸에는 '홈'이라고 적습니다.
+    expect(inDialog('목적지'), findsOneWidget);
+    expect(inDialog('홈'), findsOneWidget);
+    expect(inDialog('사유'), findsNothing);
   });
 }

@@ -72,36 +72,61 @@ void main() {
   });
 
   group('관리자에게 보여줄 문구', () {
-    test('목적지 이름을 문구에 넣는다', () {
+    test('목적지 이름은 본문이 아니라 아래 칸 라벨로 간다', () {
+      // 이름이 길면 본문 줄이 흔들리고 '(으)로' 조사도 못 맞춥니다(2026-09-30).
       final failed = event('goal_failed', name: '남자 화장실');
 
       expect(failed.title, '주행 실패');
-      expect(failed.description, contains('남자 화장실'));
+      expect(failed.destinationLabel, '남자 화장실');
+      expect(failed.description, isNot(contains('남자 화장실')));
     });
 
-    test('이름이 없어도 문장이 깨지지 않는다', () {
+    test('이름이 없으면 목적지 칸 라벨이 비고 본문은 그대로다', () {
       final failed = event('goal_failed', name: '');
 
-      expect(failed.description, contains('목적지'));
+      expect(failed.destinationLabel, isEmpty);
+      expect(failed.description, contains('목적지까지 주행에 실패했습니다.'));
     });
 
-    test('다음에 할 일을 함께 적는다', () {
+    test('실패 본문은 세 줄이고 다음에 할 일과 관리자 호출을 적는다', () {
       // 사유 문자열만 보여주면 관리자가 다음 행동을 모릅니다.
       final failed = event('goal_failed');
+      final lines = failed.description.split('\n');
 
-      expect(failed.description, contains('다시 요청'));
+      expect(lines, hasLength(3));
+      expect(lines[0], '목적지까지 주행에 실패했습니다.');
+      expect(lines[1], contains('확인해 주세요'));
+      expect(lines[2], '비카가 관리자를 호출했습니다.');
     });
 
-    test('로봇이 적어 보낸 사유를 붙인다', () {
+    test('본문은 마침표 뒤 공백이 없어 줄이 다시 합쳐지지 않는다', () {
+      // VicaDialog 는 '마침표+공백'을 문장 경계로 보고 짧은 문장을 이웃 줄에
+      // 붙입니다. 줄을 \n 으로 직접 나눴으니 그 규칙에 걸리면 안 됩니다.
+      for (final kind in [
+        'goal_failed',
+        'goal_rejected',
+        'goal_canceled',
+        'return_home_failed',
+        'return_home_canceled',
+      ]) {
+        final text = event(kind).description;
+        expect(text, isNot(matches(RegExp(r'\.[ \t]+'))), reason: kind);
+        expect(text.split('\n').length, lessThanOrEqualTo(3), reason: kind);
+      }
+    });
+
+    test('사유는 본문에 섞지 않고 따로 둔다', () {
       final failed = event('goal_failed', reason: 'Nav2 task failed');
 
-      expect(failed.description, contains('Nav2 task failed'));
+      expect(failed.reason, 'Nav2 task failed');
+      expect(failed.description, isNot(contains('Nav2 task failed')));
+      expect(failed.description, isNot(contains('사유:')));
     });
 
-    test('사유가 없으면 빈 줄을 만들지 않는다', () {
-      final failed = event('goal_failed', reason: '');
-
-      expect(failed.description, isNot(contains('사유:')));
+    test('홈 복귀는 목적지 칸에 홈이라고 적는다', () {
+      // 홈은 카탈로그에 없어 이름이 비어 옵니다.
+      expect(event('return_home_failed', name: '').destinationLabel, '홈');
+      expect(event('return_home_canceled', name: '').destinationLabel, '홈');
     });
 
     test('홈 복귀 실패는 홈을 다시 지정하라고 안내한다', () {

@@ -148,33 +148,49 @@ class GoalEvent {
   /// 팝업 본문. **무슨 일이 일어났는지와 다음에 할 일을 함께 적습니다.**
   ///
   /// 사유 문자열만 보여주면 관리자가 다음 행동을 모릅니다.
+  ///
+  /// 한 줄에 문장 하나, 최대 세 줄입니다(2026-09-30 사용자 결정). 목적지 이름과
+  /// 사유는 본문에 섞지 않고 [destinationLabel]·[reason] 으로 팝업 아래 칸에
+  /// 따로 보입니다 — 이름이 길어도 본문 줄이 흔들리지 않고 '(으)로' 같은 조사
+  /// 문제도 없습니다. 줄은 `\n` 으로 직접 나눕니다. 마침표 뒤 공백으로 나누면
+  /// 짧은 문장('비카가 관리자를 호출했습니다.')이 이웃 줄에 붙어 버립니다.
   String get description {
-    final where = destinationName.isEmpty ? '목적지' : destinationName;
-    final detail = reason.isEmpty ? '' : '\n\n사유: $reason';
-
     switch (kind) {
       case GoalEventKind.failed:
         // 마지막 줄은 로봇이 이용자에게 하는 안내와 짝입니다. 주행이 실패하면
         // 이용자는 그 자리에 남으므로 로봇이 관리자를 부릅니다 — 관리자 화면도
         // 같은 사실을 알아야 사람이 기다리고 있다는 것을 압니다.
-        return '$where(으)로 가는 도중 주행이 실패했습니다. '
-            '경로가 막혔거나 로봇이 자기 위치를 잃었을 수 있습니다.\n'
-            '로봇 주변을 확인하고 다시 요청하세요. '
-            '위치가 어긋난 것 같으면 초기 위치를 다시 잡으세요.\n'
-            '비카가 관리자를 호출했습니다. 확인이 필요합니다.$detail';
+        return '목적지까지 주행에 실패했습니다.\n'
+            '로봇 주변이 막혔거나 위치가 어긋났는지 확인해 주세요.\n'
+            '비카가 관리자를 호출했습니다.';
       case GoalEventKind.rejected:
-        return '$where(으)로 가는 요청을 Nav2 가 받지 않았습니다. '
-            '목적지 좌표가 지도 밖이거나 갈 수 없는 자리일 수 있습니다.$detail';
+        // 로봇이 보내는 사유는 둘뿐입니다 — "Nav2 goal rejected" 와
+        // "이전 goal 취소가 아직 처리 중입니다." 둘 다 잠시 뒤 다시 하면 됩니다.
+        return '주행 요청을 로봇이 받지 않았습니다.\n'
+            '목적지가 지도 밖이거나 갈 수 없는 자리인지 확인해 주세요.\n'
+            '잠시 뒤 다시 요청해 주세요.';
       case GoalEventKind.canceled:
-        return '$where(으)로 가던 주행이 취소되었습니다.$detail';
+        return '목적지로 가던 주행을 취소했습니다.\n'
+            '로봇은 그 자리에 멈춰 있습니다.';
       case GoalEventKind.returnHomeFailed:
-        return '홈으로 돌아가지 못했습니다. 경로가 막혔거나 홈 좌표가 '
-            '갈 수 없는 자리일 수 있습니다.\n'
-            '지도 설정 화면에서 홈 위치를 다시 지정해 보세요.$detail';
+        return '홈까지 주행에 실패했습니다.\n'
+            '로봇 주변이 막혔거나 홈 위치가 갈 수 없는 자리인지 확인해 주세요.\n'
+            '지도 설정에서 홈 위치를 다시 지정할 수 있습니다.';
       case GoalEventKind.returnHomeCanceled:
-        return '홈 복귀가 취소되었습니다.$detail';
+        return '홈으로 가던 주행을 취소했습니다.\n'
+            '로봇은 그 자리에 멈춰 있습니다.';
       default:
         return reason;
     }
+  }
+
+  /// 팝업 아래 '목적지' 칸에 보일 이름. 홈 복귀는 카탈로그에 없어 이름이 비어
+  /// 오므로 '홈'으로 적습니다. 이름도 없고 홈도 아니면 빈 문자열이고, 그때는
+  /// 팝업이 칸을 그리지 않습니다.
+  String get destinationLabel {
+    if (isHomeReturn) {
+      return '홈';
+    }
+    return destinationName;
   }
 }

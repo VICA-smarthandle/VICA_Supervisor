@@ -18,6 +18,7 @@ import 'providers/settings_provider.dart';
 import 'providers/supervisor_provider.dart';
 import 'providers/ui_preferences_provider.dart';
 import 'ros/ros_bridge_client.dart';
+import 'widgets/goal_alert_dialog.dart';
 import 'widgets/vica_ui.dart';
 import 'screens/current_location_screen.dart';
 import 'screens/dashboard_screen.dart';
@@ -352,6 +353,27 @@ class _SupervisorShellState extends State<SupervisorShell> {
     final sidebarExpanded =
         context.watch<UiPreferencesProvider>().sidebarExpanded;
     final username = context.watch<AuthProvider>().currentUsername ?? '';
+
+    // 주행 실패·취소 팝업은 여기 셸에서 띄웁니다. 셸은 지금 보는 화면 하나만
+    // 그리므로, 원격 주행 화면 안에서 띄우면 대시보드나 지도 설정을 보고 있을 때
+    // 실패가 와도 **아무것도 뜨지 않았습니다**(2026-09-30). 어느 화면이든 뜨려면
+    // 주행 모드 내내 살아 있는 이 위젯이 맡아야 합니다.
+    //
+    // build 안에서 바로 띄우면 프레임을 그리는 도중에 화면을 바꾸는 것이라
+    // 예외가 납니다. 한 프레임 뒤로 미룹니다.
+    final alert = supervisor.pendingGoalAlert;
+    if (alert != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        supervisor.consumeGoalAlert();
+        showDialog<void>(
+          context: context,
+          builder: (_) => GoalAlertDialog(event: alert),
+        );
+      });
+    }
 
     return LayoutBuilder(
       builder: (context, constraints) {

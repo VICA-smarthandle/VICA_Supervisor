@@ -135,42 +135,21 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
     );
   }
 
-  /// 팝업 두 종류를 한 프레임 뒤에 띄웁니다. build 중에 화면을 바꾸면 예외입니다.
+  /// 도착 문자 팝업을 한 프레임 뒤에 띄웁니다. build 중에 화면을 바꾸면 예외입니다.
   ///
-  /// 주행 실패·취소 팝업은 원격 주행 화면과 같은 것을 씁니다. 관리자가 이 화면을
-  /// 보고 있는데 실패가 저쪽 화면에서만 뜨면 배송이 조용히 사라진 것처럼 보입니다.
+  /// 주행 실패·취소 팝업은 여기서 띄우지 않습니다. 앱 셸(SupervisorShell)이 어느
+  /// 화면에서든 띄웁니다(2026-09-30, widgets/goal_alert_dialog.dart).
   void _scheduleDialogs(SupervisorProvider supervisor) {
     final notice = supervisor.pendingDeliveryNotice;
-    final alert = supervisor.pendingGoalAlert;
-    if (notice == null && alert == null) {
+    if (notice == null) {
       return;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
         return;
       }
-      if (notice != null) {
-        supervisor.consumeDeliveryNotice();
-        _showNotice(notice);
-      }
-      if (alert != null) {
-        supervisor.consumeGoalAlert();
-        showDialog<void>(
-          context: context,
-          builder: (dialogContext) => VicaDialog(
-            icon: alert.isFailure ? Icons.error_outline : Icons.info_outline,
-            iconColor: alert.isFailure ? VicaColors.red : VicaColors.primary,
-            title: alert.title,
-            body: alert.description,
-            actions: [
-              FilledButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('확인'),
-              ),
-            ],
-          ),
-        );
-      }
+      supervisor.consumeDeliveryNotice();
+      _showNotice(notice);
     });
   }
 

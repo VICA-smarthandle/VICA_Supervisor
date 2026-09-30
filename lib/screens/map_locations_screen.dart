@@ -38,38 +38,9 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     final settings = context.watch<SettingsProvider>().settings;
     final supervisor = context.watch<SupervisorProvider>();
 
-    // 주행이 실패하거나 취소되면 관리자에게 팝업으로 알립니다.
-    //
-    // 종전에는 이 화면에 아무것도 뜨지 않아 **주행이 조용히 사라진 것처럼**
-    // 보였습니다. /vica_goal_event 의 실패 사유가 /robot_status 를 거치며
-    // 버려졌기 때문입니다. 이제 앱이 그 토픽을 직접 봅니다.
-    //
-    // build 안에서 바로 띄우면 프레임을 그리는 도중에 화면을 바꾸는 것이라
-    // 예외가 납니다. 한 프레임 뒤로 미룹니다.
-    final alert = supervisor.pendingGoalAlert;
-    if (alert != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) {
-          return;
-        }
-        supervisor.consumeGoalAlert();
-        showDialog<void>(
-          context: context,
-          builder: (dialogContext) => VicaDialog(
-            icon: alert.isFailure ? Icons.error_outline : Icons.info_outline,
-            iconColor: alert.isFailure ? VicaColors.red : VicaColors.primary,
-            title: alert.title,
-            body: alert.description,
-            actions: [
-              FilledButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('확인'),
-              ),
-            ],
-          ),
-        );
-      });
-    }
+    // 주행 실패·취소 팝업은 이 화면이 아니라 앱 셸(SupervisorShell)이 띄웁니다.
+    // 여기서 띄우면 다른 화면을 보고 있을 때 실패가 와도 뜨지 않았습니다
+    // (2026-09-30, widgets/goal_alert_dialog.dart).
 
     final map = supervisor.selectedMap;
     final locations = supervisor.locationsFor(map?.mapId);
