@@ -138,6 +138,35 @@ void main() {
     expect(supervisor.pendingGoalAlert, isNull);
   });
 
+  testWidgets('로봇이 다시 출발하면 실패 팝업이 저절로 닫힌다', (tester) async {
+    // Nav2 실패 뒤 미션 매니저가 3초 뒤 같은 목적지로 재시도하면 goal_sent 가
+    // 다시 옵니다. 로봇은 달리는데 팝업만 남아 있으면 안 됩니다(2026-09-30).
+    await pumpShell(tester);
+    final supervisor = tester
+        .element(find.byType(SupervisorShell))
+        .read<SupervisorProvider>();
+    supervisor.handleGoalEventForTest({
+      'event': 'goal_failed',
+      'name': '화장실',
+      'reason': 'Nav2 task failed',
+      'map_id': 'm1',
+    });
+    await tester.pumpAndSettle();
+    expect(find.byType(GoalAlertDialog), findsOneWidget);
+
+    supervisor.handleGoalEventForTest({
+      'event': 'goal_sent',
+      'name': '화장실',
+      'reason': '',
+      'map_id': 'm1',
+    });
+    await tester.pumpAndSettle();
+
+    expect(find.byType(GoalAlertDialog), findsNothing);
+    // 팝업만 닫히고 셸은 그대로입니다 — pop 이 두 번 나가면 여기가 깨집니다.
+    expect(find.widgetWithText(AppBar, '대시보드'), findsOneWidget);
+  });
+
   testWidgets('사유가 없는 취소 팝업은 사유 칸을 그리지 않는다', (tester) async {
     await pumpShell(tester);
     final supervisor = tester

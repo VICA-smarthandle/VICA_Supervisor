@@ -9,18 +9,47 @@
 // 배송 화면 둘이 각자 띄웠는데, 셸은 지금 보는 화면 하나만 그리므로 대시보드나
 // 지도 설정을 보고 있을 때 실패가 오면 **아무것도 뜨지 않았습니다.** 알림은
 // 담긴 채로 남았다가 원격 주행 화면을 열어야 그제서야 떴습니다.
+//
+// 언제 저절로 닫히는가. 로봇이 다시 출발하면(goal_sent 등) 닫힙니다. Nav2 가
+// 실패해도 미션 매니저가 3초 뒤 같은 목적지로 재시도하므로, 로봇은 달리는데
+// 팝업만 남는 일이 있었습니다. 실패 사실은 알림 목록에 남습니다.
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../models/goal_event.dart';
+import '../providers/supervisor_provider.dart';
 import 'vica_ui.dart';
 
-class GoalAlertDialog extends StatelessWidget {
+class GoalAlertDialog extends StatefulWidget {
   const GoalAlertDialog({super.key, required this.event});
 
   final GoalEvent event;
 
   @override
+  State<GoalAlertDialog> createState() => _GoalAlertDialogState();
+}
+
+class _GoalAlertDialogState extends State<GoalAlertDialog> {
+  /// 닫기를 한 번만 부르기 위한 표시. 닫히는 프레임 사이에 build 가 또 돌면
+  /// pop 이 두 번 나가 뒤 화면까지 닫힙니다.
+  bool _closing = false;
+
+  @override
   Widget build(BuildContext context) {
+    final event = widget.event;
+    final supervisor = context.watch<SupervisorProvider>();
+
+    // build 안에서 바로 닫으면 프레임을 그리는 도중에 화면을 바꾸는 것이라
+    // 예외가 납니다. 한 프레임 뒤로 미룹니다.
+    if (!_closing && supervisor.isGoalAlertResolved(event.id)) {
+      _closing = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
+      });
+    }
+
     final failure = event.isFailure;
     final destination = event.destinationLabel;
     return VicaDialog(

@@ -1431,6 +1431,37 @@ class SupervisorProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- 알림이 저절로 풀리는 경우 (2026-09-30) ---------------------------------
+  //
+  // Nav2 가 실패해도 미션 매니저는 같은 목적지로 3초 뒤 다시 출발합니다
+  // (mission_logic nav_retry_limit 2). 그러면 goal_failed 뒤에 goal_sent·
+  // goal_accepted 가 다시 옵니다. 로봇은 달리는데 앱에는 '주행 실패' 팝업이
+  // 확인을 누를 때까지 남아 있어, 관리자가 팝업을 안 읽고 닫는 습관이 생깁니다.
+  // 다시 출발하면 팝업은 저절로 닫힙니다. 실패 사실은 알림 목록에 그대로 남습니다.
+
+  /// 가장 최근에 팝업으로 넘긴 알림의 id. 팝업이 닫혀야 하는지 판정하는 기준입니다.
+  String? _lastGoalAlertId;
+
+  /// 로봇이 다시 출발해 더 이상 유효하지 않은 알림의 id. 열려 있는 팝업이 이
+  /// 값을 보고 스스로 닫힙니다.
+  String? _resolvedGoalAlertId;
+
+  /// 이 알림의 팝업이 열려 있다면 닫아야 하는가.
+  bool isGoalAlertResolved(String id) => _resolvedGoalAlertId == id;
+
+  /// 로봇이 새 주행을 시작했습니다. 떠 있거나 뜨려던 실패·취소 팝업은 낡은
+  /// 소식이 되므로 거둡니다.
+  void _resolveGoalAlert() {
+    if (_pendingGoalAlert != null) {
+      // 아직 띄우기 전이면 아예 띄우지 않습니다. 알림 목록에는 이미 남았습니다.
+      _pendingGoalAlert = null;
+    }
+    if (_lastGoalAlertId != null) {
+      _resolvedGoalAlertId = _lastGoalAlertId;
+      _lastGoalAlertId = null;
+    }
+  }
+
   // ---- 일시정지 판정 -------------------------------------------------------
   //
   // 종전에는 화면이 /robot_status 의 waiting_reason 문자열이 정확히 '일시정지'
@@ -1482,6 +1513,17 @@ class SupervisorProvider extends ChangeNotifier {
         break;
     }
 
+    // 로봇이 (다시) 출발했습니다. 실패 뒤 자동 재시도든 관리자의 새 요청이든,
+    // 지난 실패·취소 팝업은 더 이상 지금 상황이 아닙니다.
+    switch (event.kind) {
+      case GoalEventKind.sent:
+      case GoalEventKind.accepted:
+      case GoalEventKind.returnHomeSent:
+        _resolveGoalAlert();
+      default:
+        break;
+    }
+
     // 배송 중이면 이 이벤트가 그 배송의 도착·중단일 수 있습니다.
     _applyGoalEventToDelivery(event);
 
@@ -1509,6 +1551,7 @@ class SupervisorProvider extends ChangeNotifier {
           _emergencyStopState == EmergencyStopState.active;
       if (!hiddenByEmergency) {
         _pendingGoalAlert = event;
+        _lastGoalAlertId = event.id;
       }
       // 팝업과 별개로 알림 목록에도 남깁니다. 팝업은 그 자리에서 닫히지만
       // 목록은 나중에 되짚을 수 있어야 합니다.
