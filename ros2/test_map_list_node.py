@@ -15,7 +15,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 pytest.importorskip("rclpy")  # 노드 모듈이 rclpy 를 import 한다
-from map_list_node import apply_display_name, build_map_list  # noqa: E402
+from map_list_node import MAP_SUFFIXES, apply_display_name, build_map_list  # noqa: E402
 
 
 def _png(path: Path, width: int, height: int) -> None:
@@ -101,3 +101,21 @@ def test_rename_rejects_bad_ids_and_paths(tmp_path: Path) -> None:
     assert not apply_display_name(tmp_path, "missing", "로비")[0]
     assert not apply_display_name(tmp_path, "a", "로/비")[0]
     assert not apply_display_name(tmp_path, "a", "가" * 41)[0]
+
+
+def test_route_picture_is_not_listed_as_a_map(tmp_path: Path) -> None:
+    """레일 확인용 그림(_route.png)이 가짜 지도로 뜨지 않는다 (2026-09-30)."""
+    _png(tmp_path / "vica_map_0630.png", 30, 40)
+    _png(tmp_path / "vica_map_0630_route.png", 30, 40)
+    ids = [m["map_id"] for m in build_map_list(tmp_path, "")["maps"]]
+    assert ids == ["vica_map_0630"]
+
+
+def test_deleting_a_map_also_deletes_its_rail_files() -> None:
+    """지도를 지우면 레일 파일도 같이 지운다 (2026-09-30 사용자 요청).
+
+    남으면 같은 이름으로 새 지도를 만들 때 다른 장소의 레일이 붙는다.
+    """
+    for suffix in ("_route.geojson", "_route.png", "_route_edit.json",
+                   "_route_draft.geojson"):
+        assert suffix in MAP_SUFFIXES

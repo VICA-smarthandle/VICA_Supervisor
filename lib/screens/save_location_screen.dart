@@ -20,6 +20,8 @@ import '../widgets/initial_pose_card.dart' show PoseDirection;
 import '../widgets/drive_map_canvas.dart';
 import '../widgets/keepout_card.dart';
 import '../widgets/map_canvas.dart';
+import '../models/route_graph.dart' show kRailHandoffMeters;
+import '../widgets/rail_far_place_dialog.dart';
 import '../widgets/map_delete_card.dart';
 import '../widgets/vica_ui.dart';
 
@@ -576,7 +578,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
           ),
           const SizedBox(height: 10),
           FilledButton.icon(
-            onPressed: () => supervisor.saveDraftLocation(settings),
+            onPressed: () => _saveDraftToRos(context, supervisor, settings),
             icon: const Icon(Icons.cloud_upload),
             label: const Text('ROS2에 장소 저장'),
           ),
@@ -904,6 +906,32 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     if (context.mounted) {
       _toast(message);
     }
+  }
+
+  /// 임시 저장 장소를 젯슨에 보냅니다. 보낸 장소가 레일에서
+  /// [kRailHandoffMeters] 넘게 떨어져 있으면 알립니다(레일 팝업 E). 레일이 없는
+  /// 지도는 알리지 않습니다 — 레일 없는 지도는 오류가 아닙니다(A단계 결정).
+  Future<void> _saveDraftToRos(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    AppSettings settings,
+  ) async {
+    final draft = supervisor.draftLocation;
+    final connected =
+        supervisor.connectionState == RosConnectionState.connected;
+    supervisor.saveDraftLocation(settings);
+    if (draft == null || !connected) {
+      return;
+    }
+    final meters =
+        supervisor.routeGraphFor(draft.mapId)?.distanceTo(draft.x, draft.y);
+    if (meters == null || meters <= kRailHandoffMeters || !context.mounted) {
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (_) => RailFarPlaceDialog(name: draft.name, meters: meters),
+    );
   }
 
   /// 결과 문구를 띄웁니다.

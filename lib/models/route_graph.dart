@@ -7,7 +7,14 @@
 // A단계(2026-09-30)는 **표시만** 합니다. 앱은 이 파일을 지도 그림과 같은 HTTP
 // 서버에서 받아 지도 위에 겹쳐 그릴 뿐, 고치거나 젯슨에 보내지 않습니다.
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:ui';
+
+/// 목적지 이 거리 안에서는 로봇이 레일을 내려 직접 들어갑니다(BT
+/// vica_navigate_to_pose_route.xml 의 handoff_dist_to_goal="2.0"). 장소가 레일에서
+/// 이보다 멀면 레일 없이 자유주행하므로 관리자에게 알립니다. BT 값을 바꾸면 같이
+/// 바꿉니다.
+const double kRailHandoffMeters = 2.0;
 
 /// 레일 한 장. 노드 좌표는 ROS map 좌표(m)입니다.
 class RouteGraph {
@@ -35,6 +42,37 @@ class RouteGraph {
       for (final id in nodes.keys)
         if ((degree[id] ?? 0) == 1 || (degree[id] ?? 0) >= 3) id,
     };
+  }
+
+  /// ROS 좌표 (x, y) 에서 레일까지 가장 짧은 거리(m). 선 위 아무 곳까지를
+  /// 재므로 노드 사이 한가운데도 가깝게 칩니다. 노드가 없으면 null 입니다.
+  ///
+  /// 쓰는 곳: 새 장소가 레일에서 [kRailHandoffMeters] 넘게 떨어졌는지 알릴 때.
+  double? distanceTo(double x, double y) {
+    if (nodes.isEmpty) {
+      return null;
+    }
+    final p = Offset(x, y);
+    var best = double.infinity;
+    for (final node in nodes.values) {
+      best = math.min(best, (node - p).distance);
+    }
+    for (final edge in edges) {
+      final a = nodes[edge.a];
+      final b = nodes[edge.b];
+      if (a == null || b == null) {
+        continue;
+      }
+      final ab = b - a;
+      final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
+      if (len2 == 0) {
+        continue;
+      }
+      final t =
+          (((p - a).dx * ab.dx + (p - a).dy * ab.dy) / len2).clamp(0.0, 1.0);
+      best = math.min(best, (a + ab * t - p).distance);
+    }
+    return best;
   }
 
   /// GeoJSON 문자열을 읽습니다. 형식이 어긋나면 null 을 돌려주고 예외를 던지지

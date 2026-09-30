@@ -210,8 +210,9 @@ class _MapDeleteCardState extends State<MapDeleteCard> {
         icon: Icons.delete_outline,
         iconColor: VicaColors.red,
         title: '지도를 삭제합니다',
-        body: "'$mapId'의 지도 파일과 이 지도에 저장한 장소를 삭제합니다. "
-            '되돌릴 수 없습니다.',
+        // 금지구역·레일 파일도 함께 지워집니다(map_list_node.MAP_SUFFIXES).
+        body: "'$mapId'의 지도 파일과 금지구역·레일, 이 지도에 저장한 장소를 "
+            '삭제합니다. 되돌릴 수 없습니다.',
         actions: [
           VicaCancelButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),

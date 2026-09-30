@@ -30,6 +30,10 @@ from std_msgs.msg import String
 # 여기서는 안전장치이기도 하다 — 경로 문자를 막아 maps/ 밖을 못 건드리게 한다.
 MAP_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
+# 레일 파일 이름 꼬리. maps/<지도>_route.geojson 은 route_server 가 읽는 레일,
+# _route.png 는 생성기(scripts/vica_route_graph.py)가 남기는 사람 확인용 그림이다.
+ROUTE_SUFFIX = "_route"
+
 # 한 지도에 딸린 파일들. pbstream 은 없을 수도 있다.
 #
 # _keepout 세 개도 여기 있어야 한다(2026-08-31). 빼먹으면 지도를 지워도 금지구역
@@ -46,6 +50,14 @@ MAP_SUFFIXES = (
     "_keepout.json",
     # 표시 이름(한글) 옆 파일. 지도를 지우면 같이 지운다(2026-09-04).
     ".meta.json",
+    # 레일(route graph) 묶음(2026-09-30). 금지구역과 같은 이유다 — 남겨 두면 같은
+    # 이름으로 새 지도를 만들었을 때 **다른 장소의 레일이 새 지도에 붙고**, 로봇이
+    # 그 선을 따라 벽 쪽으로 가려 한다. _route_edit·_route_draft 는 앱 레일 편집
+    # (설계서 2026-09-28-app-route-editor-design.md 2.6)이 쓸 파일이라 미리 넣는다.
+    ROUTE_SUFFIX + ".geojson",
+    ROUTE_SUFFIX + ".png",
+    ROUTE_SUFFIX + "_edit.json",
+    ROUTE_SUFFIX + "_draft.geojson",
 )
 
 
@@ -238,6 +250,10 @@ def build_map_list(maps_root: Path, current_map_id: str) -> dict[str, Any]:
     """
     maps = []
     for image_path in sorted(maps_root.glob("*.png")):
+        # 레일 확인용 그림(<지도>_route.png)은 지도가 아니다. 거르지 않으면 앱 지도
+        # 목록에 'vica_map_0630_route' 같은 가짜 지도가 뜬다(2026-09-30 발견).
+        if image_path.stem.endswith(ROUTE_SUFFIX):
+            continue
         metadata = read_yaml_like_metadata(image_path.with_suffix(".yaml"))
         width, height = png_size(image_path)
         display_name = read_display_name(image_path.with_suffix(".meta.json"))
