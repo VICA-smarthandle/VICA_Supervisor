@@ -69,7 +69,7 @@ class RouteGraphNode(Node):
         self.dest_root = Path(str(self.get_parameter("destinations_root").value)).expanduser()
 
         # 서비스끼리는 한 줄로(파일을 같이 쓰므로), 적용 응답 기다리기는 따로 돈다.
-        self._services = MutuallyExclusiveCallbackGroup()
+        self._service_group = MutuallyExclusiveCallbackGroup()
         self._io = ReentrantCallbackGroup()
         self._hold_apply = False
         self._pending_apply = ""
@@ -100,11 +100,11 @@ class RouteGraphNode(Node):
                 "레일 서비스를 열지 않습니다. colcon build --packages-select vica_interfaces 가 필요합니다.")
             return
         self.create_service(DraftRoute, "/vica/route/draft", self.handle_draft,
-                            callback_group=self._services)
+                            callback_group=self._service_group)
         self.create_service(SaveRoute, "/vica/route/save", self.handle_save,
-                            callback_group=self._services)
+                            callback_group=self._service_group)
         self.create_service(GetRoute, "/vica/route/get", self.handle_get,
-                            callback_group=self._services)
+                            callback_group=self._service_group)
         self.get_logger().info("/vica/route/draft · save · get 준비 완료")
 
     def _setup_set_graph_client(self) -> None:
