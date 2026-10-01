@@ -20,13 +20,13 @@ ROS를 import하지 않습니다. keepout_mask.py 와 같은 구성입니다 —
        남아 있어야 한다(2026-09-16 run5 "zero length").
     5. 양방향 엣지로 GeoJSON 을 쓴다(엣지는 방향이 있다).
 
-검사 (하나라도 걸리면 저장 거부, 위치를 돌려준다)
+검사 — 저장을 막는다(BLOCKING_CODES, 2026-10-01 사용자 결정 "벽을 가로지르지만 않으면 통과")
     crosses_wall       선이 벽 칸을 지난다
-    too_close_to_wall  선이 벽에서 0.70 m 안으로 들어온다(외접반경 0.62 + 옆 오차 0.08)
+경고 (위치를 돌려주지만 저장은 막지 않는다)
     disconnected       레일이 끊겨 섬이 있다
+    too_close_to_wall  선이 벽에서 0.70 m 안으로 들어온다(외접반경 0.62 + 옆 오차 0.08)
     sharp_corner       30~120° 로 한 번에 꺾이는 곳이 남았다(호가 안 들어감)
     junction_detour    갈림길 옆 직진이 호로 돌아간다
-경고 (저장은 막지 않는다)
     far_place          장소가 레일에서 2 m(BT handoff) 넘게 떨어져 있다
     junction_sharp     Y 로 만들 수 없는 갈림길(X자·다갈래)이라 뾰족한 채 둔다
 
@@ -74,6 +74,11 @@ SAMPLE_M = 0.05
 # 벽 칸: trinary 지도의 점유(검정). 회색(미탐색)은 벽이 아니다 — 회색까지 벽으로 세면
 # 멀쩡한 레일을 "벽 0.05 m" 로 오진한다(2026-09-21, vica_route_repair.py 주석).
 OCCUPIED_MAX = 50
+# 저장을 막는 검사(2026-10-01 사용자 결정). 나머지 검사 — 벽 0.70 m·뾰족한 코너·갈림길 V자 —
+# 는 알림(warnings)으로 보이고 저장은 된다. 지도상 어쩔 수 없이 좁은 곳이 많아 막으면 레일을
+# 아예 못 깐다. 벽을 가로지르는 선(로봇이 갈 수 없는 길)만 막는다. 끊긴 섬도 알림이다 —
+# 떨어진 쪽 레일은 route_server 가 못 이어 쓸 뿐 주행을 막지 않는다.
+BLOCKING_CODES = frozenset({"crosses_wall"})
 # 검사 결과를 이 거리 안에서는 하나로 묶는다. 같은 벽을 따라 번호가 수십 개 찍히지 않게.
 ISSUE_MERGE_M = 1.0
 
@@ -654,7 +659,10 @@ def process_sketch(grid: MapGrid, raw_sketch, places=()) -> dict[str, Any]:
     warnings = fillet_junctions(g, grid)
     fillet_corners(g, grid)
     split_long_edges(g)
-    errors = check_graph(g, grid, sketch_walls)
+    issues = check_graph(g, grid, sketch_walls)
+    errors = [i for i in issues if i["code"] in BLOCKING_CODES]
+    # 막지 않는 검사는 알림 맨 앞에(가장 손볼 만한 것). 먼 장소·Y 불가 갈림길이 그 뒤.
+    warnings = [i for i in issues if i["code"] not in BLOCKING_CODES] + warnings
     report, far = place_report(g, places)
     warnings += far
     edges_out = g.edges()

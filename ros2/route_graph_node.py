@@ -279,6 +279,8 @@ class RouteGraphNode(Node):
         response.accepted = True
         summary = result["summary"]
         saved = f"레일을 저장했습니다(노드 {summary['node_count']}개 · {summary['length_m']} m)."
+        if result["warnings"]:
+            saved += f" 주의 {len(result['warnings'])}건은 칸 안 목록을 확인하세요."
         self.get_logger().info(f"레일 저장: {map_id} {saved}")
 
         if not request.apply_now:

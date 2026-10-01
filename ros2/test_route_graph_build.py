@@ -132,18 +132,26 @@ def test_line_through_wall_is_rejected(t_map):
     assert "crosses_wall" in _codes(r["errors"])
 
 
-def test_line_near_wall_is_rejected_with_value(t_map):
+def test_line_near_wall_is_a_warning_with_value(t_map):
+    """벽 0.70 m 안은 알림이고 저장은 막지 않는다(2026-10-01 사용자 결정 — 좁은 곳이 많다)."""
     grid, _ = t_map
     r = rb.process_sketch(grid, _sk({1: (3, 4.4), 2: (17, 4.4)}, [(1, 2)]))
-    near = [e for e in r["errors"] if e["code"] == "too_close_to_wall"]
+    assert r["errors"] == []
+    near = [e for e in r["warnings"] if e["code"] == "too_close_to_wall"]
     assert near and all(e["value"] < rb.MIN_WALL_CLEAR_M for e in near)
     assert len(near) <= 16, "가까운 곳끼리는 묶어서 번호가 수십 개 찍히지 않는다"
 
 
-def test_disconnected_parts_are_rejected(t_map):
+def test_only_wall_crossing_blocks_saving():
+    """2026-10-01 사용자: 벽을 가로지르지만 않으면 통과."""
+    assert rb.BLOCKING_CODES == {"crosses_wall"}
+
+
+def test_disconnected_parts_are_a_warning(t_map):
     grid, _ = t_map
     r = rb.process_sketch(grid, _sk({1: (3, 6), 2: (6, 6), 3: (12, 6), 4: (17, 6)}, [(1, 2), (3, 4)]))
-    assert "disconnected" in _codes(r["errors"])
+    assert r["errors"] == []
+    assert "disconnected" in _codes(r["warnings"])
 
 
 def test_far_place_is_a_warning_not_an_error(t_map):
