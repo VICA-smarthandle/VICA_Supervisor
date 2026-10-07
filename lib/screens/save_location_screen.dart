@@ -1168,12 +1168,8 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const SizedBox(height: 12),
-        if (picked == null)
-          Text(
-            vicaKeepWords('지도를 눌러 대기 장소를 찍으세요.'),
-            style: Theme.of(context).textTheme.bodyMedium,
-          )
-        else
+        // 찍기 전에는 안내 문구를 두지 않습니다(10-07 사용자 결정, 목업 18번 제외).
+        if (picked != null)
           _PositionStep(
             picked: picked,
             moving: _waitMoving,
