@@ -13,6 +13,7 @@ import '../models/robot_status.dart';
 import '../models/route_graph.dart';
 import '../models/vica_map.dart';
 import 'vica_ui.dart';
+import 'wait_spot_overlay.dart';
 
 // 플랫폼 배율. 점·테두리·화살표가 모두 이 값을 곱합니다.
 //
@@ -138,6 +139,10 @@ class MapCanvas extends StatelessWidget {
     this.onRouteDragStart,
     this.onRouteDragUpdate,
     this.onRouteDragEnd,
+    this.waitSpots = const [],
+    this.doorArrow,
+    this.robotOutline,
+    this.ghostPoint,
   });
 
   final VicaMap map;
@@ -214,6 +219,25 @@ class MapCanvas extends StatelessWidget {
   final ValueChanged<Offset>? onRouteDragStart;
   final ValueChanged<Offset>? onRouteDragUpdate;
   final VoidCallback? onRouteDragEnd;
+
+  /// 대기 장소 표시(2026-10-07). 지도 설정 화면만 넘깁니다 — 원격 주행 지도에는
+  /// 대기 장소가 나오지 않습니다(사용자 결정).
+  final List<MapWaitSpotMark> waitSpots;
+
+  /// 찍는 중이거나 고른 목적지의 입구 방향.
+  final MapDoorArrow? doorArrow;
+
+  /// 대기 장소를 찍는 중이거나 골랐을 때의 로봇 윤곽.
+  final MapRobotOutline? robotOutline;
+
+  /// 기존 목적지를 옮기는 중일 때 원래 자리(ROS 좌표).
+  final Offset? ghostPoint;
+
+  bool get _hasWaitOverlay =>
+      waitSpots.isNotEmpty ||
+      doorArrow != null ||
+      robotOutline != null ||
+      ghostPoint != null;
 
   String get _imageUrl {
     if (map.imageUrl.startsWith('http://') ||
@@ -382,6 +406,23 @@ class MapCanvas extends StatelessWidget {
                                   : () => onSelectLocation!(location),
                             ),
                     ),
+                    // 대기 장소·입구 화살표·로봇 윤곽은 장소 점 **위**, 홈·선택
+                    // 점 **아래**입니다. 찍는 점이 윤곽에 가려지면 안 됩니다.
+                    if (_hasWaitOverlay)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: CustomPaint(
+                            painter: WaitSpotOverlayPainter(
+                              toPixel: (x, y) => _scaledOffset(x, y, scale),
+                              scale: _markerScale,
+                              waitSpots: waitSpots,
+                              doorArrow: doorArrow,
+                              robotOutline: robotOutline,
+                              ghostPoint: ghostPoint,
+                            ),
+                          ),
+                        ),
+                      ),
                     // 홈은 장소 마커보다 **위**입니다. 지도에 하나뿐이고, 장소가
                     // 촘촘한 곳에 있으면 가려져 못 찾습니다.
                     //

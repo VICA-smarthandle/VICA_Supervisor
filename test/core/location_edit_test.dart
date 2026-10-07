@@ -42,8 +42,8 @@ void main() {
   });
 
   test('이름이 바뀌면 멘트를 새로 만든다', () {
-    final merged =
-        mergeEditedLocation(edited: edited(name: '여자 화장실'), original: _original);
+    final merged = mergeEditedLocation(
+        edited: edited(name: '여자 화장실'), original: _original);
     expect(merged.confirmPrompt, '여자 화장실으로 안내해드릴까요?');
     expect(merged.arrivalMessage, '여자 화장실 앞에 도착했습니다.');
     expect(merged.locationId, _original.locationId, reason: '이름을 바꿔도 같은 장소다');
@@ -57,6 +57,17 @@ void main() {
   });
 
   test('원본이 없으면 고친 값 그대로다', () {
-    expect(mergeEditedLocation(edited: edited(), original: null).locationId, 'ignored-id');
+    expect(mergeEditedLocation(edited: edited(), original: null).locationId,
+        'ignored-id');
+  });
+
+  test('입구 방향·대기 장소는 고친 값을 그대로 싣는다(2026-10-07)', () {
+    const spot = WaitSpot(x: 1, y: 1, yaw: 0, side: 'left');
+    final merged = mergeEditedLocation(
+      edited: edited().copyWith(doorYaw: 270, waitSpot: spot),
+      original: _original,
+    );
+    expect(merged.doorYaw, 270);
+    expect(merged.waitSpot, same(spot));
   });
 }

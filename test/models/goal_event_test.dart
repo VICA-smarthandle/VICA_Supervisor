@@ -161,4 +161,81 @@ void main() {
       expect(event('goal_succeeded').locationId, '');
     });
   });
+
+  group('대기 알림(2026-10-07, 목업 10·11)', () {
+    test('막힘 — 빨간 실패 팝업, 목적지·대기 장소·사유 칸', () {
+      final e = GoalEvent.fromJson(
+        {
+          'event': 'wait_spot_blocked',
+          'name': '화장실 입구',
+          'reason': "주행(Nav2)이 '화장실 입구-대기'에 들어가지 못했습니다.",
+          'wait_place': 'spot',
+          'wait_minutes': 10,
+        },
+        id: 'x',
+      );
+      expect(e.kind, GoalEventKind.waitSpotBlocked);
+      expect(e.needsPopup, isTrue);
+      expect(e.isFailure, isTrue);
+      expect(e.title, '대기 장소가 막혔습니다');
+      expect(e.detailRows.map((r) => r.$1), ['목적지', '대기 장소', '사유']);
+      expect(e.detailRows[1].$2, '화장실 입구-대기');
+    });
+
+    test('만료 — 정보 팝업, 목적지·기다린 곳·대기 시간(사유 칸 없음)', () {
+      final e = GoalEvent.fromJson(
+        {
+          'event': 'wait_expired',
+          'name': '화장실 입구',
+          'reason': '입구 오른쪽에서 30분 기다렸습니다.',
+          'wait_place': 'spot',
+          'wait_minutes': 30,
+        },
+        id: 'x',
+      );
+      expect(e.kind, GoalEventKind.waitExpired);
+      expect(e.needsPopup, isTrue);
+      expect(e.isFailure, isFalse);
+      expect(e.detailRows, [
+        ('목적지', '화장실 입구'),
+        ('기다린 곳', '화장실 입구-대기'),
+        ('대기 시간', '30분'),
+      ]);
+    });
+
+    test('목적지 앞에서 기다렸으면 기다린 곳은 "OO 앞"', () {
+      final e = GoalEvent.fromJson(
+        {
+          'event': 'wait_expired',
+          'name': '407호',
+          'wait_place': 'destination',
+          'wait_minutes': 5,
+        },
+        id: 'x',
+      );
+      expect(e.detailRows[1], ('기다린 곳', '407호 앞'));
+    });
+
+    test('옛 사건은 지금처럼 목적지·사유 칸', () {
+      final e = GoalEvent.fromJson(
+        {'event': 'goal_failed', 'name': '305호', 'reason': 'Nav2'},
+        id: 'x',
+      );
+      expect(e.detailRows, [('목적지', '305호'), ('사유', 'Nav2')]);
+    });
+  });
+
+  test('대기 장소 가보기 실패는 관리자 호출 문구 없이 따로 알린다', () {
+    final e = GoalEvent.fromJson(
+      {
+        'event': 'goal_failed',
+        'name': '화장실 입구-대기',
+        'location_id': 'wait_spot:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      },
+      id: 'x',
+    );
+    expect(e.isWaitSpotTry, isTrue);
+    expect(e.title, '대기 장소 가보기 실패');
+    expect(e.description, isNot(contains('관리자를 호출')));
+  });
 }

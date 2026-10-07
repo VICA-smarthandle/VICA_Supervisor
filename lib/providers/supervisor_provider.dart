@@ -135,6 +135,14 @@ class SupervisorProvider extends ChangeNotifier {
     'no_home': '홈 위치가 지정되지 않았습니다. 지도 설정 화면에서 먼저 지정하세요.',
     'already_home_bound': '이미 홈으로 돌아가는 중입니다.',
     'busy_approaching': '사용자에게 다가가는 중이라 지금은 홈으로 부를 수 없습니다.',
+    'no_wait_spot': '이 장소에는 대기 장소가 없습니다. 목록을 새로고침하세요.',
+  };
+
+  /// 대기 장소 가보기에서만 다르게 읽는 사유. 미션은 대기 장소로 가는 길을 '안내가
+  /// 없을 때(IDLE)'만 받으므로 busy_navigating 은 주행 중뿐 아니라 사용자를 기다리는
+  /// 중도 뜻합니다 — 일반 문구('이미 다른 목적지로 주행 중')는 틀린 말이 됩니다.
+  static const _waitSpotGateMessages = <String, String>{
+    'busy_navigating': '안내 중이거나 사용자를 기다리는 중이라 지금은 가볼 수 없습니다.',
   };
 
   final _uuid = const Uuid();
@@ -574,6 +582,11 @@ class SupervisorProvider extends ChangeNotifier {
     unawaited(refreshHome(settings, mapId));
     unawaited(requestKeepoutList(settings, mapId));
     unawaited(loadRouteGraph(settings, mapId));
+    // 지난번에 지도 그림(벽 지도)을 못 받았으면 다시 받게 합니다. 실패 기록이 남아
+    // 있으면 대기 장소의 벽 간격 검사가 앱을 다시 켤 때까지 꺼져 있습니다.
+    if (!auto) {
+      _wallMaskFailed.remove(mapId);
+    }
   }
 
   // ---- 레일 (route graph) 표시 ----------------------------------------------
@@ -742,6 +755,46 @@ class SupervisorProvider extends ChangeNotifier {
     return message;
   }
 
+  /// 대기 장소로 가보기(2026-10-07, 지도 설정). [location] 은 대기 장소가 딸린
+  /// 목적지입니다 — 미션이 그 목적지의 wait_spot 을 찾아 레일 없는 짧은 트리로
+  /// 보냅니다. 안내 중·대기 장소 없음은 미션이 거절하고 그 사유를 돌려줍니다.
+  Future<String> requestWaitSpot(
+    AppSettings settings,
+    LocationPoint location,
+  ) async {
+    final (_, message) = await _callRequestDestination(
+      settings,
+      location,
+      service: settings.missionWaitSpotService,
+      gateMessages: _waitSpotGateMessages,
+    );
+    return message;
+  }
+
+  /// 벽 지도(지도 그림의 검은 칸). 대기 장소의 벽 간격을 잴 때 씁니다. 아직 없으면
+  /// 불러오기를 시작하고 null 을 돌려줍니다 — 다 받으면 화면이 다시 그려집니다.
+  /// 받기에 실패한 지도는 다시 받지 않습니다([wallMaskFailed]). 화면이 그릴 때마다
+  /// 부르므로, 실패를 기억하지 않으면 그릴 때마다 지도 그림을 또 받습니다.
+  MapWallMask? wallMaskFor(AppSettings settings, VicaMap map) {
+    final mask = _wallMasks[map.mapId];
+    if (mask == null &&
+        !_wallMaskLoading.contains(map.mapId) &&
+        !_wallMaskFailed.contains(map.mapId)) {
+      _wallMaskLoading.add(map.mapId);
+      unawaited(_loadWallMask(settings, map).whenComplete(() {
+        _wallMaskLoading.remove(map.mapId);
+        if (!_wallMasks.containsKey(map.mapId)) {
+          _wallMaskFailed.add(map.mapId);
+        }
+        notifyListeners();
+      }));
+    }
+    return mask;
+  }
+
+  /// 이 지도의 벽 지도를 받지 못했는가. 그때 대기 장소 저장은 벽 간격 없이 됩니다.
+  bool wallMaskFailed(String mapId) => _wallMaskFailed.contains(mapId);
+
   /// 목적지 요청 서비스 호출. 원격 주행과 물류 배송이 같은 문으로 나갑니다.
   ///
   /// 수락 여부를 함께 돌려줍니다 — 배송은 수락됐을 때만 "배송 중"을 기억해야
@@ -750,6 +803,7 @@ class SupervisorProvider extends ChangeNotifier {
     AppSettings settings,
     LocationPoint location, {
     required String service,
+    Map<String, String> gateMessages = const {},
   }) async {
     final client = _client;
     if (client == null || _connectionState != RosConnectionState.connected) {
@@ -767,7 +821,7 @@ class SupervisorProvider extends ChangeNotifier {
       );
       final message = response.message.isEmpty
           ? (response.accepted ? '주행 요청을 수락했습니다.' : '주행 요청이 거부되었습니다.')
-          : _localizeGateReason(response.message);
+          : _localizeGateReason(response.message, gateMessages);
       _addLog(LogFilter.coordinateTransfer, message);
       return (response.accepted, message);
     } catch (error) {
@@ -1164,7 +1218,8 @@ class SupervisorProvider extends ChangeNotifier {
       final left = job.returnAt!.difference(DateTime.now());
       if (left > Duration.zero) {
         _scheduleDeliveryReturn(job, delay: left);
-        _addLog(LogFilter.delivery, '$name 배송 이어받음 — ${left.inSeconds}초 뒤 홈 복귀');
+        _addLog(
+            LogFilter.delivery, '$name 배송 이어받음 — ${left.inSeconds}초 뒤 홈 복귀');
       } else {
         _setDelivery(job.copyWith(
           clearReturnAt: true,
@@ -1213,7 +1268,8 @@ class SupervisorProvider extends ChangeNotifier {
         _setDelivery(job.copyWith(
           phase: DeliveryPhase.arrived,
           clearReturnAt: true,
-          returnNote: '앱이 꺼진 사이 홈 복귀가 끝났거나 멈췄습니다. 로봇 위치 확인 후 복귀를 삭제하거나 다시 보내세요.',
+          returnNote:
+              '앱이 꺼진 사이 홈 복귀가 끝났거나 멈췄습니다. 로봇 위치 확인 후 복귀를 삭제하거나 다시 보내세요.',
         ));
         _addLog(LogFilter.delivery, '$name 배송 홈 복귀 결과를 확인하지 못했습니다');
       default:
@@ -1320,7 +1376,8 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     _cancelDeliveryReturnTimer();
-    _setDelivery(job.copyWith(clearReturnAt: true, returnNote: '관리자가 복귀를 취소했습니다.'));
+    _setDelivery(
+        job.copyWith(clearReturnAt: true, returnNote: '관리자가 복귀를 취소했습니다.'));
     _addLog(LogFilter.delivery, '${job.destination.name} 배송 홈 복귀 취소(관리자)');
     notifyListeners();
   }
@@ -1367,7 +1424,8 @@ class SupervisorProvider extends ChangeNotifier {
       _addLog(LogFilter.delivery, '${job.destination.name} 배송 홈 복귀 출발');
     } else {
       _setDelivery(current.copyWith(clearReturnAt: true, returnNote: message));
-      _addLog(LogFilter.delivery, '${job.destination.name} 배송 홈 복귀 거부: $message');
+      _addLog(
+          LogFilter.delivery, '${job.destination.name} 배송 홈 복귀 거부: $message');
     }
     notifyListeners();
     return message;
@@ -1390,7 +1448,8 @@ class SupervisorProvider extends ChangeNotifier {
     if (!job.isActive) {
       return;
     }
-    if (!job.matches(locationId: event.locationId, name: event.destinationName)) {
+    if (!job.matches(
+        locationId: event.locationId, name: event.destinationName)) {
       return;
     }
     switch (event.kind) {
@@ -1463,7 +1522,8 @@ class SupervisorProvider extends ChangeNotifier {
           clearReturnAt: true,
           returnNote: event.reason.isEmpty ? event.title : event.reason,
         ));
-        _addLog(LogFilter.delivery, '${job.destination.name} 배송 홈 복귀 중단 (${event.title})');
+        _addLog(LogFilter.delivery,
+            '${job.destination.name} 배송 홈 복귀 중단 (${event.title})');
       default:
         break;
     }
@@ -1485,7 +1545,8 @@ class SupervisorProvider extends ChangeNotifier {
       LogFilter.delivery,
       '${job.destination.name} 도착 문자 ${result.sent ? '발송됨' : '미발송'}: ${result.detail}',
     );
-    _pendingDeliveryNotice = DeliveryNotice(job: job, text: text, result: result);
+    _pendingDeliveryNotice =
+        DeliveryNotice(job: job, text: text, result: result);
     notifyListeners();
   }
 
@@ -1531,6 +1592,11 @@ class SupervisorProvider extends ChangeNotifier {
   /// 가장 최근에 팝업으로 넘긴 알림의 id. 팝업이 닫혀야 하는지 판정하는 기준입니다.
   String? _lastGoalAlertId;
 
+  /// 가장 최근 알림이 대기 알림(막힘·만료)인가. 대기 알림은 다시 출발해도 거두지
+  /// 않습니다 — 대기 만료는 곧바로 홈 복귀가 나가서, 거두면 볼 틈이 없습니다
+  /// (2026-10-07). 실패 뒤 재시도와 달리 '지난 소식'이 되지도 않습니다.
+  bool _lastGoalAlertIsWait = false;
+
   /// 로봇이 다시 출발해 더 이상 유효하지 않은 알림의 id. 열려 있는 팝업이 이
   /// 값을 보고 스스로 닫힙니다.
   String? _resolvedGoalAlertId;
@@ -1541,6 +1607,9 @@ class SupervisorProvider extends ChangeNotifier {
   /// 로봇이 새 주행을 시작했습니다. 떠 있거나 뜨려던 실패·취소 팝업은 낡은
   /// 소식이 되므로 거둡니다.
   void _resolveGoalAlert() {
+    if (_lastGoalAlertIsWait) {
+      return;
+    }
     if (_pendingGoalAlert != null) {
       // 아직 띄우기 전이면 아예 띄우지 않습니다. 알림 목록에는 이미 남았습니다.
       _pendingGoalAlert = null;
@@ -1641,6 +1710,7 @@ class SupervisorProvider extends ChangeNotifier {
       if (!hiddenByEmergency) {
         _pendingGoalAlert = event;
         _lastGoalAlertId = event.id;
+        _lastGoalAlertIsWait = event.kind.isWaitAlert;
       }
       // 팝업과 별개로 알림 목록에도 남깁니다. 팝업은 그 자리에서 닫히지만
       // 목록은 나중에 되짚을 수 있어야 합니다.
@@ -2072,6 +2142,8 @@ class SupervisorProvider extends ChangeNotifier {
   final WallMaskLoader _wallMaskLoader;
   final Map<String, RouteInfo> _routeInfoByMap = {};
   final Map<String, MapWallMask> _wallMasks = {};
+  final Set<String> _wallMaskLoading = {};
+  final Set<String> _wallMaskFailed = {};
 
   RouteEditState _routeState = RouteEditState.idle;
   String _routeMessage = '';
@@ -2736,7 +2808,15 @@ class SupervisorProvider extends ChangeNotifier {
 
   // 거부 응답은 "목적지 요청 거부: private_destination"처럼 코드가 섞여 옵니다.
   // 아는 코드면 한국어 문구로 바꾸고, 모르는 응답은 원문 그대로 보여줍니다.
-  String _localizeGateReason(String message) {
+  String _localizeGateReason(
+    String message, [
+    Map<String, String> overrides = const {},
+  ]) {
+    for (final entry in overrides.entries) {
+      if (message.contains(entry.key)) {
+        return entry.value;
+      }
+    }
     for (final entry in _gateReasonMessages.entries) {
       if (message.contains(entry.key)) {
         return entry.value;

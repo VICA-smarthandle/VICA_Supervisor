@@ -177,6 +177,11 @@ class SettingsScreenState extends State<SettingsScreen> {
               '물류 배송 요청 service',
               technical: true,
             ),
+            _editable(
+              'missionWaitSpotService',
+              '대기 장소 가보기 service',
+              technical: true,
+            ),
             _editable('robotStatusTopic', '로봇 상태 topic', technical: true),
             const _GroupLabel('비상정지'),
             _editable(
@@ -310,6 +315,7 @@ class SettingsScreenState extends State<SettingsScreen> {
       'deleteLocationRequestTopic': settings.deleteLocationRequestTopic,
       'missionRequestService': settings.missionRequestService,
       'missionDeliveryService': settings.missionDeliveryService,
+      'missionWaitSpotService': settings.missionWaitSpotService,
       'robotStatusTopic': settings.robotStatusTopic,
       'emergencyActivateService': settings.emergencyActivateService,
       'emergencyResetService': settings.emergencyResetService,
@@ -345,6 +351,7 @@ class SettingsScreenState extends State<SettingsScreen> {
       deleteLocationRequestTopic: _c('deleteLocationRequestTopic').text.trim(),
       missionRequestService: _c('missionRequestService').text.trim(),
       missionDeliveryService: _c('missionDeliveryService').text.trim(),
+      missionWaitSpotService: _c('missionWaitSpotService').text.trim(),
       robotStatusTopic: _c('robotStatusTopic').text.trim(),
       emergencyActivateService: _c('emergencyActivateService').text.trim(),
       emergencyResetService: _c('emergencyResetService').text.trim(),

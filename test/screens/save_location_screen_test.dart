@@ -38,6 +38,33 @@ const _savedRestroom = LocationPoint(
   floor: 4,
   confirmPrompt: '화장실로 안내해드릴까요?',
   arrivalMessage: '화장실 앞에 도착했습니다.',
+  doorYaw: 270,
+);
+
+// 대기 장소가 딸린 목적지(2026-10-07).
+const _withWait = LocationPoint(
+  locationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  mapId: 'vica_map_test',
+  name: '407호',
+  x: 3,
+  y: 2,
+  yaw: 270,
+  category1: 'facility',
+  category2: 'restroom',
+  building: '로봇관',
+  floor: 4,
+  doorYaw: 270,
+  waitSpot: WaitSpot(x: 1.5, y: 2, yaw: 0, side: 'right'),
+);
+
+// 입구 방향이 없는 옛 목적지.
+const _oldNoDoor = LocationPoint(
+  locationId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+  mapId: 'vica_map_test',
+  name: '세미나실',
+  x: 5,
+  y: 5,
+  yaw: 0,
 );
 
 Map<String, Object?> mapListMsg() {
@@ -105,14 +132,14 @@ void main() {
     await tester.pumpWidget(wrap(supervisor));
     await tester.pump();
 
-    // 장소 저장 칸의 내용(정보 입력 버튼)이 보이지 않아야 합니다.
+    // 장소 저장 칸의 내용(찍기 안내)이 보이지 않아야 합니다.
     expect(find.text('장소 저장'), findsOneWidget);
-    expect(find.text(enterInfo), findsNothing);
+    expect(find.textContaining(vicaKeepWords('지도를 눌러')), findsNothing);
 
     // 눌러야 열립니다 — 다른 칸과 같습니다.
     await tester.tap(find.text('장소 저장'));
     await tester.pump();
-    expect(find.text(enterInfo), findsOneWidget);
+    expect(find.textContaining(vicaKeepWords('지도를 눌러')), findsOneWidget);
   });
 
   testWidgets('수정·삭제 버튼 문구는 어절 단위로만 줄이 바뀐다', (tester) async {
@@ -127,7 +154,6 @@ void main() {
   testWidgets('지도를 누르면 시트가 뜨지 않고 좌표만 잡힌다', (tester) async {
     await pumpWithMap(tester);
 
-    expect(find.text(enterInfo), findsOneWidget);
     expect(find.textContaining(vicaKeepWords('지도를 눌러')), findsOneWidget);
 
     // MapCanvas 가 좌표를 돌려주는 지점을 직접 부릅니다. 실제 탭은 지도 이미지
@@ -140,8 +166,12 @@ void main() {
     // 시트는 뜨지 않아야 합니다. 이것이 이 변경의 핵심입니다.
     expect(find.byType(BottomSheet), findsNothing);
     // 대신 찍힌 좌표가 글자로 보여 원하는 자리인지 확인할 수 있어야 합니다.
+    // 음수는 목업처럼 긴 빼기표(−)로 씁니다.
     expect(find.textContaining('1.50'), findsOneWidget);
-    expect(find.textContaining('-2.25'), findsOneWidget);
+    expect(find.textContaining('−2.25'), findsOneWidget);
+    // 찍은 뒤에는 위치 옮기기·입구 방향 단계가 보입니다(목업 1).
+    expect(find.text('위치 옮기기'), findsOneWidget);
+    expect(find.text('↓ 아래'), findsOneWidget);
   });
 
   testWidgets('다시 누르면 좌표만 옮겨간다', (tester) async {
@@ -158,8 +188,12 @@ void main() {
     expect(find.textContaining('5.00'), findsOneWidget);
   });
 
-  testWidgets('좌표가 없으면 정보 입력 버튼을 누를 수 없다', (tester) async {
+  testWidgets('입구 방향을 고르기 전에는 정보 입력 버튼을 누를 수 없다', (tester) async {
     await pumpWithMap(tester);
+    tester.widget<MapCanvas>(find.byType(MapCanvas)).onTapMap!(
+      const Offset(1.5, -2.25),
+    );
+    await tester.pump();
 
     final button = tester.widget<FilledButton>(
       find.widgetWithText(FilledButton, enterInfo),
@@ -167,37 +201,66 @@ void main() {
     expect(button.onPressed, isNull);
   });
 
-  testWidgets('정보 입력 버튼을 눌러야 시트가 열린다', (tester) async {
+  testWidgets('입구 방향을 고르고 정보 입력을 눌러야 시트가 열린다', (tester) async {
     await pumpWithMap(tester);
 
     tester.widget<MapCanvas>(find.byType(MapCanvas)).onTapMap!(
       const Offset(1.5, -2.25),
     );
     await tester.pump();
+    await tester.tap(find.text('↓ 아래'));
+    await tester.pump();
+    // 지도에 입구 화살표가 그려집니다.
+    expect(
+        tester.widget<MapCanvas>(find.byType(MapCanvas)).doorArrow, isNotNull);
 
     await tester.tap(find.widgetWithText(FilledButton, enterInfo));
     await tester.pumpAndSettle();
 
-    expect(find.text('도착 방향'), findsOneWidget);
+    // 옛 '도착 방향' 드롭다운 대신 입구 방향 줄과 '바꾸기'(목업 2).
+    expect(find.text('도착 방향'), findsNothing);
+    expect(find.text(vicaKeepWords('입구 방향 (앱의 지도 그림 기준)')), findsOneWidget);
+    // 시트 안의 값과 시트 뒤 지도 칸의 칩, 둘입니다.
+    expect(find.text('↓ 아래'), findsNWidgets(2));
+    expect(find.text('임시 저장'), findsOneWidget);
   });
 
-  testWidgets('도착 방향은 정면·후면으로 보여준다', (tester) async {
+  testWidgets('바꾸기를 누르면 시트가 닫히고 입구 방향 칸이 강조된다(목업 2′)', (tester) async {
     await pumpWithMap(tester);
-
     tester.widget<MapCanvas>(find.byType(MapCanvas)).onTapMap!(
       const Offset(1.5, -2.25),
     );
     await tester.pump();
+    await tester.tap(find.text('↓ 아래'));
+    await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, enterInfo));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+    await tester.tap(find.text('바꾸기'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('정면'), findsWidgets);
-    expect(find.textContaining('후면'), findsWidgets);
-    expect(find.textContaining('앞 ('), findsNothing);
-    expect(find.textContaining('뒤 ('), findsNothing);
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(
+      find.text(vicaKeepWords('방향을 선택 후 장소 정보 입력을 누르세요. 입력하신 정보는 남아있습니다.')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('위치 옮기기는 한 번에 5 cm 옮긴다(목업 1′)', (tester) async {
+    await pumpWithMap(tester);
+    tester.widget<MapCanvas>(find.byType(MapCanvas)).onTapMap!(
+      const Offset(1.5, -2.25),
+    );
+    await tester.pump();
+    await tester.tap(find.text('위치 옮기기'));
+    await tester.pump();
+    await tester.tap(find.text('→'));
+    await tester.pump();
+
+    expect(find.textContaining('1.55'), findsOneWidget);
+    await tester.tap(find.text('완료'));
+    await tester.pump();
+    expect(find.text('위치 옮기기'), findsOneWidget);
   });
 
   testWidgets('선택 취소를 누르면 찍은 좌표가 사라진다', (tester) async {
@@ -216,7 +279,8 @@ void main() {
 
   // ---- 저장된 장소 수정 (2026-09-03) ----------------------------------------
 
-  testWidgets('선택 장소 수정을 누르면 원본이 채워진 시트가 열리고 저장은 ROS 로 바로 간다', (tester) async {
+  testWidgets('선택 장소 수정은 지도부터 — 위치·입구 방향 뒤 원본이 채워진 시트(목업 15~17)',
+      (tester) async {
     final supervisor = await pumpWithMap(tester);
     supervisor.injectLocations([_savedRestroom]);
     await tester.pump();
@@ -227,17 +291,88 @@ void main() {
     await tester.tap(edit);
     await tester.pumpAndSettle();
 
+    // 시트가 바로 열리지 않고 지도에서 고치는 단계가 보입니다.
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(find.text('수정 중'), findsOneWidget);
+    // 원래 자리가 회색 점선 원으로 남습니다.
+    expect(
+        tester.widget<MapCanvas>(find.byType(MapCanvas)).ghostPoint, isNotNull);
+
+    await tester
+        .tap(find.widgetWithText(FilledButton, vicaKeepWords('수정 내용 입력')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('장소 정보 수정'), findsOneWidget);
     expect(find.text('ROS2에 수정 저장'), findsOneWidget);
     expect(find.widgetWithText(TextFormField, '화장실'), findsOneWidget);
-    expect(find.text('장소 임시 저장'), findsNothing);
+    expect(find.text('임시 저장'), findsNothing);
   });
 
-  testWidgets('저장된 장소가 없으면 수정 버튼은 잠긴다', (tester) async {
+  testWidgets('저장된 장소가 없으면 수정·삭제 버튼이 없다', (tester) async {
     await pumpWithMap(tester);
-    final button = tester.widget<OutlinedButton>(
-      find.widgetWithText(OutlinedButton, editSaved),
+    expect(find.widgetWithText(OutlinedButton, editSaved), findsNothing);
+    expect(find.text('저장된 장소 0개'), findsOneWidget);
+  });
+
+  // ---- 대기 장소 (2026-10-07) -----------------------------------------------
+
+  testWidgets('목록 머리에 대기 장소 수를 따로 센다(목업 5)', (tester) async {
+    final supervisor = await pumpWithMap(tester);
+    supervisor.injectLocations([_savedRestroom, _withWait]);
+    await tester.pump();
+
+    expect(find.text('저장된 장소 2개'), findsOneWidget);
+    expect(find.text('대기 장소 1개'), findsOneWidget);
+    // 지도에는 대기 장소 하나가 점선으로 이어져 그려집니다.
+    expect(tester.widget<MapCanvas>(find.byType(MapCanvas)).waitSpots,
+        hasLength(1));
+  });
+
+  testWidgets('대기 장소 없는 목적지에 추가 버튼, 입구 방향이 없으면 잠김', (tester) async {
+    final supervisor = await pumpWithMap(tester);
+    supervisor.injectLocations([_oldNoDoor]);
+    await tester.pump();
+
+    final add = tester.widget<OutlinedButton>(
+        find.widgetWithText(OutlinedButton, vicaKeepWords('세미나실에 대기 장소 추가')));
+    expect(add.onPressed, isNull);
+  });
+
+  testWidgets('대기 장소 찍기 — 입구 앞은 저장할 수 없다', (tester) async {
+    final supervisor = await pumpWithMap(tester);
+    supervisor.injectLocations([_savedRestroom]);
+    await tester.pump();
+
+    await tester.tap(
+        find.widgetWithText(OutlinedButton, vicaKeepWords('화장실에 대기 장소 추가')));
+    await tester.pump();
+    expect(find.text('대기 장소 · 화장실'), findsOneWidget);
+
+    // 목적지 (1,2), 입구는 아래(270°). 바로 아래 0.8 m = 입구 앞.
+    tester.widget<MapCanvas>(find.byType(MapCanvas)).onTapMap!(
+      const Offset(1.0, 1.2),
     );
-    expect(button.onPressed, isNull);
+    await tester.pump();
+    await tester.tap(find.text('→ 오른쪽'));
+    await tester.pump();
+
+    expect(find.text(vicaKeepWords('입구 앞')), findsOneWidget);
+    final save = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, vicaKeepWords('대기 장소 저장')));
+    expect(save.onPressed, isNull);
+  });
+
+  testWidgets('목적지를 지우면 대기 장소도 함께 지워진다고 먼저 묻는다(목업 7)', (tester) async {
+    final supervisor = await pumpWithMap(tester);
+    supervisor.injectLocations([_withWait]);
+    await tester.pump();
+
+    await tester.tap(find.widgetWithText(OutlinedButton, deleteSaved));
+    await tester.pumpAndSettle();
+
+    expect(find.text('407호를 지울까요?'), findsOneWidget);
+    expect(find.text('둘 다 지우기'), findsOneWidget);
+    expect(find.text('407호-대기'), findsOneWidget);
   });
 
   testWidgets('레일 칸은 금지구역 다음·지도 관리 위에, 접힌 채로 있다(2026-09-30 확정)',

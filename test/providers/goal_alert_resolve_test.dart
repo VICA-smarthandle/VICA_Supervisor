@@ -90,4 +90,20 @@ void main() {
       contains(contains('주행 실패')),
     );
   });
+
+  test('대기 만료 팝업은 곧바로 나가는 홈 복귀에 거둬지지 않는다(2026-10-07)', () {
+    provider.handleGoalEventForTest({
+      'event': 'wait_expired',
+      'name': '화장실',
+      'wait_place': 'spot',
+      'wait_minutes': 30,
+      'map_id': 'm1',
+    });
+    final shown = provider.pendingGoalAlert!;
+    provider.handleGoalEventForTest(goalEvent('return_home_sent'));
+    expect(provider.pendingGoalAlert, isNotNull, reason: '띄우기 전이면 남는다');
+    provider.consumeGoalAlert();
+    provider.handleGoalEventForTest(goalEvent('return_home_sent'));
+    expect(provider.isGoalAlertResolved(shown.id), isFalse);
+  });
 }

@@ -82,11 +82,65 @@ void main() {
 
     test('키가 없는 옛 파일은 빈 값으로 읽힌다', () {
       final location = LocationPoint.fromJson(
-        {'id': 'x', 'name': '옛 장소', 'pose': {'x': 1, 'y': 2, 'yaw': 0}},
+        {
+          'id': 'x',
+          'name': '옛 장소',
+          'pose': {'x': 1, 'y': 2, 'yaw': 0}
+        },
         'm1',
       );
       expect(location.contactPhone, '');
       expect(location.canReceiveDelivery, isFalse);
+    });
+  });
+
+  group('입구 방향·대기 장소(2026-10-07)', () {
+    Map<String, Object?> base() => {
+          'id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          'name': '화장실 입구',
+          'pose': {'frame_id': 'map', 'x': 3.21, 'y': -1.05, 'yaw': 270},
+        };
+
+    test('두 칸을 읽고 같은 모양으로 쓴다', () {
+      final point = LocationPoint.fromJson({
+        ...base(),
+        'door_yaw': 270,
+        'wait_spot': {'x': 1.97, 'y': -1.42, 'yaw': 0, 'side': 'right'},
+      }, 'm1');
+      expect(point.doorYaw, 270);
+      expect(point.waitSpot!.side, 'right');
+      expect(point.waitSpot!.placePhrase, '입구 오른쪽');
+      expect(point.waitSpotName, '화장실 입구-대기');
+      final json = point.toJson();
+      expect(json['door_yaw'], 270);
+      expect(json['wait_spot'],
+          {'x': 1.97, 'y': -1.42, 'yaw': 0.0, 'side': 'right'});
+    });
+
+    test('옛 파일은 두 칸이 없고, 쓸 때도 키를 넣지 않는다', () {
+      final point = LocationPoint.fromJson(base(), 'm1');
+      expect(point.doorYaw, isNull);
+      expect(point.waitSpot, isNull);
+      expect(point.toJson().containsKey('door_yaw'), isFalse);
+      expect(point.toJson().containsKey('wait_spot'), isFalse);
+    });
+
+    test('모르는 side 는 대기 장소 없음으로 읽는다', () {
+      final point = LocationPoint.fromJson({
+        ...base(),
+        'wait_spot': {'x': 1, 'y': 1, 'yaw': 0, 'side': 'front'},
+      }, 'm1');
+      expect(point.waitSpot, isNull);
+    });
+
+    test('copyWith 로 대기 장소를 빼고 넣는다', () {
+      final point = LocationPoint.fromJson({
+        ...base(),
+        'wait_spot': {'x': 1, 'y': 1, 'yaw': 0, 'side': 'across'},
+      }, 'm1');
+      expect(point.copyWith(clearWaitSpot: true).waitSpot, isNull);
+      expect(point.copyWith(x: 9).waitSpot!.side, 'across');
+      expect(waitPlacePhrase('across'), '입구 맞은편');
     });
   });
 }

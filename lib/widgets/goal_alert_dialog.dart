@@ -1,5 +1,6 @@
 // 주행 실패·취소 팝업 하나. 다섯 가지 goal 이벤트(주행 실패·거부·취소, 홈 복귀
-// 실패·취소)가 모두 이 틀을 씁니다(2026-09-30 사용자 결정).
+// 실패·취소)가 모두 이 틀을 씁니다(2026-09-30 사용자 결정). 대기 장소 막힘·대기
+// 시간 만료(2026-10-07)도 같은 틀입니다.
 //
 // 틀: 원 아이콘(실패는 빨강, 취소는 파랑) → 제목 → 본문 최대 세 줄 → 아래 칸에
 // 목적지·사유 → '확인' 버튼 하나. 본문 각 줄은 폭이 모자라면 띄어쓰기에서만
@@ -51,20 +52,17 @@ class _GoalAlertDialogState extends State<GoalAlertDialog> {
     }
 
     final failure = event.isFailure;
-    final destination = event.destinationLabel;
     return VicaDialog(
       icon: failure ? Icons.error_outline : Icons.info_outline,
       iconColor: failure ? VicaColors.red : VicaColors.primary,
       title: event.title,
       body: event.description,
+      // 목적지 이름은 본문에 섞지 않습니다. 이름이 길면 본문 줄이 흔들리고
+      // '(으)로' 조사도 맞출 수 없습니다. 사유는 로봇이 적어 보낸 원문이고, 빈
+      // 칸은 그리지 않습니다. 어떤 칸을 보일지는 GoalEvent.detailRows 가 정합니다.
       rows: [
-        // 목적지 이름은 본문에 섞지 않습니다. 이름이 길면 본문 줄이 흔들리고
-        // '(으)로' 조사도 맞출 수 없습니다.
-        if (destination.isNotEmpty)
-          VicaDialogRow(label: '목적지', value: destination),
-        // 사유는 로봇이 적어 보낸 원문입니다. 없으면 칸을 그리지 않습니다.
-        if (event.reason.isNotEmpty)
-          VicaDialogRow(label: '사유', value: event.reason),
+        for (final (label, value) in event.detailRows)
+          VicaDialogRow(label: label, value: value),
       ],
       actions: [
         FilledButton(

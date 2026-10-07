@@ -34,6 +34,13 @@ enum GoalEventKind {
   /// 사건이 아니라 사실 통보라 팝업은 띄우지 않습니다.
   stateIdle('state_idle'),
 
+  // 대기 장소(2026-10-07). 주행 결과가 아니라 미션의 판단이라 미션이 따로 냅니다.
+  /// 대기 장소로 가는 주행을 Nav2 가 실패로 끝냈다 — 로봇은 목적지로 돌아가 기다립니다.
+  waitSpotBlocked('wait_spot_blocked'),
+
+  /// 대기 시간이 끝났다 — 로봇은 "대기 시간이 종료되어…"를 말하고 홈으로 갑니다.
+  waitExpired('wait_expired'),
+
   unknown('');
 
   const GoalEventKind(this.wire);
@@ -59,13 +66,23 @@ enum GoalEventKind {
       this == GoalEventKind.rejected ||
       this == GoalEventKind.canceled ||
       this == GoalEventKind.returnHomeFailed ||
-      this == GoalEventKind.returnHomeCanceled;
+      this == GoalEventKind.returnHomeCanceled ||
+      this == GoalEventKind.waitSpotBlocked ||
+      this == GoalEventKind.waitExpired;
 
   /// 주행이 실패로 끝났는가. 취소는 사람이 시킨 일이라 실패가 아닙니다.
+  /// 대기 장소 막힘은 빨간 아이콘(목업 10번), 대기 만료는 정보 아이콘(11번)입니다.
   bool get isFailure =>
       this == GoalEventKind.failed ||
       this == GoalEventKind.rejected ||
-      this == GoalEventKind.returnHomeFailed;
+      this == GoalEventKind.returnHomeFailed ||
+      this == GoalEventKind.waitSpotBlocked;
+
+  /// 대기 알림인가. 뒤이은 출발(홈 복귀 등)이 이 팝업을 거두면 안 됩니다 —
+  /// 대기 만료는 바로 홈 복귀가 나가서, 거두면 관리자가 볼 틈이 없습니다.
+  bool get isWaitAlert =>
+      this == GoalEventKind.waitSpotBlocked ||
+      this == GoalEventKind.waitExpired;
 
   bool get isHomeReturn =>
       this == GoalEventKind.returnHomeSent ||
@@ -83,6 +100,8 @@ class GoalEvent {
     required this.reason,
     required this.mapId,
     required this.receivedAt,
+    this.waitPlace = '',
+    this.waitMinutes = -1,
   });
 
   /// 앱이 붙이는 고유값입니다. 같은 실패가 두 번 와도 팝업을 각각 띄우기 위해
@@ -103,6 +122,12 @@ class GoalEvent {
   final String mapId;
   final DateTime receivedAt;
 
+  /// 대기 알림의 기다린 곳 — `spot`(대기 장소)·`destination`(목적지 앞). 그 밖은 빈 값.
+  final String waitPlace;
+
+  /// 대기 알림의 대기 시간(분). 모르면 -1.
+  final int waitMinutes;
+
   /// 관리자에게 팝업으로 알려야 하는가. 판정은 [GoalEventKind] 가 합니다.
   bool get needsPopup => kind.needsPopup;
 
@@ -110,6 +135,11 @@ class GoalEvent {
   bool get isFailure => kind.isFailure;
 
   bool get isHomeReturn => kind.isHomeReturn;
+
+  /// 지도 설정 '대기 장소로 가보기'의 주행인가. 미션은 이 주행의 목적지 id 를
+  /// `wait_spot:<목적지 id>` 로 보냅니다(mission_logic.WAIT_SPOT_DESTINATION_PREFIX).
+  /// 사용자 안내가 아니라 관리자 확인용이라 실패 문구가 다릅니다 — 관리자 호출도 없습니다.
+  bool get isWaitSpotTry => locationId.startsWith('wait_spot:');
 
   factory GoalEvent.fromJson(Map<String, Object?> json, {required String id}) {
     return GoalEvent(
@@ -124,11 +154,16 @@ class GoalEvent {
       reason: (json['reason'] as String?)?.trim() ?? '',
       mapId: (json['map_id'] as String?)?.trim() ?? '',
       receivedAt: DateTime.now(),
+      waitPlace: (json['wait_place'] as String?)?.trim() ?? '',
+      waitMinutes: (json['wait_minutes'] as num?)?.toInt() ?? -1,
     );
   }
 
   /// 팝업 제목.
   String get title {
+    if (isWaitSpotTry && kind == GoalEventKind.failed) {
+      return '대기 장소 가보기 실패';
+    }
     switch (kind) {
       case GoalEventKind.failed:
         return '주행 실패';
@@ -140,6 +175,10 @@ class GoalEvent {
         return '홈 복귀 실패';
       case GoalEventKind.returnHomeCanceled:
         return '홈 복귀가 취소되었습니다';
+      case GoalEventKind.waitSpotBlocked:
+        return '대기 장소가 막혔습니다';
+      case GoalEventKind.waitExpired:
+        return '대기 시간이 끝났습니다';
       default:
         return '주행 알림';
     }
@@ -155,6 +194,10 @@ class GoalEvent {
   /// 문제도 없습니다. 줄은 `\n` 으로 직접 나눕니다. 마침표 뒤 공백으로 나누면
   /// 짧은 문장('비카가 관리자를 호출했습니다.')이 이웃 줄에 붙어 버립니다.
   String get description {
+    if (isWaitSpotTry && kind == GoalEventKind.failed) {
+      return '대기 장소까지 가지 못했습니다.\n'
+          '대기 장소 주변이 막혔는지, 벽에 너무 붙었는지 확인해 주세요.';
+    }
     switch (kind) {
       case GoalEventKind.failed:
         // 마지막 줄은 로봇이 이용자에게 하는 안내와 짝입니다. 주행이 실패하면
@@ -179,9 +222,50 @@ class GoalEvent {
       case GoalEventKind.returnHomeCanceled:
         return '홈으로 가던 주행을 취소했습니다.\n'
             '로봇은 그 자리에 멈춰 있습니다.';
+      case GoalEventKind.waitSpotBlocked:
+        return '로봇이 대기 장소에 들어가지 못했습니다.\n'
+            '목적지 앞으로 돌아가 그곳에서 기다립니다.';
+      case GoalEventKind.waitExpired:
+        return '사용자가 돌아오지 않아 로봇이 홈으로 돌아갑니다.';
       default:
         return reason;
     }
+  }
+
+  /// 팝업 아래 칸들(라벨, 값). 비어 있는 값은 뺍니다.
+  ///
+  /// 대기 알림은 목업 10·11번의 칸을 씁니다 — 막힘은 목적지·대기 장소·사유, 만료는
+  /// 목적지·기다린 곳·대기 시간(사유 칸 없음). 그 밖은 지금처럼 목적지·사유입니다.
+  List<(String, String)> get detailRows {
+    final name = destinationLabel;
+    final rows = <(String, String)>[];
+    void add(String label, String value) {
+      if (value.isNotEmpty) {
+        rows.add((label, value));
+      }
+    }
+
+    switch (kind) {
+      case GoalEventKind.waitSpotBlocked:
+        add('목적지', name);
+        add('대기 장소', name.isEmpty ? '' : '$name-대기');
+        add('사유', reason);
+      case GoalEventKind.waitExpired:
+        add('목적지', name);
+        add(
+          '기다린 곳',
+          name.isEmpty
+              ? ''
+              : waitPlace == 'spot'
+                  ? '$name-대기'
+                  : '$name 앞',
+        );
+        add('대기 시간', waitMinutes > 0 ? '$waitMinutes분' : '');
+      default:
+        add('목적지', name);
+        add('사유', reason);
+    }
+    return rows;
   }
 
   /// 팝업 아래 '목적지' 칸에 보일 이름. 홈 복귀는 카탈로그에 없어 이름이 비어
