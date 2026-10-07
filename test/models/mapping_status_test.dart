@@ -172,4 +172,62 @@ void main() {
       expect(preview.robotYaw, 91.23);
     });
   });
+
+  group('MapSaveAlign (2026-10-07 지도 정렬)', () {
+    MappingStatus withAlign(Object? align) =>
+        MappingStatus.fromJson({...statusJson(), 'save_align': align});
+
+    test('결과 문구는 목업 14번과 같다', () {
+      expect(
+        withAlign({'result': 'rotated', 'tilt_deg': 5.4, 'rotated_deg': -5.4})
+            .saveAlign!
+            .sentence,
+        '지도를 5.4° 돌려 바르게 세웠습니다.',
+      );
+      expect(
+        withAlign({'result': 'small', 'tilt_deg': 1.2}).saveAlign!.sentence,
+        '기울기가 1.2°라 돌리지 않고 그대로 저장했습니다.',
+      );
+      expect(
+        withAlign({'result': 'not_requested', 'tilt_deg': -5.5})
+            .saveAlign!
+            .sentence,
+        '정렬하지 않고 그대로 저장했습니다(기울기 5.5°).',
+      );
+    });
+
+    test('벽 방향을 못 찾았거나 실패했으면 그대로 저장했다고 알린다', () {
+      expect(
+        withAlign({'result': 'no_walls', 'tilt_deg': null}).saveAlign!.sentence,
+        '벽 방향을 찾지 못해 돌리지 않고 그대로 저장했습니다.',
+      );
+      expect(
+        withAlign({'result': 'failed'}).saveAlign!.sentence,
+        '지도를 돌리지 못해 그대로 저장했습니다.',
+      );
+      expect(
+        withAlign({'result': 'not_requested', 'tilt_deg': null})
+            .saveAlign!
+            .sentence,
+        '정렬하지 않고 그대로 저장했습니다.',
+      );
+    });
+
+    test('옛 노드·모르는 결과·빈 묶음이면 없다', () {
+      expect(MappingStatus.fromJson(statusJson()).saveAlign, isNull);
+      expect(withAlign({}).saveAlign, isNull);
+      expect(withAlign({'result': 'something_new'}).saveAlign, isNull);
+      expect(withAlign('rotated').saveAlign, isNull);
+    });
+
+    test('미리보기의 기울기를 읽고, 없으면 null', () {
+      final base = {
+        'image_url': '/maps/_live/preview.png',
+        'width': 1,
+        'height': 1,
+      };
+      expect(MapPreview.fromJson({...base, 'tilt_deg': -5.4}).tiltDeg, -5.4);
+      expect(MapPreview.fromJson(base).tiltDeg, isNull);
+    });
+  });
 }

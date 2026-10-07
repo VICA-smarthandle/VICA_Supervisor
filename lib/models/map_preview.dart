@@ -20,6 +20,7 @@ class MapPreview {
     this.robotX,
     this.robotY,
     this.robotYaw,
+    this.tiltDeg,
   });
 
   final String imageUrl;
@@ -46,6 +47,11 @@ class MapPreview {
   final double? robotX;
   final double? robotY;
   final double? robotYaw;
+
+  /// 지금 그리는 지도의 기울기(도, 반시계 양수). 저장 팝업의 '지금 기울기' 줄이
+  /// 읽습니다(2026-10-07). map_preview_node 가 저장 스크립트와 같은 계산으로 재서
+  /// 싣고, 벽이 모자라 못 재면 안 보내므로 null 이고 그 줄은 숨습니다.
+  final double? tiltDeg;
 
   bool get hasRobotPose => robotX != null && robotY != null && robotYaw != null;
 
@@ -77,6 +83,7 @@ class MapPreview {
       robotX: (json['robot_x'] as num?)?.toDouble(),
       robotY: (json['robot_y'] as num?)?.toDouble(),
       robotYaw: (json['robot_yaw'] as num?)?.toDouble(),
+      tiltDeg: (json['tilt_deg'] as num?)?.toDouble(),
     );
   }
 }

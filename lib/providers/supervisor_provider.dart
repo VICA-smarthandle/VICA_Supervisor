@@ -2652,7 +2652,17 @@ class SupervisorProvider extends ChangeNotifier {
   /// 서비스는 곧바로 응답하고 실제 저장은 젯슨에서 따로 돕니다 — vica_map_save.sh
   /// 가 최대 120초까지 걸릴 수 있어 기다리면 다른 요청이 전부 막힙니다. 결과는
   /// /vica/mapping_status 의 detail 로 옵니다.
-  Future<String> saveMap(AppSettings settings, String name) async {
+  ///
+  /// [align] 은 저장 팝업의 '정렬해서 저장'(2026-10-07)입니다. 젯슨이 벽 방향을 재서
+  /// 2° 이상 기울었을 때만 지도를 바르게 돌려 저장하고, 결과는 상태의 save_align
+  /// 으로 옵니다. align 칸은 정렬할 때만 싣습니다 — 젯슨의 vica_interfaces 가
+  /// 옛 빌드(칸 없음)면 rosbridge 가 모르는 칸이라며 요청을 거부하는데, 그래도
+  /// '정렬하지 않고 저장'만은 예전처럼 되게 하려는 것입니다.
+  Future<String> saveMap(
+    AppSettings settings,
+    String name, {
+    bool align = false,
+  }) async {
     final client = _client;
     if (client == null || _connectionState != RosConnectionState.connected) {
       return 'ROS Bridge에 연결되지 않았습니다.';
@@ -2661,7 +2671,7 @@ class SupervisorProvider extends ChangeNotifier {
       final response = await client.callService(
         service: settings.mappingSaveService,
         type: 'vica_interfaces/srv/SaveMap',
-        args: {'name': name},
+        args: {'name': name, if (align) 'align': true},
       );
       final message = response.message.isEmpty
           ? (response.accepted ? '저장을 시작했습니다.' : '저장이 거부되었습니다.')
@@ -2669,7 +2679,22 @@ class SupervisorProvider extends ChangeNotifier {
       _addLog(LogFilter.coordinateTransfer, message);
       return message;
     } catch (error) {
-      final message = '지도 저장 요청 실패: $error';
+      // rosbridge 가 요청을 거부하면 StateError 로 옵니다. 정렬 요청이 거부됐다면
+      // 젯슨의 vica_interfaces 가 옛 빌드(align 칸 없음)일 가능성이 커서 다른 길을
+      // 알려 줍니다. 시간 초과(TimeoutException)는 젯슨이 이미 받아 저장 중일 수
+      // 있으므로 다시 누르라고 하지 않습니다 — 영문 이름은 '이미 있습니다'로 거부되고
+      // 한글 이름은 지도가 한 장 더 생길 수 있습니다(2026-10-07 검토).
+      final String message;
+      if (error is TimeoutException) {
+        message = '지도 저장 요청 실패: $error\n'
+            '로봇이 이미 저장하는 중일 수 있습니다. 상태가 바뀌는지 먼저 확인해 주세요.';
+      } else if (align && error is StateError) {
+        message = '지도 저장 요청 실패: $error\n'
+            '로봇 쪽이 정렬 저장을 모르는 버전일 수 있습니다. '
+            '정렬하지 않고 저장으로 다시 해 보세요.';
+      } else {
+        message = '지도 저장 요청 실패: $error';
+      }
       _addLog(LogFilter.coordinateTransfer, message);
       return message;
     }

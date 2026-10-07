@@ -155,6 +155,11 @@ class _MappingShellState extends State<MappingShell> {
                         status.mapName.isNotEmpty
                     ? status.mapName
                     : savedMapId,
+                // 바르게 세웠는지 결과 한 줄(2026-10-07, 목업 14번). 감독 노드가
+                // 저장을 마치며 save_align 으로 보냅니다. 옛 노드면 없습니다.
+                alignSentence: status != null && status.mapId == savedMapId
+                    ? status.saveAlign?.sentence
+                    : null,
                 onRefreshMaps: () => supervisor.requestMapList(settings),
                 onFinish: () => _stop(context, settings, thenIdle: true),
               ),
@@ -206,7 +211,31 @@ class _MappingShellState extends State<MappingShell> {
   Future<void> _save(BuildContext context, AppSettings settings) async {
     final name = _nameController.text.trim();
     final supervisor = context.read<SupervisorProvider>();
-    final message = await supervisor.saveMap(settings, name);
+    if (name.isEmpty) {
+      // 감독 노드(plan_map_save)가 돌려줄 문구와 같습니다. 팝업을 띄우기 전에
+      // 막아야 이름 없는 지도로 정렬 여부부터 묻는 일이 없습니다.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('지도 이름을 입력해 주세요.')),
+      );
+      return;
+    }
+    // 바르게 세워 저장할지 묻습니다(2026-10-07, 목업 13번). 기울기는 미리보기가
+    // 저장 스크립트와 같은 계산으로 재 보냅니다. 못 쟀으면 그 줄만 숨습니다.
+    final choice = await showDialog<_SaveChoice>(
+      context: context,
+      builder: (_) => _SaveAlignDialog(
+        name: name,
+        tiltDeg: supervisor.mapPreview?.tiltDeg,
+      ),
+    );
+    if (choice == null || choice == _SaveChoice.cancel || !context.mounted) {
+      return;
+    }
+    final message = await supervisor.saveMap(
+      settings,
+      name,
+      align: choice == _SaveChoice.align,
+    );
     if (context.mounted) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(message)));
@@ -519,6 +548,8 @@ class _PrepareStep extends StatelessWidget {
               ),
             ],
           ),
+        const SizedBox(height: 10),
+        const _StartDirectionHint(),
         const SizedBox(height: 6),
         // 사람만 할 수 있는 확인입니다. AGENTS.md 5절의 확인 요구가 근거이고,
         // 문구는 2026-08-25 실기 피드백으로 짧게 다듬었습니다. motor 를 여기서
@@ -678,7 +709,9 @@ class _SaveStep extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         FilledButton.icon(
-          onPressed: onSave,
+          // 저장 중에는 막습니다. 누르면 정렬 팝업부터 뜨고 고른 뒤에야 감독
+          // 노드가 거부해 한 단계를 헛걸음하게 됩니다(2026-10-07 검토).
+          onPressed: status?.state == MappingState.saving ? null : onSave,
           icon: const Icon(Icons.save),
           label: const Text('저장'),
         ),
@@ -713,6 +746,7 @@ class _DoneStep extends StatelessWidget {
     required this.mapName,
     required this.onRefreshMaps,
     required this.onFinish,
+    this.alignSentence,
   });
 
   final String mapId;
@@ -721,6 +755,10 @@ class _DoneStep extends StatelessWidget {
   final String mapName;
   final VoidCallback onRefreshMaps;
   final VoidCallback onFinish;
+
+  /// 바르게 세웠는지 결과 한 줄. 고른 버튼과 기울기에 따라 목업 14번의 셋
+  /// (+ 벽 방향 못 찾음·실패) 중 하나입니다. null 이면 줄을 그리지 않습니다.
+  final String? alignSentence;
 
   @override
   Widget build(BuildContext context) {
@@ -731,6 +769,13 @@ class _DoneStep extends StatelessWidget {
           vicaKeepWords('저장했습니다: $mapName'),
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
+        if (alignSentence != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            vicaKeepWords(alignSentence!),
+            style: const TextStyle(fontSize: 13, color: VicaColors.muted),
+          ),
+        ],
         if (mapName != mapId) ...[
           const SizedBox(height: 4),
           Text(
@@ -769,6 +814,334 @@ class _DoneStep extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ① 준비 확인의 시작 방향 안내(2026-10-07, 목업 12번).
+//
+// Cartographer 는 '매핑 시작'을 누르는 순간 로봇(base_footprint)이 보던 방향을
+// 지도의 가로축(+x)으로 잡고, 앱은 x 를 화면 오른쪽·y 를 위로 그립니다
+// (map_coordinate.dart, flipMapY 기본값). 그래서 로봇 앞을 내 오른쪽으로 두면
+// 내 정면이 화면 위가 됩니다. 눈대중으로 남는 몇 도는 저장할 때 '정렬해서 저장'이
+// 마무리합니다.
+class _StartDirectionHint extends StatelessWidget {
+  const _StartDirectionHint();
+
+  static const _tips = <List<(String, bool)>>[
+    [
+      ("'매핑 시작'을 누르는 순간", true),
+      (
+        ' 로봇이 보는 방향 하나만 기준입니다. 시작한 뒤 어디로 직진하든 지도 '
+            '방향은 바뀌지 않으니, 시작 전에 돌려 세우세요.',
+        false
+      ),
+    ],
+    [
+      ('확인법: 작성 중 화면에 로봇 화살표가 처음 나타날 때 ', false),
+      ('오른쪽', true),
+      ('을 가리키면 맞게 선 것입니다.', false),
+    ],
+    [
+      ('눈대중이라 몇 도는 남을 수 있습니다. 남은 기울기는 저장할 때 ', false),
+      ("'정렬해서 저장'", true),
+      ('으로 마무리합니다.', false),
+    ],
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: VicaColors.accentTint,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.explore_outlined,
+              size: 18, color: VicaColors.primaryDark),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  vicaKeepWords('매핑 시작할 때 로봇을 어느 쪽으로 세우나요?'),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: VicaColors.primaryDark,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text.rich(
+                  _keepWordsSpans(const [
+                    ('지도에서 ', false),
+                    ('위쪽', true),
+                    ('으로 보이게 하고 싶은 방향을 바라보고 선 다음, 로봇 앞을 ', false),
+                    ('내 오른쪽', true),
+                    ('(시계방향 90°)으로 돌려 세우고 매핑을 시작하면 됩니다.', false),
+                  ]),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.5,
+                    color: VicaColors.primaryDark,
+                  ),
+                ),
+                // 목업 12번 아래 세 줄. 순서도 목업과 같습니다.
+                for (final (index, tip) in _tips.indexed)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          width: 14,
+                          child: Text(
+                            '${index + 1}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              height: 1.5,
+                              fontWeight: FontWeight.w800,
+                              color: VicaColors.primaryDark,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text.rich(
+                            _keepWordsSpans(tip),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              height: 1.5,
+                              color: VicaColors.text,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 굵은 조각이 섞인 안내문. 조각마다 vicaKeepWords 를 거치고, 조각 경계가 낱말
+/// 한가운데('미만|이면')면 줄 바꿈 금지 표시(\u2060)를 이어 붙여 거기서 끊기지 않게
+/// 합니다 — vicaKeepWords 는 한 조각 안만 묶습니다. 굵은 곳은 목업 12·13번 그대로.
+TextSpan _keepWordsSpans(List<(String, bool)> parts) {
+  final spans = <TextSpan>[];
+  var previous = '';
+  for (final (text, bold) in parts) {
+    var kept = vicaKeepWords(text);
+    final joins = previous.isNotEmpty &&
+        !RegExp(r'\s$').hasMatch(previous) &&
+        !RegExp(r'^\s').hasMatch(text);
+    if (joins) {
+      kept = '\u2060$kept';
+    }
+    spans.add(TextSpan(
+      text: kept,
+      style: bold ? const TextStyle(fontWeight: FontWeight.w800) : null,
+    ));
+    previous = text;
+  }
+  return TextSpan(children: spans);
+}
+
+enum _SaveChoice { align, plain, cancel }
+
+// ③ 저장 버튼을 누르면 뜨는 팝업(2026-10-07, 목업 13번).
+//
+// 정렬해서 저장 / 정렬하지 않고 저장 / 취소. 2° 미만이면 정렬을 골라도 젯슨이
+// 돌리지 않고 그대로 저장합니다(vica_cartographer/map_align.py) — 막히는 면적이
+// 각도에 비례해 조금 기운 지도는 돌려서 얻는 것보다 잃는 것이 크기 때문입니다.
+// 원본은 젯슨에 숨겨 두지만 화면에는 쓰지 않습니다(사용자 결정, 10-07).
+class _SaveAlignDialog extends StatelessWidget {
+  const _SaveAlignDialog({required this.name, this.tiltDeg});
+
+  final String name;
+
+  /// 미리보기가 잰 지금 기울기. null 이면 '지금 기울기' 줄을 숨깁니다.
+  final double? tiltDeg;
+
+  @override
+  Widget build(BuildContext context) {
+    final tilt = tiltDeg;
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                vicaKeepWords('지도를 바르게 세워 저장할까요?'),
+                textAlign: TextAlign.center,
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 14),
+              const _AlignPreviewPicture(),
+              const SizedBox(height: 14),
+              _DialogLine(label: '지도 이름', value: name),
+              if (tilt != null) ...[
+                const SizedBox(height: 6),
+                _DialogLine(
+                  label: '지금 기울기',
+                  value: '약 ${tilt.abs().toStringAsFixed(1)}°',
+                ),
+              ],
+              const SizedBox(height: 14),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: VicaColors.accentTint,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                // 목업 13번처럼 두 줄로 나누고 '2° 미만'만 굵게 씁니다.
+                child: Text.rich(
+                  _keepWordsSpans(const [
+                    ('벽이 화면과 나란해지도록 지도를 돌려 저장합니다.\n기울기가 ', false),
+                    ('2° 미만', true),
+                    ('이면 정렬을 눌러도 돌리지 않고 그대로 저장합니다.', false),
+                  ]),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    height: 1.55,
+                    color: VicaColors.primaryDark,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                height: 48,
+                child: FilledButton(
+                  onPressed: () => Navigator.of(context).pop(_SaveChoice.align),
+                  child: const Text('정렬해서 저장'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 48,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(context).pop(_SaveChoice.plain),
+                  child: const Text('정렬하지 않고 저장'),
+                ),
+              ),
+              const SizedBox(height: 4),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(_SaveChoice.cancel),
+                child: const Text(
+                  '취소',
+                  style: TextStyle(color: VicaColors.muted),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DialogLine extends StatelessWidget {
+  const _DialogLine({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 14, color: VicaColors.muted),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            vicaKeepWords(value),
+            textAlign: TextAlign.end,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// 팝업 위쪽의 그림: 기운 지도 → 화면과 나란한 지도. 목업 13번처럼 6° 로 고정해
+// 그립니다 — 실제 각도는 아래 '지금 기울기' 줄이 숫자로 알려 줍니다.
+class _AlignPreviewPicture extends StatelessWidget {
+  const _AlignPreviewPicture();
+
+  static const _mapFrame = Color(0xFFD9D5CC);
+  static const _wall = Color(0xFF3A3C37);
+
+  Widget _thumb({required double turnDegrees, required String label}) {
+    return Semantics(
+      label: label,
+      image: true,
+      child: Container(
+        width: 120,
+        height: 84,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: _mapFrame,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Transform.rotate(
+          angle: turnDegrees * 3.141592653589793 / 180,
+          child: Container(
+            width: 76,
+            height: 48,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: _wall, width: 3),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: VicaColors.surfaceSunken,
+        border: Border.all(color: VicaColors.border),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _thumb(turnDegrees: 6, label: '지금: 약간 기울어진 지도'),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 10),
+              child:
+                  Icon(Icons.arrow_forward, size: 20, color: VicaColors.muted),
+            ),
+            _thumb(turnDegrees: 0, label: '정렬 뒤: 화면과 나란한 지도'),
+          ],
+        ),
+      ),
     );
   }
 }

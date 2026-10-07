@@ -15,7 +15,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 pytest.importorskip("rclpy")  # 노드 모듈이 rclpy 를 import 한다
-from map_list_node import MAP_SUFFIXES, apply_display_name, build_map_list  # noqa: E402
+from map_list_node import (  # noqa: E402
+    MAP_SUFFIXES,
+    apply_display_name,
+    build_map_list,
+    map_file_targets,
+)
 
 
 def _png(path: Path, width: int, height: int) -> None:
@@ -119,3 +124,28 @@ def test_deleting_a_map_also_deletes_its_rail_files() -> None:
     for suffix in ("_route.geojson", "_route.png", "_route_edit.json",
                    "_route_draft.geojson"):
         assert suffix in MAP_SUFFIXES
+
+
+def test_deleting_a_map_also_deletes_its_hidden_original(tmp_path: Path) -> None:
+    """정렬해서 저장한 지도의 원본(maps/.original/)도 같이 지운다(2026-10-07, B안).
+
+    남기면 같은 이름의 새 지도가 생겼을 때 다른 지도의 원본이 그 지도의 원본인 척한다.
+    목록에는 원래부터 안 잡힌다 — 점 폴더이고 yaml·png 가 없다.
+    """
+    _png(tmp_path / "map_1007_143012.png", 1, 1)
+    original = tmp_path / ".original"
+    original.mkdir()
+    (original / "map_1007_143012.pgm").write_bytes(b"P5")
+    (original / "map_1007_143012.json").write_text("{}", encoding="utf-8")
+
+    (original / "map_1007_143012.pgm.orphan-20261007-150000").write_bytes(b"P5")
+    (original / "map_1007_1430120.pgm").write_bytes(b"P5")  # 다른 지도(이름 앞부분만 같음)
+
+    targets = map_file_targets(tmp_path, "map_1007_143012")
+
+    assert original / "map_1007_143012.pgm.orphan-20261007-150000" in targets
+    assert original / "map_1007_1430120.pgm" not in targets
+
+    assert original / "map_1007_143012.pgm" in targets
+    assert original / "map_1007_143012.json" in targets
+    assert [m["map_id"] for m in build_map_list(tmp_path, "")["maps"]] == ["map_1007_143012"]

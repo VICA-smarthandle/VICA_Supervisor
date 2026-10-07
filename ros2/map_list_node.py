@@ -60,6 +60,27 @@ MAP_SUFFIXES = (
     ROUTE_SUFFIX + "_draft.geojson",
 )
 
+# 정렬해서 저장한 지도의 숨김 원본(2026-10-07, B안). scripts/vica_map_save.sh --align 이
+# 그림을 돌리기 전 pgm 과 각도 메모를 maps/.original/<id>.pgm·.json 으로 남긴다.
+# 점 폴더라 목록(maps/*.png)에는 안 잡히지만, 지도를 지울 때 같이 지우지 않으면
+# 같은 이름으로 새 지도를 만들었을 때 **다른 지도의 원본이 새 지도의 원본인 척한다.**
+# 정본은 vica_ros2_ws/src/vica_cartographer/vica_cartographer/map_align.py 다.
+ORIGINAL_DIRNAME = ".original"
+ORIGINAL_SUFFIXES = (".pgm", ".json")
+
+
+def map_file_targets(maps_root: Path, map_id: str) -> list[Path]:
+    """지도 하나를 지울 때 지울 파일 전부. 숨김 원본까지 포함한다."""
+    targets = [maps_root / f"{map_id}{suffix}" for suffix in MAP_SUFFIXES]
+    original_dir = maps_root / ORIGINAL_DIRNAME
+    targets += [original_dir / f"{map_id}{suffix}" for suffix in ORIGINAL_SUFFIXES]
+    # 손으로 지운 옛 같은 이름 지도의 원본은 저장 때 '<id>.pgm.orphan-<시각>' 으로
+    # 비켜 둔다(map_align._set_orphans_aside). 이 id 를 지울 때 같이 치워야 쌓이지 않는다.
+    if original_dir.is_dir():
+        for suffix in ORIGINAL_SUFFIXES:
+            targets += sorted(original_dir.glob(f"{map_id}{suffix}.orphan-*"))
+    return targets
+
 
 class MapListNode(Node):
     """지도 목록 요청을 받으면 maps_root의 PNG를 /map_list로 publish합니다.
@@ -177,9 +198,7 @@ class MapListNode(Node):
             )
             return response
 
-        targets = [
-            self.maps_root / f"{map_id}{suffix}" for suffix in MAP_SUFFIXES
-        ]
+        targets = map_file_targets(self.maps_root, map_id)
         if not any(path.exists() for path in targets):
             response.accepted = False
             response.message = f"'{map_id}' 지도를 찾지 못했습니다."
