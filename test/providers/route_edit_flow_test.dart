@@ -264,4 +264,30 @@ void main() {
     expect(calls.log.last.$2['preview_only'], isTrue);
     expect(p.routePreview!.edges, hasLength(1));
   });
+
+  test('다른 기기에서 레일 저장 알림: 본 적 있는 지도만 레일을 다시 받는다', () async {
+    var fetches = <String>[];
+    final p = SupervisorProvider(
+      routeServiceCall: _Calls().call,
+      wallMaskLoader: (_, __) async => null,
+      routeGraphLoader: RouteGraphLoader(fetch: (uri) async {
+        fetches.add(uri.path);
+        return null;
+      }),
+    );
+    addTearDown(p.dispose);
+    p.handleRouteSavedForTest({'map_id': 'm'});
+    await Future<void>.delayed(Duration.zero);
+    expect(fetches, isEmpty); // 고르지도 받지도 않은 지도
+    p.selectMap(_settings, 'm');
+    await Future<void>.delayed(Duration.zero);
+    fetches = [];
+    p.handleRouteSavedForTest({'map_id': 'm'});
+    await Future<void>.delayed(Duration.zero);
+    expect(fetches, ['/maps/m_route.geojson']);
+    p.handleRouteSavedForTest({'map_id': ''});
+    p.handleRouteSavedForTest({'map_id': 'other'});
+    await Future<void>.delayed(Duration.zero);
+    expect(fetches, hasLength(1));
+  });
 }

@@ -77,6 +77,9 @@ class RouteGraphNode(Node):
         self._lock = Lock()
 
         self.state_publisher = self.create_publisher(String, "/vica/route/state", 10)
+        # 저장 알림(2026-10-08). 어느 기기에서 저장했든 열려 있는 앱이 레일 그림을 다시 받게 한다.
+        # /vica/route/state 와 나눈 이유: 옛 앱은 그 토픽의 applied=false 를 '적용 실패' 창으로 띄운다.
+        self.saved_publisher = self.create_publisher(String, "/vica/route/saved", 10)
         self.create_subscription(
             String, str(self.get_parameter("robot_status_topic").value),
             self._on_robot_status, 10, callback_group=self._io)
@@ -282,6 +285,10 @@ class RouteGraphNode(Node):
         if result["warnings"]:
             saved += f" 주의 {len(result['warnings'])}건은 칸 안 목록을 확인하세요."
         self.get_logger().info(f"레일 저장: {map_id} {saved}")
+        notice = String()
+        notice.data = json.dumps({"map_id": map_id, "version": response.version, "at": self._now()},
+                                 ensure_ascii=False)
+        self.saved_publisher.publish(notice)
 
         if not request.apply_now:
             response.reason, response.message = "", saved

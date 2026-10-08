@@ -416,6 +416,13 @@ class SupervisorProvider extends ChangeNotifier {
       ..subscribe(
         topic: settings.routeStateTopic,
         handler: _handleRouteState,
+      )
+      // 다른 기기(폰 APK·다른 브라우저)에서 레일을 저장해도 이 앱의 레일 그림이 바뀌게
+      // 합니다(2026-10-08). 이 알림 전에는 연결·지도 고르기·새로고침 때만 다시 받아, 이미 열린
+      // 웹 앱은 옛 레일을 계속 그렸습니다.
+      ..subscribe(
+        topic: settings.routeSavedTopic,
+        handler: _handleRouteSaved,
       );
   }
 
@@ -2610,6 +2617,21 @@ class SupervisorProvider extends ChangeNotifier {
   @visibleForTesting
   void handleRouteStateForTest(Map<String, Object?> message) =>
       _handleRouteState(message);
+
+  /// 레일이 저장됐다는 알림. 이 지도의 레일을 본 적이 있으면 다시 받습니다. 저장한
+  /// 기기 자신도 받지만, 그때는 서버가 '그대로(304)'로 답해 파일을 다시 받지 않습니다.
+  void _handleRouteSaved(Map<String, Object?> message) {
+    final mapId = message['map_id'] as String? ?? '';
+    if (mapId.isEmpty ||
+        (mapId != _selectedMapId && !_routeGraphsByMap.containsKey(mapId))) {
+      return;
+    }
+    unawaited(loadRouteGraph(_lastSettings ?? const AppSettings(), mapId));
+  }
+
+  @visibleForTesting
+  void handleRouteSavedForTest(Map<String, Object?> message) =>
+      _handleRouteSaved(message);
 
   // ---- 매핑 세션 제어 ---------------------------------------------------
   //

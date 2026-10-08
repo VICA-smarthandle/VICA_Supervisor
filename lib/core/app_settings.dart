@@ -42,6 +42,7 @@ class AppSettings {
     this.routeSaveService = '/vica/route/save',
     this.routeGetService = '/vica/route/get',
     this.routeStateTopic = '/vica/route/state',
+    this.routeSavedTopic = '/vica/route/saved',
     this.missionReturnHomeService = '/vica/mission/return_home',
     this.goalEventTopic = '/vica_goal_event',
     this.robotStatusTopic = '/robot_status',
@@ -111,6 +112,9 @@ class AppSettings {
   final String routeSaveService;
   final String routeGetService;
   final String routeStateTopic;
+
+  /// 어느 기기에서든 레일을 저장하면 오는 알림(2026-10-08). 받으면 레일 그림을 다시 받습니다.
+  final String routeSavedTopic;
 
   // 홈 복귀. **관리자 전용 경로입니다.**
   //
@@ -188,6 +192,7 @@ class AppSettings {
     String? routeSaveService,
     String? routeGetService,
     String? routeStateTopic,
+    String? routeSavedTopic,
     String? missionReturnHomeService,
     String? goalEventTopic,
     String? missionRequestService,
@@ -245,6 +250,7 @@ class AppSettings {
       routeSaveService: routeSaveService ?? this.routeSaveService,
       routeGetService: routeGetService ?? this.routeGetService,
       routeStateTopic: routeStateTopic ?? this.routeStateTopic,
+      routeSavedTopic: routeSavedTopic ?? this.routeSavedTopic,
       missionReturnHomeService:
           missionReturnHomeService ?? this.missionReturnHomeService,
       goalEventTopic: goalEventTopic ?? this.goalEventTopic,
