@@ -219,11 +219,16 @@ class WaitSpotPlacement {
   bool get inDoorway => side == null;
 }
 
-/// 입구를 바라볼 때(목적지 점에서 [doorYawDeg] 쪽을 볼 때) 대기 장소의 쪽.
+/// 대기 장소가 입구의 어느 쪽인가 — **입구 자신의 오른쪽·왼쪽**(입구에 서서 밖을,
+/// 곧 목적지 점 쪽을 볼 때의 오른손·왼손).
 ///
-/// 오른쪽·왼쪽은 그 사람의 오른손·왼손 쪽입니다. 옆으로 [kDoorwayHalfWidthM] 이상
-/// 떨어지면 오른쪽·왼쪽, 그보다 가까우면 등 뒤(맞은편)이고, 가까운데 입구 쪽(목적지
-/// 점 포함)이면 입구 안쪽이라 null 입니다.
+/// 2026-10-08 run69 실기 뒤 사용자 판정으로 뒤집었습니다. 처음에는 "입구를 바라보는
+/// 사람" 기준으로 셌는데, 사회 복지창구(입구 지도 오른쪽, 대기 장소는 지도 위)를
+/// '입구 왼쪽'이라 말했고 사용자는 '입구 오른쪽'이 맞다고 했습니다(화장실도 반대로
+/// 같은 판정). 건물·문의 오른쪽을 말할 때처럼 입구 자신을 기준으로 셉니다.
+///
+/// 옆으로 [kDoorwayHalfWidthM] 이상 떨어지면 오른쪽·왼쪽, 그보다 가까우면 맞은편
+/// (목적지 점 뒤쪽)이고, 가까운데 입구 쪽(목적지 점 포함)이면 입구 안쪽이라 null 입니다.
 WaitSpotPlacement waitSpotPlacement({
   required double destX,
   required double destY,
@@ -243,8 +248,10 @@ WaitSpotPlacement waitSpotPlacement({
       distance: distance,
     );
   }
+  // leftward 는 목적지 점에서 입구를 볼 때의 왼쪽(+)이다. 입구 자신은 반대쪽을
+  // 보고 있으므로 그 사람의 왼쪽이 입구의 오른쪽이다.
   return WaitSpotPlacement(
-    side: leftward > 0 ? 'left' : 'right',
+    side: leftward > 0 ? 'right' : 'left',
     distance: distance,
   );
 }

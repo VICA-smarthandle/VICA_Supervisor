@@ -43,6 +43,11 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
     def end_headers(self) -> None:
         # 이 한 줄이 이 파일이 존재하는 이유입니다.
         self.send_header("Access-Control-Allow-Origin", "*")
+        # 매번 바뀌었는지 물어보게 합니다(2026-10-08). 이 줄이 없으면 브라우저가
+        # Last-Modified 만 보고 한동안 옛 파일을 그대로 다시 씁니다 — 레일을 고쳐
+        # 저장해도 앱 지도에는 옛 레일이 남았습니다(run69 뒤 사용자 보고). 안 바뀐
+        # 파일은 304(본문 없음)로 끝나 지도 그림을 다시 받지는 않습니다.
+        self.send_header("Cache-Control", "no-cache")
         super().end_headers()
 
     def send_head(self):

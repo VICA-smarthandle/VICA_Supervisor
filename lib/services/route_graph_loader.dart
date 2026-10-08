@@ -15,7 +15,8 @@ import '../models/route_graph.dart';
 typedef RouteGraphFetch = Future<String?> Function(Uri uri);
 
 class RouteGraphLoader {
-  const RouteGraphLoader({RouteGraphFetch? fetch}) : _fetch = fetch ?? _httpFetch;
+  const RouteGraphLoader({RouteGraphFetch? fetch})
+      : _fetch = fetch ?? _httpFetch;
 
   final RouteGraphFetch _fetch;
 
@@ -45,8 +46,14 @@ class RouteGraphLoader {
   }
 
   static Future<String?> _httpFetch(Uri uri) async {
-    final response =
-        await http.get(uri).timeout(const Duration(seconds: 8));
+    // 받을 때마다 주소 끝에 시각을 붙입니다(2026-10-08). 레일은 같은 파일 이름으로
+    // 덮어써지는데, 브라우저(웹 앱)가 옛 응답을 다시 쓰면 고친 레일이 안 보였습니다.
+    // 서버는 '?' 뒤를 보지 않습니다(map_http_server.send_head).
+    final fresh = uri.replace(queryParameters: {
+      ...uri.queryParameters,
+      't': '${DateTime.now().millisecondsSinceEpoch}',
+    });
+    final response = await http.get(fresh).timeout(const Duration(seconds: 8));
     if (response.statusCode != 200) {
       return null;
     }

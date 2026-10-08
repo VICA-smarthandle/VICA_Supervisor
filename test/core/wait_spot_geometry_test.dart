@@ -45,12 +45,32 @@ WaitSpotPlacement _place(double x, double y, {double door = 270}) =>
     );
 
 void main() {
-  group('입구 기준 방향 — 입구를 바라보는 사람의 손 쪽', () {
-    // 입구가 지도 아래(270°)면 입구를 보는 사람의 오른손은 지도 왼쪽(-x)입니다.
-    // 목업 4번 그림(대기 장소가 목적지 왼쪽, '입구 오른쪽')과 같습니다.
-    test('입구가 아래일 때 지도 왼쪽은 입구 오른쪽', () {
-      expect(_place(-1.5, 0).side, 'right');
-      expect(_place(1.5, 0).side, 'left');
+  group('입구 기준 방향 — 입구 자신의 오른쪽·왼쪽(10-08 사용자 판정)', () {
+    // 입구가 지도 아래(270°)면 입구는 지도 위를 보고 서 있고, 그 오른손은 지도
+    // 오른쪽(+x)입니다.
+    test('입구가 아래일 때 지도 왼쪽은 입구 왼쪽', () {
+      expect(_place(-1.5, 0).side, 'left');
+      expect(_place(1.5, 0).side, 'right');
+    });
+
+    test('run69 실기 두 곳 — 사회 복지창구는 입구 오른쪽, 남자 화장실은 입구 왼쪽', () {
+      // map_1002_150946 에 저장된 값 그대로.
+      final welfare = waitSpotPlacement(
+        destX: 7.97,
+        destY: -0.38,
+        doorYawDeg: 0,
+        spotX: 8.428,
+        spotY: 0.672,
+      );
+      expect(welfare.side, 'right');
+      final restroom = waitSpotPlacement(
+        destX: 6.21,
+        destY: -2.49,
+        doorYawDeg: 270,
+        spotX: 5.204,
+        spotY: -2.434,
+      );
+      expect(restroom.side, 'left');
     });
 
     test('옆으로 0.5 m 미만이고 등 뒤면 맞은편', () {
@@ -59,7 +79,7 @@ void main() {
     });
 
     test('옆으로 0.5 m 이상이면 멀리 등 뒤여도 오른쪽·왼쪽(문서 기준)', () {
-      expect(_place(-0.8, 3).side, 'right');
+      expect(_place(-0.8, 3).side, 'left');
     });
 
     test('옆 0.5 m 띠 안의 입구 쪽과 목적지 점 자체는 입구 안쪽 — 저장 불가', () {
@@ -68,9 +88,9 @@ void main() {
       expect(_place(0, 0).inDoorway, isTrue);
     });
 
-    test('입구가 오른쪽(0°)이면 지도 위(+y)가 입구 왼쪽', () {
-      expect(_place(0, 1.5, door: 0).side, 'left');
-      expect(_place(0, -1.5, door: 0).side, 'right');
+    test('입구가 오른쪽(0°)이면 지도 위(+y)가 입구 오른쪽', () {
+      expect(_place(0, 1.5, door: 0).side, 'right');
+      expect(_place(0, -1.5, door: 0).side, 'left');
     });
 
     test('거리는 목적지 점에서 잰다', () {
