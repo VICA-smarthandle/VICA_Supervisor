@@ -264,35 +264,27 @@ void main() {
 
   // -- 지도 정렬(2026-10-07, 목업 12~14번) ------------------------------------
 
-  testWidgets('준비 확인에 시작 방향 안내가 있다', (tester) async {
+  testWidgets('준비 확인에 매핑 안내가 있다(목업 25\', 10-08 확정)', (tester) async {
     await pump(tester, status: statusJson());
-    expect(
-      find.textContaining(vicaKeepWords('로봇 앞을 내 오른쪽(시계방향 90°)으로')),
-      findsOneWidget,
-    );
-    // 목업 12번 아래 세 줄.
-    for (final words in ['방향 하나만 기준입니다', '확인법:', '마무리합니다.']) {
-      expect(find.textContaining(vicaKeepWords(words)), findsOneWidget);
+
+    // 소제목 두 개는 굵게.
+    for (final title in ['매핑 시 정렬 방향', '매핑 시 주의할 점']) {
+      final text = tester.widget<Text>(find.text(vicaKeepWords(title)));
+      expect(text.style?.fontWeight, FontWeight.w800);
     }
-    // 목업 12번의 굵은 글씨 다섯 곳.
-    final bold = <String>[];
-    for (final widget in tester.widgetList<RichText>(find.byType(RichText))) {
-      widget.text.visitChildren((span) {
-        if (span is TextSpan && span.style?.fontWeight == FontWeight.w800) {
-          bold.add((span.text ?? '').replaceAll('\u2060', ''));
-        }
-        return true;
-      });
-    }
-    for (final words in [
-      '위쪽',
-      '내 오른쪽',
-      "'매핑 시작'을 누르는 순간",
-      '오른쪽',
-      "'정렬해서 저장'",
+    // 문장은 한 줄에 하나씩(사용자가 나눈 대로).
+    for (final line in [
+      '지도에서 위쪽(정면)으로 두고 싶은 방향을 바라보고 서서, '
+          '로봇이 내 오른쪽을 향하게 두고 시작합니다.',
+      '매핑을 시작해 로봇 화살표가 처음 나타날 때 오른쪽을 가리키면 맞게 선 것입니다.',
+      '제자리 회전은 90°씩 끊고, 사이마다 1~2초 멈추세요.',
+      '출발한 자리로 돌아와 끝내세요(루프 클로저).',
+      '빨간 화살표가 벽 밖으로 튀면 저장하지 말고 다시 그리세요.',
     ]) {
-      expect(bold, contains(words));
+      expect(find.text(vicaKeepWords(line)), findsOneWidget, reason: line);
     }
+    // 옛 안내(목업 12번 문구)는 남지 않는다.
+    expect(find.textContaining(vicaKeepWords('어느 쪽으로 세우나요')), findsNothing);
   });
 
   Future<_FakeSupervisor> openSaveStep(

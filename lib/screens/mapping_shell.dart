@@ -818,35 +818,40 @@ class _DoneStep extends StatelessWidget {
   }
 }
 
-// ① 준비 확인의 시작 방향 안내(2026-10-07, 목업 12번).
+// ① 준비 확인의 매핑 안내(2026-10-08 사용자 확정, 목업 25').
 //
-// Cartographer 는 '매핑 시작'을 누르는 순간 로봇(base_footprint)이 보던 방향을
-// 지도의 가로축(+x)으로 잡고, 앱은 x 를 화면 오른쪽·y 를 위로 그립니다
-// (map_coordinate.dart, flipMapY 기본값). 그래서 로봇 앞을 내 오른쪽으로 두면
-// 내 정면이 화면 위가 됩니다. 눈대중으로 남는 몇 도는 저장할 때 '정렬해서 저장'이
-// 마무리합니다.
+// 소제목 두 개(굵게)와 그 아래 문장들. 줄은 사용자가 나눈 대로 문장마다 바꾸고,
+// 한 문장 안에서는 화면 폭에 따라 띄어쓰기에서만 접힙니다(vicaKeepWords).
+//
+// 정렬 방향: Cartographer 는 '매핑 시작'을 누르는 순간 로봇(base_footprint)이 보던
+// 방향을 지도의 가로축(+x)으로 잡고, 앱은 x 를 화면 오른쪽·y 를 위로 그립니다
+// (map_coordinate.dart, flipMapY 기본값). 그래서 로봇이 내 오른쪽을 향하면 내 정면이
+// 화면 위가 됩니다. 화살표는 미리보기가 처음 올 때(몇 초 뒤) 나타납니다.
+//
+// 주의할 점: 10-08 실기에서 제자리 반 바퀴 회전 중 위치추정이 15~20 cm 틀어져 벽이
+// 두 줄로 그려졌습니다(실시간 맞추기 범위 ±10 cm 초과). 끊어서 돌고, 출발점으로
+// 돌아와 끝내고(루프 클로저), 화살표가 벽 밖으로 튀면 그 회차는 버립니다.
 class _StartDirectionHint extends StatelessWidget {
   const _StartDirectionHint();
 
-  static const _tips = <List<(String, bool)>>[
-    [
-      ("'매핑 시작'을 누르는 순간", true),
-      (
-        ' 로봇이 보는 방향 하나만 기준입니다. 시작한 뒤 어디로 직진하든 지도 '
-            '방향은 바뀌지 않으니, 시작 전에 돌려 세우세요.',
-        false
-      ),
-    ],
-    [
-      ('확인법: 작성 중 화면에 로봇 화살표가 처음 나타날 때 ', false),
-      ('오른쪽', true),
-      ('을 가리키면 맞게 선 것입니다.', false),
-    ],
-    [
-      ('눈대중이라 몇 도는 남을 수 있습니다. 남은 기울기는 저장할 때 ', false),
-      ("'정렬해서 저장'", true),
-      ('으로 마무리합니다.', false),
-    ],
+  static const _sections = <(String, List<String>)>[
+    (
+      '매핑 시 정렬 방향',
+      [
+        '지도에서 위쪽(정면)으로 두고 싶은 방향을 바라보고 서서, '
+            '로봇이 내 오른쪽을 향하게 두고 시작합니다.',
+        '매핑을 시작해 로봇 화살표가 처음 나타날 때 오른쪽을 가리키면 '
+            '맞게 선 것입니다.',
+      ],
+    ),
+    (
+      '매핑 시 주의할 점',
+      [
+        '제자리 회전은 90°씩 끊고, 사이마다 1~2초 멈추세요.',
+        '출발한 자리로 돌아와 끝내세요(루프 클로저).',
+        '빨간 화살표가 벽 밖으로 튀면 저장하지 말고 다시 그리세요.',
+      ],
+    ),
   ];
 
   @override
@@ -868,61 +873,29 @@ class _StartDirectionHint extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  vicaKeepWords('매핑 시작할 때 로봇을 어느 쪽으로 세우나요?'),
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: VicaColors.primaryDark,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text.rich(
-                  _keepWordsSpans(const [
-                    ('지도에서 ', false),
-                    ('위쪽', true),
-                    ('으로 보이게 하고 싶은 방향을 바라보고 선 다음, 로봇 앞을 ', false),
-                    ('내 오른쪽', true),
-                    ('(시계방향 90°)으로 돌려 세우고 매핑을 시작하면 됩니다.', false),
-                  ]),
-                  style: const TextStyle(
-                    fontSize: 12,
-                    height: 1.5,
-                    color: VicaColors.primaryDark,
-                  ),
-                ),
-                // 목업 12번 아래 세 줄. 순서도 목업과 같습니다.
-                for (final (index, tip) in _tips.indexed)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox(
-                          width: 14,
-                          child: Text(
-                            '${index + 1}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              height: 1.5,
-                              fontWeight: FontWeight.w800,
-                              color: VicaColors.primaryDark,
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: Text.rich(
-                            _keepWordsSpans(tip),
-                            style: const TextStyle(
-                              fontSize: 12,
-                              height: 1.5,
-                              color: VicaColors.text,
-                            ),
-                          ),
-                        ),
-                      ],
+                for (final (index, (title, lines)) in _sections.indexed) ...[
+                  if (index > 0) const SizedBox(height: 8),
+                  Text(
+                    vicaKeepWords(title),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: VicaColors.primaryDark,
                     ),
                   ),
+                  for (final line in lines)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 3),
+                      child: Text(
+                        vicaKeepWords(line),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          height: 1.5,
+                          color: VicaColors.primaryDark,
+                        ),
+                      ),
+                    ),
+                ],
               ],
             ),
           ),
