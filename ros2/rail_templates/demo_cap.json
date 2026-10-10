@@ -1,0 +1,65 @@
+{
+  "name": "demo_cap",
+  "anchor": "home",
+  "frame": "forward = 홈이 보는 방향(m), left = 홈의 왼쪽(m)",
+  "nodes": [
+    {
+      "id": 1,
+      "forward": 4.9004,
+      "left": 0.4996
+    },
+    {
+      "id": 2,
+      "forward": 0.0004,
+      "left": 0.4996
+    },
+    {
+      "id": 3,
+      "forward": 0.0004,
+      "left": 2.7396
+    },
+    {
+      "id": 4,
+      "forward": 4.9004,
+      "left": 2.7396
+    }
+  ],
+  "edges": [
+    [
+      1,
+      2
+    ],
+    [
+      2,
+      3
+    ],
+    [
+      3,
+      4
+    ]
+  ],
+  "zone": {
+    "forward_min": -0.7996,
+    "forward_max": 5.7004,
+    "left_min": -0.2804,
+    "left_max": 3.5196
+  },
+  "source": {
+    "map_id": "map_1002_150946",
+    "home": {
+      "x": 5.3404,
+      "y": 2.2644,
+      "yaw_deg": 270.0,
+      "yaw_deg_file": 270.0
+    },
+    "sketch_updated_at": "2026-10-10T17:21:10+09:00",
+    "extracted_at": "2026-10-10T21:42:31+09:00",
+    "summary": {
+      "node_count": 21,
+      "edge_count": 40,
+      "length_m": 11.4,
+      "junction_count": 0,
+      "penalty_edge_count": 0
+    }
+  }
+}
