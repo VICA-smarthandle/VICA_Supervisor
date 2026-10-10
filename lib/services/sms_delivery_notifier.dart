@@ -9,8 +9,12 @@
 //   - 받는 사람에게 관리자 폰 번호가 찍힙니다(답장·전화 가능).
 //   - 기본 문자앱이 아니라서 폰의 문자함에는 기록이 남지 않습니다. 앱 로그가
 //     유일한 발송 기록입니다.
-//   - 유심이 없거나(와이파이 태블릿) 권한을 거부하면 못 보냅니다. 그때는
+//   - 유심이 없거나(와이파이 태블릿·유심 뺀 폰) 권한을 거부하면 못 보냅니다. 그때는
 //     "안 갔다"를 크게 알립니다 — 안 간 문자를 갔다고 믿는 것이 최악입니다.
+//   - 유심 유무는 isSmsCapable 로 알 수 없습니다. 그것은 기기에 문자 기능이 있는지
+//     (안드로이드 TelephonyManager.isSmsCapable)만 봐서 유심 뺀 폰도 true 입니다 —
+//     그 폰은 보내 보고 15초 뒤 "통신사 확인 없음"으로 실패했습니다. 그래서 유심 상태
+//     (simState)를 따로 봅니다(2026-10-10).
 //   - 한글 45자를 넘으면 조각나므로 본문은 deliveryArrivalMessage 가 길이를 잽니다.
 //     여기서는 혹시 넘겼을 때를 대비해 isMultipart 를 켭니다(안 켜면 잘립니다).
 import 'dart:async';
@@ -37,13 +41,22 @@ class SmsDeliveryNotifier implements DeliveryNotifier {
     required String phone,
     required String text,
   }) async {
-    // 유심이 없는 기기는 여기서 걸립니다. 보내 보고 실패하는 것보다 먼저 아는
-    // 편이 낫습니다.
+    // 문자 기능이 아예 없는 기기(와이파이 태블릿)는 여기서 걸립니다.
     final capable = await _telephony.isSmsCapable;
     if (capable == false) {
       return const DeliveryNotifyResult(
         sent: false,
-        detail: '이 기기는 문자를 보낼 수 없습니다(유심 없음). 직접 연락하세요.',
+        detail: '이 기기는 문자를 보낼 수 없습니다(문자 기능 없음). 직접 연락하세요.',
+      );
+    }
+
+    // 유심이 빠졌거나 잠긴 폰은 여기서 걸립니다. 보내 보고 15초를 기다려 실패하는
+    // 것보다 먼저 아는 편이 낫습니다.
+    final sim = await _telephony.simState;
+    if (!simReadyForSms(sim)) {
+      return DeliveryNotifyResult(
+        sent: false,
+        detail: '이 폰의 유심이 준비되지 않았습니다(${simStateLabel(sim)}). 직접 연락하세요.',
       );
     }
 
@@ -90,5 +103,32 @@ class SmsDeliveryNotifier implements DeliveryNotifier {
       sent: true,
       detail: '관리자 폰에서 문자를 보냈습니다. 폰 문자함에는 남지 않고 앱 로그에만 남습니다.',
     );
+  }
+}
+
+/// 유심이 문자를 보낼 수 있는 상태인가. 안드로이드 SIM_STATE_READY 만 보낼 수 있습니다
+/// (PIN 잠김·없음·준비 중·알 수 없음은 못 보냄).
+bool simReadyForSms(SimState state) => state == SimState.READY;
+
+/// 유심 상태를 관리자가 읽을 말로.
+String simStateLabel(SimState state) {
+  switch (state) {
+    case SimState.READY:
+      return '준비됨';
+    case SimState.ABSENT:
+      return '유심 없음';
+    case SimState.PIN_REQUIRED:
+    case SimState.PUK_REQUIRED:
+      return '유심 잠김(PIN)';
+    case SimState.NETWORK_LOCKED:
+      return '통신사 잠김';
+    case SimState.NOT_READY:
+      return '유심 준비 중';
+    case SimState.PERM_DISABLED:
+    case SimState.CARD_IO_ERROR:
+    case SimState.CARD_RESTRICTED:
+      return '유심 사용 불가';
+    default:
+      return '유심 상태 모름';
   }
 }
