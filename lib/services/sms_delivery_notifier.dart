@@ -50,6 +50,20 @@ class SmsDeliveryNotifier implements DeliveryNotifier {
     }
   }
 
+  /// 문자 기능이 없거나 유심이 아예 빠졌을 때만 맡깁니다. 판정에 실패하면 맡기지 않고
+  /// 지금처럼 직접 보내 봅니다 — 그러면 [send] 가 실제 사유를 알려 줍니다.
+  @override
+  Future<bool> needsRelay() async {
+    try {
+      if (await _telephony.isSmsCapable == false) {
+        return true;
+      }
+      return await _telephony.simState == SimState.ABSENT;
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
   Future<DeliveryNotifyResult> send({
     required String phone,

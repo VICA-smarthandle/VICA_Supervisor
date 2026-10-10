@@ -62,11 +62,17 @@ class _CountingNotifier implements DeliveryNotifier {
   /// 이 기기가 문자를 보낼 수 있는가(유심 폰이면 true, 웹·유심 없는 폰이면 false).
   bool canSendNow = true;
 
+  /// 보낼 수단이 아예 없어 유심 폰에 맡기는 기기인가(웹·유심 빠진 폰이면 true).
+  bool needsRelayNow = false;
+
   @override
   String get modeLabel => '시험';
 
   @override
   Future<bool> canSend() async => canSendNow;
+
+  @override
+  Future<bool> needsRelay() async => needsRelayNow;
 
   @override
   Future<DeliveryNotifyResult> send({
@@ -218,7 +224,7 @@ void main() {
         });
 
     test('문자를 못 보내는 화면의 배송은 유심 폰이 알린 결과로 지금과 같은 팝업을 띄운다', () async {
-      notifier.canSendNow = false;
+      notifier.needsRelayNow = true;
       provider.setDeliveryForTest(driving());
       provider.handleGoalEventForTest(arrival());
       await Future<void>.delayed(Duration.zero);
@@ -232,7 +238,7 @@ void main() {
     });
 
     test('유심 폰의 실패도 그 사유 그대로 빨간 팝업이 된다', () async {
-      notifier.canSendNow = false;
+      notifier.needsRelayNow = true;
       provider.setDeliveryForTest(driving());
       provider.handleGoalEventForTest(arrival());
       await Future<void>.delayed(Duration.zero);
@@ -243,7 +249,7 @@ void main() {
     });
 
     test('결과가 기다림보다 먼저 와도 쓴다', () async {
-      notifier.canSendNow = false;
+      notifier.needsRelayNow = true;
       provider.setDeliveryForTest(driving());
       provider.handleDeliverySmsResultForTest(relayed());
       provider.handleGoalEventForTest(arrival());
@@ -254,7 +260,7 @@ void main() {
 
     test('다른 도착의 결과는 쓰지 않는다 — 30초 뒤 안 간 것으로 알린다', () {
       fakeAsync((async) {
-        notifier.canSendNow = false;
+        notifier.needsRelayNow = true;
         provider.setDeliveryForTest(driving());
         provider.handleGoalEventForTest(arrival());
         async.flushMicrotasks();
@@ -301,6 +307,19 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       await Future<void>.delayed(Duration.zero);
       expect(notifier.calls, 0);
+    });
+
+    test('유심이 꽂힌 폰은 잠깐 준비가 안 돼도 맡기지 않고 직접 보낸다(폰 배송은 예전 그대로)', () async {
+      notifier.canSendNow = false; // 유심 준비 중 등
+      notifier.needsRelayNow = false; // 유심은 꽂혀 있다
+      notifier.succeed = false;
+      provider.setDeliveryForTest(driving());
+      provider.handleGoalEventForTest(arrival());
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(notifier.calls, 1, reason: '30초를 기다리지 않고 지금처럼 보내 본다');
+      expect(provider.pendingDeliveryNotice?.result.detail, '안 갔다',
+          reason: '보낸 폰이 준 실제 사유가 뜬다');
     });
 
     test('내 배송의 도착이면 지금처럼 한 번만 보낸다(대신 보내기와 겹치지 않는다)', () async {

@@ -1478,7 +1478,7 @@ class SupervisorProvider extends ChangeNotifier {
     }
     switch (event.kind) {
       case GoalEventKind.succeeded:
-        _markDeliveryArrived(job, sendText: true, arrivalKey: _arrivalKey(event));
+        _markDeliveryArrived(job, sendText: true, arrival: event);
       case GoalEventKind.failed:
       case GoalEventKind.rejected:
       case GoalEventKind.canceled:
@@ -1502,7 +1502,7 @@ class SupervisorProvider extends ChangeNotifier {
   void _markDeliveryArrived(
     DeliveryJob job, {
     required bool sendText,
-    String? arrivalKey,
+    GoalEvent? arrival,
   }) {
     final now = DateTime.now();
     final arrived = job.copyWith(
@@ -1521,7 +1521,7 @@ class SupervisorProvider extends ChangeNotifier {
     );
     _scheduleDeliveryReturn(arrived);
     if (sendText) {
-      unawaited(_notifyDeliveryArrival(arrived, arrivalKey: arrivalKey));
+      unawaited(_notifyDeliveryArrival(arrived, arrival: arrival));
     }
     notifyListeners();
   }
@@ -1559,21 +1559,27 @@ class SupervisorProvider extends ChangeNotifier {
 
   Future<void> _notifyDeliveryArrival(
     DeliveryJob job, {
-    String? arrivalKey,
+    GoalEvent? arrival,
   }) async {
     final text = deliveryArrivalMessage(job.destination.name);
+    final key = arrival == null ? null : _arrivalKey(arrival);
     DeliveryNotifyResult result;
     try {
-      if (await _deliveryNotifier.canSend()) {
+      if (await _deliveryNotifier.needsRelay()) {
+        // 이 화면은 문자를 보낼 수단이 없습니다(웹·유심 없는 폰). 로봇이 배송 도착을 표시하므로
+        // 관리자 유심 폰이 보내고 결과를 알려 옵니다 — 그 결과로 지금과 같은 팝업을
+        // 띄웁니다(2026-10-10 사용자 결정). 화면에 '부탁' 같은 중간 표시는 없습니다.
+        result = await _awaitRelayedSmsResult(key);
+      } else {
         result = await _deliveryNotifier.send(
           phone: job.destination.contactPhone,
           text: text,
         );
-      } else {
-        // 이 화면은 문자를 못 보냅니다(웹·유심 없는 폰). 로봇이 배송 도착을 표시하므로
-        // 관리자 유심 폰이 보내고 결과를 알려 옵니다 — 그 결과로 지금과 같은 팝업을
-        // 띄웁니다(2026-10-10 사용자 결정). 화면에 '부탁' 같은 중간 표시는 없습니다.
-        result = await _awaitRelayedSmsResult(arrivalKey);
+        // 직접 보낸 결과도 알립니다. 같은 도착을 다른 화면이 제 배송으로 기다리고 있을 수
+        // 있습니다(검토 2: 끝난 이벤트를 놓쳐 옛 배송을 아직 들고 있던 경우).
+        if (arrival != null) {
+          _publishRelayedSmsResult(arrival, result);
+        }
       }
     } catch (error) {
       result = DeliveryNotifyResult(sent: false, detail: '발송 오류: $error');
@@ -1659,6 +1665,9 @@ class SupervisorProvider extends ChangeNotifier {
     final key = _arrivalKey(event);
     if (key == null || !_relaySentKeys.add(key)) {
       return;
+    }
+    while (_relaySentKeys.length > 50) {
+      _relaySentKeys.remove(_relaySentKeys.first);
     }
     if (!await _deliveryNotifier.canSend()) {
       return;
