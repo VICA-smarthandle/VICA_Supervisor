@@ -38,6 +38,8 @@ Map<String, Object?> goalEvent(
   String locationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
   String name = '305호',
   String reason = '',
+  bool delivery = false,
+  String stamp = '',
 }) =>
     {
       'event': kind,
@@ -46,6 +48,8 @@ Map<String, Object?> goalEvent(
       'destination_id': locationId,
       'name': name,
       'reason': reason,
+      if (delivery) 'delivery': true,
+      if (stamp.isNotEmpty) 'timestamp': stamp,
     };
 
 /// 보낸 척만 하고 호출 횟수를 셉니다.
@@ -55,8 +59,14 @@ class _CountingNotifier implements DeliveryNotifier {
   String? lastText;
   bool succeed = true;
 
+  /// 이 기기가 문자를 보낼 수 있는가(유심 폰이면 true, 웹·유심 없는 폰이면 false).
+  bool canSendNow = true;
+
   @override
   String get modeLabel => '시험';
+
+  @override
+  Future<bool> canSend() async => canSendNow;
 
   @override
   Future<DeliveryNotifyResult> send({
@@ -170,14 +180,137 @@ void main() {
       expect(provider.pendingDeliveryNotice?.result.sent, isFalse);
     });
 
-    test('기본 발송기는 미리보기라 실제로 보내지 않는다', () async {
-      final plain = SupervisorProvider();
-      addTearDown(plain.dispose);
-      plain.setDeliveryForTest(driving());
-      plain.handleGoalEventForTest(goalEvent('goal_succeeded'));
+    test('기본 발송기(웹·데스크탑)는 직접 보내지 않고, 유심 폰 결과가 30초 안에 없으면 안 간 것으로 알린다',
+        () {
+      fakeAsync((async) {
+        final plain = SupervisorProvider();
+        plain.setDeliveryForTest(driving());
+        plain.handleGoalEventForTest(
+            goalEvent('goal_succeeded', delivery: true, stamp: '2026-10-10T10:00:00'));
+        async.flushMicrotasks();
+        expect(plain.deliveryNotifierLabel, '미리보기');
+        expect(plain.pendingDeliveryNotice, isNull, reason: '기다리는 동안 중간 표시는 없다');
+        async.elapse(deliverySmsRelayWait);
+        async.flushMicrotasks();
+        expect(plain.pendingDeliveryNotice?.result.sent, isFalse);
+        expect(plain.pendingDeliveryNotice?.result.detail, deliverySmsNoReplyDetail);
+        plain.dispose();
+      });
+    });
+  });
+
+  // 2026-10-10 사용자 결정(웹 배송 문자 A안): 로봇이 배송지 도착에 표시를 싣고, 관리자 유심
+  // 폰이 누가 보낸 배송이든 문자를 보낸다. 팝업은 배송을 보낸 화면에만, 지금과 같은 모양으로.
+  group('웹 배송 문자', () {
+    const stamp = '2026-10-10T10:00:00';
+    Map<String, Object?> arrival({String at = stamp}) =>
+        goalEvent('goal_succeeded', delivery: true, stamp: at);
+    Map<String, Object?> relayed({String at = stamp, bool sent = true}) => {
+          'map_id': 'm1',
+          'location_id': _office.locationId,
+          'arrival': at,
+          'sent': sent,
+          'detail': sent ? '관리자 폰에서 보냈다' : '통신사 확인 없음',
+        };
+    void injectOffice() => provider.handleLocationListForTest({
+          'map_id': 'm1',
+          'locations': [_office.toJson()],
+        });
+
+    test('문자를 못 보내는 화면의 배송은 유심 폰이 알린 결과로 지금과 같은 팝업을 띄운다', () async {
+      notifier.canSendNow = false;
+      provider.setDeliveryForTest(driving());
+      provider.handleGoalEventForTest(arrival());
       await Future<void>.delayed(Duration.zero);
-      expect(plain.deliveryNotifierLabel, '미리보기');
-      expect(plain.pendingDeliveryNotice?.result.sent, isFalse);
+      expect(provider.pendingDeliveryNotice, isNull);
+      provider.handleDeliverySmsResultForTest(relayed());
+      await Future<void>.delayed(Duration.zero);
+      expect(notifier.calls, 0, reason: '이 화면은 직접 보내지 않는다');
+      expect(provider.pendingDeliveryNotice?.result.sent, isTrue);
+      expect(provider.pendingDeliveryNotice?.result.detail, '관리자 폰에서 보냈다');
+      expect(provider.pendingDeliveryNotice?.job.destination.name, '305호');
+    });
+
+    test('유심 폰의 실패도 그 사유 그대로 빨간 팝업이 된다', () async {
+      notifier.canSendNow = false;
+      provider.setDeliveryForTest(driving());
+      provider.handleGoalEventForTest(arrival());
+      await Future<void>.delayed(Duration.zero);
+      provider.handleDeliverySmsResultForTest(relayed(sent: false));
+      await Future<void>.delayed(Duration.zero);
+      expect(provider.pendingDeliveryNotice?.result.sent, isFalse);
+      expect(provider.pendingDeliveryNotice?.result.detail, '통신사 확인 없음');
+    });
+
+    test('결과가 기다림보다 먼저 와도 쓴다', () async {
+      notifier.canSendNow = false;
+      provider.setDeliveryForTest(driving());
+      provider.handleDeliverySmsResultForTest(relayed());
+      provider.handleGoalEventForTest(arrival());
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(provider.pendingDeliveryNotice?.result.sent, isTrue);
+    });
+
+    test('다른 도착의 결과는 쓰지 않는다 — 30초 뒤 안 간 것으로 알린다', () {
+      fakeAsync((async) {
+        notifier.canSendNow = false;
+        provider.setDeliveryForTest(driving());
+        provider.handleGoalEventForTest(arrival());
+        async.flushMicrotasks();
+        provider.handleDeliverySmsResultForTest(relayed(at: '2026-10-10T09:00:00'));
+        async.elapse(deliverySmsRelayWait);
+        async.flushMicrotasks();
+        expect(provider.pendingDeliveryNotice?.result.sent, isFalse);
+        expect(provider.pendingDeliveryNotice?.result.detail, deliverySmsNoReplyDetail);
+      });
+    });
+
+    test('유심 폰은 다른 화면이 보낸 배송의 도착 문자를 대신 보낸다 — 팝업은 없다', () async {
+      injectOffice();
+      provider.handleGoalEventForTest(arrival());
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(notifier.calls, 1);
+      expect(notifier.lastPhone, '01012345678');
+      expect(notifier.lastText, contains('305호'));
+      expect(provider.pendingDeliveryNotice, isNull, reason: '팝업은 배송을 보낸 화면에만');
+    });
+
+    test('같은 도착이 두 번 와도 대신 보내기는 한 번이다', () async {
+      injectOffice();
+      provider.handleGoalEventForTest(arrival());
+      provider.handleGoalEventForTest(arrival());
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(notifier.calls, 1);
+    });
+
+    test('문자를 못 보내는 기기는 대신 보내기에 끼지 않는다', () async {
+      notifier.canSendNow = false;
+      injectOffice();
+      provider.handleGoalEventForTest(arrival());
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(notifier.calls, 0);
+    });
+
+    test('배송 표시가 없는 도착(안내 주행)은 대신 보내지 않는다', () async {
+      injectOffice();
+      provider.handleGoalEventForTest(goalEvent('goal_succeeded', stamp: stamp));
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(notifier.calls, 0);
+    });
+
+    test('내 배송의 도착이면 지금처럼 한 번만 보낸다(대신 보내기와 겹치지 않는다)', () async {
+      injectOffice();
+      provider.setDeliveryForTest(driving());
+      provider.handleGoalEventForTest(arrival());
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(notifier.calls, 1);
+      expect(provider.pendingDeliveryNotice?.result.sent, isTrue);
     });
   });
 

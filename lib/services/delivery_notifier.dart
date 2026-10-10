@@ -28,6 +28,10 @@ abstract class DeliveryNotifier {
   /// 화면 배지용. '미리보기' / 'SMS' 처럼 짧게.
   String get modeLabel;
 
+  /// 이 기기가 지금 문자를 보낼 수 있는가(2026-10-10). 웹·데스크탑·유심 없는 폰은 false 입니다.
+  /// false 인 화면이 보낸 배송은 관리자 유심 폰이 대신 보내고 결과를 알려 옵니다.
+  Future<bool> canSend();
+
   /// [phone] 은 숫자만 든 문자열입니다(core/contact_phone.dart 규칙).
   Future<DeliveryNotifyResult> send({
     required String phone,
@@ -44,6 +48,9 @@ class PreviewDeliveryNotifier implements DeliveryNotifier {
 
   @override
   String get modeLabel => '미리보기';
+
+  @override
+  Future<bool> canSend() async => false;
 
   @override
   Future<DeliveryNotifyResult> send({

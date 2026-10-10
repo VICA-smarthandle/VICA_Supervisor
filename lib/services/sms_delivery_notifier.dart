@@ -36,6 +36,20 @@ class SmsDeliveryNotifier implements DeliveryNotifier {
   @override
   String get modeLabel => 'SMS';
 
+  /// 문자 기능이 있고 유심이 준비됐는가. 권한은 여기서 묻지 않고 보내는 순간 묻습니다
+  /// ([send]) — 관리자 폰은 첫 배송 때 이미 허용해 둡니다.
+  @override
+  Future<bool> canSend() async {
+    try {
+      if (await _telephony.isSmsCapable == false) {
+        return false;
+      }
+      return simReadyForSms(await _telephony.simState);
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
   Future<DeliveryNotifyResult> send({
     required String phone,

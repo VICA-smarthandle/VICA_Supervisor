@@ -43,6 +43,7 @@ class AppSettings {
     this.routeGetService = '/vica/route/get',
     this.routeStateTopic = '/vica/route/state',
     this.routeSavedTopic = '/vica/route/saved',
+    this.deliverySmsResultTopic = '/vica/delivery/sms_result',
     this.missionReturnHomeService = '/vica/mission/return_home',
     this.goalEventTopic = '/vica_goal_event',
     this.robotStatusTopic = '/robot_status',
@@ -115,6 +116,10 @@ class AppSettings {
 
   /// 어느 기기에서든 레일을 저장하면 오는 알림(2026-10-08). 받으면 레일 그림을 다시 받습니다.
   final String routeSavedTopic;
+
+  /// 관리자 유심 폰이 다른 화면(웹 등)에서 보낸 배송의 도착 문자를 대신 보내고 그 결과를
+  /// 알리는 토픽(2026-10-10). 배송을 보낸 화면이 이 결과로 지금과 같은 팝업을 띄웁니다.
+  final String deliverySmsResultTopic;
 
   // 홈 복귀. **관리자 전용 경로입니다.**
   //
@@ -193,6 +198,7 @@ class AppSettings {
     String? routeGetService,
     String? routeStateTopic,
     String? routeSavedTopic,
+    String? deliverySmsResultTopic,
     String? missionReturnHomeService,
     String? goalEventTopic,
     String? missionRequestService,
@@ -251,6 +257,8 @@ class AppSettings {
       routeGetService: routeGetService ?? this.routeGetService,
       routeStateTopic: routeStateTopic ?? this.routeStateTopic,
       routeSavedTopic: routeSavedTopic ?? this.routeSavedTopic,
+      deliverySmsResultTopic:
+          deliverySmsResultTopic ?? this.deliverySmsResultTopic,
       missionReturnHomeService:
           missionReturnHomeService ?? this.missionReturnHomeService,
       goalEventTopic: goalEventTopic ?? this.goalEventTopic,

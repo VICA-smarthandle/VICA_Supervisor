@@ -18,6 +18,14 @@ import 'location_point.dart';
 /// 시험하기 좋게 2분으로 시작합니다(사용자 결정). 늘릴 때는 이 값만 바꿉니다.
 const deliveryReturnDelay = Duration(minutes: 2);
 
+/// 이 화면이 문자를 못 보낼 때(웹·유심 없는 폰) 관리자 유심 폰이 대신 보낸 결과를 기다리는
+/// 시간(2026-10-10 사용자 결정). 폰은 통신사 확인을 최대 15초 기다리므로 그 두 배입니다.
+const deliverySmsRelayWait = Duration(seconds: 30);
+
+/// 그 시간 안에 결과가 오지 않았을 때 빨간 팝업의 사유(2026-10-10 사용자 승인 문구).
+const deliverySmsNoReplyDetail =
+    '문자를 보내지 못했습니다. 관리자 폰 앱이 켜져 있는지 확인하고, 직접 연락하세요.';
+
 /// 배송이 지금 어느 단계인가.
 enum DeliveryPhase {
   /// 주행 요청이 수락됐고 로봇이 가는 중.

@@ -102,6 +102,8 @@ class GoalEvent {
     required this.receivedAt,
     this.waitPlace = '',
     this.waitMinutes = -1,
+    this.delivery = false,
+    this.robotStamp = '',
   });
 
   /// 앱이 붙이는 고유값입니다. 같은 실패가 두 번 와도 팝업을 각각 띄우기 위해
@@ -127,6 +129,14 @@ class GoalEvent {
 
   /// 대기 알림의 대기 시간(분). 모르면 -1.
   final int waitMinutes;
+
+  /// 배송 요청으로 간 목적지의 도착인가(2026-10-10). 미션이 그 도착에만 싣습니다. 관리자 유심
+  /// 폰은 자기가 보내지 않은 배송이라도 이 표시를 보고 도착 문자를 보냅니다.
+  final bool delivery;
+
+  /// 로봇이 이벤트에 적은 시각(초 단위 문자열). 같은 도착을 화면끼리 맞추는 열쇠입니다 —
+  /// 받은 시각([receivedAt])은 기기마다 다릅니다.
+  final String robotStamp;
 
   /// 관리자에게 팝업으로 알려야 하는가. 판정은 [GoalEventKind] 가 합니다.
   bool get needsPopup => kind.needsPopup;
@@ -156,6 +166,8 @@ class GoalEvent {
       receivedAt: DateTime.now(),
       waitPlace: (json['wait_place'] as String?)?.trim() ?? '',
       waitMinutes: (json['wait_minutes'] as num?)?.toInt() ?? -1,
+      delivery: json['delivery'] == true,
+      robotStamp: (json['timestamp'] as String?)?.trim() ?? '',
     );
   }
 

@@ -423,6 +423,11 @@ class SupervisorProvider extends ChangeNotifier {
       ..subscribe(
         topic: settings.routeSavedTopic,
         handler: _handleRouteSaved,
+      )
+      // 관리자 유심 폰이 대신 보낸 도착 문자의 결과(2026-10-10). 배송을 보낸 화면만 씁니다.
+      ..subscribe(
+        topic: settings.deliverySmsResultTopic,
+        handler: _handleDeliverySmsResult,
       );
   }
 
@@ -1194,6 +1199,18 @@ class SupervisorProvider extends ChangeNotifier {
   /// 저장돼 있어, 다시 켜면 남은 시간만큼 다시 겁니다([restoreDelivery]).
   Timer? _deliveryReturnTimer;
 
+  /// 다른 화면(웹 등)이 보낸 배송의 도착 문자를 이 폰이 대신 보낸 도착들(2026-10-10).
+  /// 같은 도착 이벤트가 두 번 와도 한 번만 보냅니다. 열쇠는 [_arrivalKey].
+  final Set<String> _relaySentKeys = {};
+
+  /// 관리자 유심 폰이 알려 온 도착 문자 결과와, 그것을 기다리는 이 화면의 배송.
+  /// 결과가 기다림보다 먼저 와도 잃지 않게 잠시 둡니다.
+  final Map<String, DeliveryNotifyResult> _relayedSmsResults = {};
+  final Map<String, Completer<DeliveryNotifyResult>> _relayedSmsWaiters = {};
+
+  /// 정리됐는가. 도착 문자 결과는 비동기로 늦게 와서(최대 30초) 화면이 닫힌 뒤일 수 있다.
+  bool _disposed = false;
+
   /// 배송 기억을 바꾸는 유일한 자리. 바꿀 때마다 기기 저장소에도 적어 앱을
   /// 껐다 켜도 이어받습니다(2026-09-03 사용자 결정).
   void _setDelivery(DeliveryJob? job) {
@@ -1461,7 +1478,7 @@ class SupervisorProvider extends ChangeNotifier {
     }
     switch (event.kind) {
       case GoalEventKind.succeeded:
-        _markDeliveryArrived(job, sendText: true);
+        _markDeliveryArrived(job, sendText: true, arrivalKey: _arrivalKey(event));
       case GoalEventKind.failed:
       case GoalEventKind.rejected:
       case GoalEventKind.canceled:
@@ -1482,7 +1499,11 @@ class SupervisorProvider extends ChangeNotifier {
   /// 도착. 빗장(notified)을 먼저 겁니다 — 발송은 비동기라 같은 이벤트가 연달아
   /// 오면 결과가 돌아오기 전에 두 번째 발송이 나갈 수 있습니다. [sendText] 가
   /// false 면 이미 보낸 것으로 보고 복귀 시계만 겁니다('확인 필요' 처리).
-  void _markDeliveryArrived(DeliveryJob job, {required bool sendText}) {
+  void _markDeliveryArrived(
+    DeliveryJob job, {
+    required bool sendText,
+    String? arrivalKey,
+  }) {
     final now = DateTime.now();
     final arrived = job.copyWith(
       phase: DeliveryPhase.arrived,
@@ -1500,7 +1521,7 @@ class SupervisorProvider extends ChangeNotifier {
     );
     _scheduleDeliveryReturn(arrived);
     if (sendText) {
-      unawaited(_notifyDeliveryArrival(arrived));
+      unawaited(_notifyDeliveryArrival(arrived, arrivalKey: arrivalKey));
     }
     notifyListeners();
   }
@@ -1536,16 +1557,29 @@ class SupervisorProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _notifyDeliveryArrival(DeliveryJob job) async {
+  Future<void> _notifyDeliveryArrival(
+    DeliveryJob job, {
+    String? arrivalKey,
+  }) async {
     final text = deliveryArrivalMessage(job.destination.name);
     DeliveryNotifyResult result;
     try {
-      result = await _deliveryNotifier.send(
-        phone: job.destination.contactPhone,
-        text: text,
-      );
+      if (await _deliveryNotifier.canSend()) {
+        result = await _deliveryNotifier.send(
+          phone: job.destination.contactPhone,
+          text: text,
+        );
+      } else {
+        // 이 화면은 문자를 못 보냅니다(웹·유심 없는 폰). 로봇이 배송 도착을 표시하므로
+        // 관리자 유심 폰이 보내고 결과를 알려 옵니다 — 그 결과로 지금과 같은 팝업을
+        // 띄웁니다(2026-10-10 사용자 결정). 화면에 '부탁' 같은 중간 표시는 없습니다.
+        result = await _awaitRelayedSmsResult(arrivalKey);
+      }
     } catch (error) {
       result = DeliveryNotifyResult(sent: false, detail: '발송 오류: $error');
+    }
+    if (_disposed) {
+      return;
     }
     // 로그에는 장소 이름과 결과만 남깁니다. 번호는 개인정보입니다.
     _addLog(
@@ -1556,6 +1590,139 @@ class SupervisorProvider extends ChangeNotifier {
         DeliveryNotice(job: job, text: text, result: result);
     notifyListeners();
   }
+
+  /// 화면끼리 같은 도착을 맞추는 열쇠 — 장소 id 와 로봇이 적은 시각. 둘 중 하나라도
+  /// 없으면 맞출 수 없어 null 입니다(옛 미션·수동 도착 처리).
+  String? _arrivalKey(GoalEvent event) {
+    if (event.locationId.isEmpty || event.robotStamp.isEmpty) {
+      return null;
+    }
+    return '${event.locationId}|${event.robotStamp}';
+  }
+
+  /// 이 도착이 이 화면이 보낸 배송의 것인가.
+  bool _isMyDeliveryArrival(GoalEvent event) {
+    final job = _delivery;
+    return job != null &&
+        job.isActive &&
+        job.matches(locationId: event.locationId, name: event.destinationName);
+  }
+
+  /// 관리자 유심 폰이 알려 올 결과를 기다립니다. [deliverySmsRelayWait] 안에 안 오면
+  /// 안 간 것으로 봅니다 — 안 간 문자를 갔다고 믿는 것이 가장 나쁩니다.
+  Future<DeliveryNotifyResult> _awaitRelayedSmsResult(String? key) {
+    const noReply = DeliveryNotifyResult(
+      sent: false,
+      detail: deliverySmsNoReplyDetail,
+    );
+    if (key == null) {
+      return Future.value(noReply);
+    }
+    final ready = _relayedSmsResults.remove(key);
+    if (ready != null) {
+      return Future.value(ready);
+    }
+    final waiter = _relayedSmsWaiters.putIfAbsent(key, Completer.new);
+    return waiter.future.timeout(deliverySmsRelayWait, onTimeout: () {
+      _relayedSmsWaiters.remove(key);
+      return noReply;
+    });
+  }
+
+  /// 관리자 유심 폰이 알린 결과. 기다리는 배송이 있으면 넘기고, 없으면 잠시 둡니다.
+  void _handleDeliverySmsResult(Map<String, Object?> message) {
+    final locationId = (message['location_id'] as String?)?.trim() ?? '';
+    final arrival = (message['arrival'] as String?)?.trim() ?? '';
+    if (locationId.isEmpty || arrival.isEmpty) {
+      return;
+    }
+    final key = '$locationId|$arrival';
+    final result = DeliveryNotifyResult(
+      sent: message['sent'] == true,
+      detail: (message['detail'] as String?)?.trim() ?? '',
+    );
+    final waiter = _relayedSmsWaiters.remove(key);
+    if (waiter != null && !waiter.isCompleted) {
+      waiter.complete(result);
+      return;
+    }
+    _relayedSmsResults[key] = result;
+    while (_relayedSmsResults.length > 20) {
+      _relayedSmsResults.remove(_relayedSmsResults.keys.first);
+    }
+  }
+
+  /// 다른 화면이 보낸 배송의 도착 문자를 이 폰이 대신 보냅니다. 문자를 못 보내는 기기
+  /// (웹·태블릿·유심 없는 폰)는 끼지 않습니다. 팝업은 띄우지 않고 기록만 남깁니다 —
+  /// 팝업은 배송을 보낸 화면에만 뜹니다(2026-10-10 사용자 결정).
+  Future<void> _relayDeliverySms(GoalEvent event) async {
+    final key = _arrivalKey(event);
+    if (key == null || !_relaySentKeys.add(key)) {
+      return;
+    }
+    if (!await _deliveryNotifier.canSend()) {
+      return;
+    }
+    LocationPoint? location;
+    for (final candidate in locationsFor(event.mapId)) {
+      if (candidate.locationId == event.locationId) {
+        location = candidate;
+        break;
+      }
+    }
+    final name = location?.name ?? event.destinationName;
+    DeliveryNotifyResult result;
+    if (location == null || !location.canReceiveDelivery) {
+      result = const DeliveryNotifyResult(
+        sent: false,
+        detail: '배송지 연락처를 찾지 못했습니다. 직접 연락하세요.',
+      );
+    } else {
+      try {
+        result = await _deliveryNotifier.send(
+          phone: location.contactPhone,
+          text: deliveryArrivalMessage(location.name),
+        );
+      } catch (error) {
+        result = DeliveryNotifyResult(sent: false, detail: '발송 오류: $error');
+      }
+    }
+    if (_disposed) {
+      return;
+    }
+    _addLog(
+      LogFilter.delivery,
+      '$name 도착 문자 ${result.sent ? '발송됨' : '미발송'}(다른 화면에서 보낸 배송): ${result.detail}',
+    );
+    _publishRelayedSmsResult(event, result);
+    notifyListeners();
+  }
+
+  void _publishRelayedSmsResult(GoalEvent event, DeliveryNotifyResult result) {
+    final client = _client;
+    final settings = _lastSettings;
+    if (client == null ||
+        settings == null ||
+        _connectionState != RosConnectionState.connected) {
+      return;
+    }
+    client
+      ..advertise(topic: settings.deliverySmsResultTopic, type: 'std_msgs/String')
+      ..publishJsonString(
+        topic: settings.deliverySmsResultTopic,
+        payload: {
+          'map_id': event.mapId,
+          'location_id': event.locationId,
+          'arrival': event.robotStamp,
+          'sent': result.sent,
+          'detail': result.detail,
+        },
+      );
+  }
+
+  @visibleForTesting
+  void handleDeliverySmsResultForTest(Map<String, Object?> message) =>
+      _handleDeliverySmsResult(message);
 
   @visibleForTesting
   set deliveryNotifierForTest(DeliveryNotifier notifier) =>
@@ -1687,6 +1854,14 @@ class SupervisorProvider extends ChangeNotifier {
         _resolveGoalAlert();
       default:
         break;
+    }
+
+    // 다른 화면(웹 등)이 보낸 배송이 도착했으면, 이 폰이 관리자 유심 폰일 때 대신 도착 문자를
+    // 보냅니다(2026-10-10). 내 배송이면 아래 _applyGoalEventToDelivery 가 지금처럼 보냅니다.
+    if (event.kind == GoalEventKind.succeeded &&
+        event.delivery &&
+        !_isMyDeliveryArrival(event)) {
+      unawaited(_relayDeliverySms(event));
     }
 
     // 배송 중이면 이 이벤트가 그 배송의 도착·중단일 수 있습니다.
@@ -3240,6 +3415,7 @@ class SupervisorProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _routePreviewTimer?.cancel();
     _teleopTimer?.cancel();
     _reconnectTimer?.cancel();
