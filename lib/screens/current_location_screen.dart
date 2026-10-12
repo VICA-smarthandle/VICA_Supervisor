@@ -18,12 +18,6 @@ class CurrentLocationScreen extends StatefulWidget {
 }
 
 class _CurrentLocationScreenState extends State<CurrentLocationScreen> {
-  static const _compactDropdownDecoration = InputDecoration(
-    labelText: '연결된 로봇',
-    isDense: true,
-    contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-  );
-
   String? _selectedRobotId;
 
   @override
@@ -45,7 +39,7 @@ class _CurrentLocationScreenState extends State<CurrentLocationScreen> {
         VicaCard(
           child: DropdownButtonFormField<String>(
             initialValue: robot?.robotId,
-            decoration: _compactDropdownDecoration,
+            decoration: vicaCompactDropdownDecoration('연결된 로봇'),
             // isExpanded가 없으면 드롭다운이 로봇 이름의 원래 폭을 그대로 요구해
             // 좁은 창에서 카드 밖으로 179px까지 삐져나갔습니다.
             isExpanded: true,

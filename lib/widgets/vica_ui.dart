@@ -1117,6 +1117,16 @@ class VicaRobotCard extends StatelessWidget {
   }
 }
 
+/// 화면 맨 위 드롭다운(지도·로봇 고르기)의 낮은 칸 장식. 화면마다 이름([label])만
+/// 다릅니다.
+InputDecoration vicaCompactDropdownDecoration(String label) {
+  return InputDecoration(
+    labelText: label,
+    isDense: true,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+  );
+}
+
 // 선택 드롭다운과 그 옆의 실행 버튼을 한 줄에 놓습니다.
 //
 // 버튼 폭이 고정이라 좁은 창에서는 드롭다운이 130px까지 밀려 지도 이름이 거의

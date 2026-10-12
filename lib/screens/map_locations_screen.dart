@@ -10,6 +10,7 @@ import '../widgets/initial_pose_card.dart';
 import '../widgets/drive_control_bar.dart';
 import '../widgets/drive_map_canvas.dart';
 import '../widgets/map_canvas.dart';
+import '../widgets/map_picker.dart';
 import '../widgets/vica_ui.dart';
 
 class MapLocationsScreen extends StatefulWidget {
@@ -26,12 +27,6 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
   bool _picking = false;
   Offset? _picked;
   PoseDirection? _direction = PoseDirection.right;
-
-  static const _compactDropdownDecoration = InputDecoration(
-    labelText: '지도 선택',
-    isDense: true,
-    contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-  );
 
   @override
   Widget build(BuildContext context) {
@@ -64,52 +59,19 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     return VicaPage(
       title: '원격 주행',
       children: [
-        VicaFieldWithAction(
+        MapPickerRow(
+          supervisor: supervisor,
+          settings: settings,
+          map: map,
+          label: '지도 선택',
           actionWidth: 112,
-          field: DropdownButtonFormField<String>(
-            initialValue: map?.mapId,
-            decoration: _compactDropdownDecoration,
-            isExpanded: true,
-            itemHeight: null,
-            items: supervisor.maps
-                .map(
-                  (item) => DropdownMenuItem(
-                    value: item.mapId,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Text(item.displayName),
-                    ),
-                  ),
-                )
-                .toList(),
-            selectedItemBuilder: (context) => supervisor.maps
-                .map(
-                  (item) => Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      item.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                )
-                .toList(),
-            onChanged: (value) => supervisor.selectMap(settings, value),
-          ),
-          action: OutlinedButton.icon(
-            onPressed: map == null
-                ? null
-                // 장소·홈·금지구역을 함께 받습니다. 종전에는 장소만 받아서
-                // 이름과 동작이 어긋났습니다(2026-09-02).
-                : () => supervisor.refreshMapData(settings, map.mapId),
-            icon: const Icon(Icons.sync, size: 18),
-            label: const Text('동기화', maxLines: 1),
-          ),
+          onChanged: (value) => supervisor.selectMap(settings, value),
+          refreshIcon: Icons.sync,
+          refreshLabel: const Text('동기화', maxLines: 1),
         ),
-        CurrentMapNotice(supervisor: supervisor, map: map),
         const SizedBox(height: 18),
         if (map == null)
-          const VicaCard(child: Text('지도 목록을 먼저 불러오세요.'))
+          const NoMapCard()
         else ...[
           // 홈·금지구역·로봇 위치는 주행 화면 공통(DriveMapCanvas). 이 화면은
           // 장소 전체를 보이고, 초기 위치 잡기의 짚은 점·자세·라이다 점만 얹습니다.

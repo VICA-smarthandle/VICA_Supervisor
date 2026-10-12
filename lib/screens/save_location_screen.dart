@@ -19,9 +19,9 @@ import '../providers/supervisor_provider.dart';
 import '../ros/ros_bridge_client.dart';
 import '../widgets/home_position_card.dart';
 import '../widgets/initial_pose_card.dart' show PoseDirection;
-import '../widgets/drive_map_canvas.dart';
 import '../widgets/keepout_card.dart';
 import '../widgets/map_canvas.dart';
+import '../widgets/map_picker.dart';
 import '../models/route_graph.dart' show kRailHandoffMeters;
 import '../widgets/rail_card.dart';
 import '../widgets/rail_far_place_dialog.dart';
@@ -45,12 +45,6 @@ class SaveLocationScreen extends StatefulWidget {
 }
 
 class _SaveLocationScreenState extends State<SaveLocationScreen> {
-  static const _compactDropdownDecoration = InputDecoration(
-    labelText: '불러온 지도',
-    isDense: true,
-    contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-  );
-
   final _uuid = const Uuid();
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
@@ -244,53 +238,20 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     return VicaPage(
       title: '지도 설정',
       children: [
-        VicaFieldWithAction(
-          field: DropdownButtonFormField<String>(
-            key: ValueKey('map-picker-$_mapPickerResets'),
-            initialValue: map?.mapId,
-            decoration: _compactDropdownDecoration,
-            isExpanded: true,
-            itemHeight: null,
-            items: supervisor.maps
-                .map(
-                  (item) => DropdownMenuItem(
-                    value: item.mapId,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Text(item.displayName),
-                    ),
-                  ),
-                )
-                .toList(),
-            selectedItemBuilder: (context) => supervisor.maps
-                .map(
-                  (item) => Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      item.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                )
-                .toList(),
-            onChanged: (value) =>
-                _changeMap(context, supervisor, settings, value),
-          ),
-          action: OutlinedButton.icon(
-            onPressed: map == null
-                ? null
-                // 장소·홈·금지구역을 함께 받습니다. 홈은 이 버튼 말고는
-                // 수동 갱신 경로가 아예 없었습니다(2026-09-02).
-                : () => supervisor.refreshMapData(settings, map.mapId),
-            icon: const Icon(Icons.refresh, size: 18),
-            label: const Text('새로고침'),
-          ),
+        MapPickerRow(
+          supervisor: supervisor,
+          settings: settings,
+          map: map,
+          label: '불러온 지도',
+          dropdownKey: ValueKey('map-picker-$_mapPickerResets'),
+          onChanged: (value) =>
+              _changeMap(context, supervisor, settings, value),
+          refreshIcon: Icons.refresh,
+          refreshLabel: const Text('새로고침'),
         ),
-        CurrentMapNotice(supervisor: supervisor, map: map),
         const SizedBox(height: 18),
         if (map == null)
-          const VicaCard(child: Text('지도 목록을 먼저 불러오세요.'))
+          const NoMapCard()
         else ...[
           ResponsiveMapFrame(
             map: map,

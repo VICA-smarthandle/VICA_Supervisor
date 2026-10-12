@@ -20,6 +20,7 @@ import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../widgets/drive_control_bar.dart';
 import '../widgets/drive_map_canvas.dart';
+import '../widgets/map_picker.dart';
 import '../widgets/vica_ui.dart';
 
 class DeliveryScreen extends StatefulWidget {
@@ -35,12 +36,6 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
   // 관리자는 왜 출발 버튼이 잠겼는지 모릅니다.
   String? _selectedId;
   bool _loaded = false;
-
-  static const _compactDropdownDecoration = InputDecoration(
-    labelText: '지도 선택',
-    isDense: true,
-    contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-  );
 
   @override
   Widget build(BuildContext context) {
@@ -59,55 +54,23 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
     return VicaPage(
       title: '물류 배송',
       children: [
-        VicaFieldWithAction(
+        MapPickerRow(
+          supervisor: supervisor,
+          settings: settings,
+          map: map,
+          label: '지도 선택',
           actionWidth: 112,
-          field: DropdownButtonFormField<String>(
-            initialValue: map?.mapId,
-            decoration: _compactDropdownDecoration,
-            isExpanded: true,
-            itemHeight: null,
-            items: supervisor.maps
-                .map(
-                  (item) => DropdownMenuItem(
-                    value: item.mapId,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Text(item.displayName),
-                    ),
-                  ),
-                )
-                .toList(),
-            selectedItemBuilder: (context) => supervisor.maps
-                .map(
-                  (item) => Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      item.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                )
-                .toList(),
-            onChanged: (value) {
-              setState(() => _selectedId = null);
-              supervisor.selectMap(settings, value);
-            },
-          ),
-          action: OutlinedButton.icon(
-            onPressed: map == null
-                ? null
-                // 장소·홈·금지구역을 함께 받습니다 — 원격 주행의 '동기화'와
-                // 같은 뜻이어야 합니다.
-                : () => supervisor.refreshMapData(settings, map.mapId),
-            icon: const Icon(Icons.sync, size: 18),
-            label: const Text('동기화', maxLines: 1),
-          ),
+          onChanged: (value) {
+            setState(() => _selectedId = null);
+            supervisor.selectMap(settings, value);
+          },
+          // 장소·홈·금지구역을 함께 받습니다 — 원격 주행의 '동기화'와 같은 뜻입니다.
+          refreshIcon: Icons.sync,
+          refreshLabel: const Text('동기화', maxLines: 1),
         ),
-        CurrentMapNotice(supervisor: supervisor, map: map),
         const SizedBox(height: 18),
         if (map == null)
-          const VicaCard(child: Text('지도 목록을 먼저 불러오세요.'))
+          const NoMapCard()
         else ...[
           // 홈·금지구역·로봇 위치는 주행 화면 공통으로 DriveMapCanvas 가 채웁니다.
           // 장소만 이 화면이 정합니다 — 연락처 있는 곳만. 지도에 보이는 것이
