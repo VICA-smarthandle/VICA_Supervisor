@@ -57,14 +57,12 @@ class AppSettings {
     // /robot/health 만료. 모니터가 죽으면 마지막 상태를 현재로 쓰지 않습니다.
     this.robotHealthTimeoutSeconds = 5,
     this.emergencyServiceTimeoutSeconds = 8,
-    this.maxLogs = 200,
     this.maxReconnectAttempts = 5,
     this.autoRequestMapList = true,
     this.autoRequestLocationList = true,
     this.xOffset = 0,
     this.yOffset = 0,
     this.yawOffset = 0,
-    this.savedYawOffsetDegrees = 0,
     this.mapScale = 1,
     this.flipMapY = true,
   });
@@ -158,14 +156,12 @@ class AppSettings {
   final String robotEventsTopic;
   final int robotHealthTimeoutSeconds;
   final int emergencyServiceTimeoutSeconds;
-  final int maxLogs;
   final int maxReconnectAttempts;
   final bool autoRequestMapList;
   final bool autoRequestLocationList;
   final double xOffset;
   final double yOffset;
   final double yawOffset;
-  final double savedYawOffsetDegrees;
   final double mapScale;
   final bool flipMapY;
 
@@ -215,14 +211,12 @@ class AppSettings {
     String? robotEventsTopic,
     int? robotHealthTimeoutSeconds,
     int? emergencyServiceTimeoutSeconds,
-    int? maxLogs,
     int? maxReconnectAttempts,
     bool? autoRequestMapList,
     bool? autoRequestLocationList,
     double? xOffset,
     double? yOffset,
     double? yawOffset,
-    double? savedYawOffsetDegrees,
     double? mapScale,
     bool? flipMapY,
   }) {
@@ -283,7 +277,6 @@ class AppSettings {
           robotHealthTimeoutSeconds ?? this.robotHealthTimeoutSeconds,
       emergencyServiceTimeoutSeconds:
           emergencyServiceTimeoutSeconds ?? this.emergencyServiceTimeoutSeconds,
-      maxLogs: maxLogs ?? this.maxLogs,
       maxReconnectAttempts: maxReconnectAttempts ?? this.maxReconnectAttempts,
       autoRequestMapList: autoRequestMapList ?? this.autoRequestMapList,
       autoRequestLocationList:
@@ -291,8 +284,6 @@ class AppSettings {
       xOffset: xOffset ?? this.xOffset,
       yOffset: yOffset ?? this.yOffset,
       yawOffset: yawOffset ?? this.yawOffset,
-      savedYawOffsetDegrees:
-          savedYawOffsetDegrees ?? this.savedYawOffsetDegrees,
       mapScale: mapScale ?? this.mapScale,
       flipMapY: flipMapY ?? this.flipMapY,
     );
@@ -365,14 +356,12 @@ class AppSettings {
       'robotEventsTopic': robotEventsTopic,
       'robotHealthTimeoutSeconds': robotHealthTimeoutSeconds,
       'emergencyServiceTimeoutSeconds': emergencyServiceTimeoutSeconds,
-      'maxLogs': maxLogs,
       'maxReconnectAttempts': maxReconnectAttempts,
       'autoRequestMapList': autoRequestMapList,
       'autoRequestLocationList': autoRequestLocationList,
       'xOffset': xOffset,
       'yOffset': yOffset,
       'yawOffset': yawOffset,
-      'savedYawOffsetDegrees': savedYawOffsetDegrees,
       'mapScale': mapScale,
       'flipMapY': flipMapY,
     };
@@ -440,7 +429,6 @@ class AppSettings {
       emergencyServiceTimeoutSeconds:
           (json['emergencyServiceTimeoutSeconds'] as num?)?.toInt() ??
               defaults.emergencyServiceTimeoutSeconds,
-      maxLogs: json['maxLogs'] as int? ?? defaults.maxLogs,
       maxReconnectAttempts:
           json['maxReconnectAttempts'] as int? ?? defaults.maxReconnectAttempts,
       autoRequestMapList:
@@ -450,9 +438,6 @@ class AppSettings {
       xOffset: (json['xOffset'] as num?)?.toDouble() ?? defaults.xOffset,
       yOffset: (json['yOffset'] as num?)?.toDouble() ?? defaults.yOffset,
       yawOffset: (json['yawOffset'] as num?)?.toDouble() ?? defaults.yawOffset,
-      savedYawOffsetDegrees:
-          (json['savedYawOffsetDegrees'] as num?)?.toDouble() ??
-              defaults.savedYawOffsetDegrees,
       mapScale: (json['mapScale'] as num?)?.toDouble() ?? defaults.mapScale,
       flipMapY: json['flipMapY'] as bool? ?? defaults.flipMapY,
     );
