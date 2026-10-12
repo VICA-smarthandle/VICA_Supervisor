@@ -69,4 +69,41 @@ void main() {
 
     expect(selected, isEmpty);
   });
+
+  // 지도 설정 화면에서 지도를 바꿔도 임시 저장 장소는 provider 에 남습니다. 그
+  // 좌표는 다른 지도 그림 위의 자리가 아니므로 그리지 않습니다.
+  testWidgets('다른 지도의 임시 저장 장소는 그리지 않는다', (tester) async {
+    Future<void> pumpDraft(String draftMapId) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 400,
+              height: 400,
+              child: MapCanvas(
+                map: map,
+                settings: const AppSettings(),
+                locations: const [],
+                draftLocation: LocationPoint(
+                  locationId: 'd1',
+                  mapId: draftMapId,
+                  name: '새 장소',
+                  x: 5.0,
+                  y: 5.0,
+                  yaw: 0,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    await pumpDraft('m');
+    expect(find.byTooltip('임시 저장'), findsOneWidget);
+
+    await pumpDraft('other_map');
+    expect(find.byTooltip('임시 저장'), findsNothing);
+  });
 }

@@ -442,7 +442,10 @@ class MapCanvas extends StatelessWidget {
                         color: Colors.orange,
                         size: _markerSize,
                       ),
-                    if (draftLocation != null)
+                    // 다른 지도의 임시 저장 장소는 그리지 않습니다. 그 좌표는 이
+                    // 지도 그림 위의 자리가 아닙니다.
+                    if (draftLocation != null &&
+                        draftLocation!.mapId == map.mapId)
                       _Marker(
                         offset: _scaledOffset(
                           draftLocation!.x,

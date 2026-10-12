@@ -64,6 +64,10 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   Offset? _pickedRos;
   String? _deleteTargetId;
 
+  // 지도 드롭다운을 다시 만들 때 올립니다. 지도 바꾸기를 팝업에서 물렀을 때
+  // 드롭다운이 고른 값을 버리고 지금 지도로 돌아가게 합니다.
+  int _mapPickerResets = 0;
+
   // 지금 펼쳐 둔 칸입니다. 처음에는 아무 칸도 열려 있지 않습니다 — 다른 칸과
   // 똑같이 눌러야 열립니다(2026-09-30 사용자 결정). 종전에는 장소 저장이 열린
   // 채로 시작했는데, 들어올 때마다 지도가 위로 밀려 작아졌습니다.
@@ -137,7 +141,11 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     final map = supervisor.selectedMap;
     final locations = supervisor.locationsFor(map?.mapId);
     final deleteTarget = _selectedLocation(locations);
-    final draft = supervisor.draftLocation;
+    // 임시 저장 장소는 그 장소를 만든 지도에서만 보입니다. 다른 지도에서 보이면
+    // '임시 저장 장소 수정'이 그 좌표를 지금 지도의 장소로 다시 저장합니다.
+    final draftAny = supervisor.draftLocation;
+    final draft =
+        draftAny != null && draftAny.mapId == map?.mapId ? draftAny : null;
     // 지도를 누르면 임시 저장 장소를 버리므로(사용자 결정 2026-08-21) 초록 점과
     // 주황 점이 동시에 뜨는 상태는 없습니다. draft 가 있으면 그쪽이 우선입니다.
     final pickedLocation =
@@ -225,6 +233,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       children: [
         VicaFieldWithAction(
           field: DropdownButtonFormField<String>(
+            key: ValueKey('map-picker-$_mapPickerResets'),
             initialValue: map?.mapId,
             decoration: _compactDropdownDecoration,
             isExpanded: true,
@@ -252,7 +261,8 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                   ),
                 )
                 .toList(),
-            onChanged: (value) => supervisor.selectMap(settings, value),
+            onChanged: (value) =>
+                _changeMap(context, supervisor, settings, value),
           ),
           action: OutlinedButton.icon(
             onPressed: map == null
@@ -555,30 +565,8 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     if (_panel == _SettingsPanel.keepout &&
         target != _SettingsPanel.keepout &&
         supervisor.keepoutEditing) {
-      final mapId = supervisor.selectedMap?.mapId;
-      final leave = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => VicaDialog(
-          icon: Icons.shield_outlined,
-          title: '저장하지 않은 금지구역이 있습니다',
-          body: '편집을 취소하고 넘어갈까요?',
-          actions: [
-            VicaCancelButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              label: '계속 편집',
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('편집 취소'),
-            ),
-          ],
-        ),
-      );
-      if (leave != true) {
+      if (!await _leaveKeepoutEdit(context, supervisor)) {
         return;
-      }
-      if (mapId != null) {
-        supervisor.cancelKeepoutEdit(mapId);
       }
     }
 
@@ -586,16 +574,9 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     if (_panel == _SettingsPanel.rail &&
         target != _SettingsPanel.rail &&
         supervisor.routeEditing) {
-      if (supervisor.routeDirty) {
-        if (!context.mounted) {
-          return;
-        }
-        final leave = await showRouteLeaveDialog(context);
-        if (!leave) {
-          return;
-        }
+      if (!context.mounted || !await _leaveRailEdit(context, supervisor)) {
+        return;
       }
-      supervisor.cancelRouteEdit();
     }
     if (target == _SettingsPanel.rail && context.mounted) {
       final settings = context.read<SettingsProvider>().settings;
@@ -608,21 +589,120 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     setState(() {
       _panel = target;
       if (target != _SettingsPanel.location) {
-        // 하던 장소 일(찍기·수정·대기 장소 찍기)을 모두 접습니다. 수정 중인 원본과
-        // 입력이 남으면 돌아와 지도를 눌렀을 때 옛 수정이 되살아나 새 자리가 기존
-        // 장소를 덮어씁니다(10-07 검토).
-        _pickedRos = null;
-        _editingSaved = null;
-        _resetLocationInput();
-        _clearWaitPick();
+        _foldLocationWork();
       }
       if (target != _SettingsPanel.home) {
-        _homeMode = HomeCardMode.idle;
-        _homePicked = null;
-        _homeDirection = null;
-        _homeStanding = null;
+        _foldHomeWork();
       }
     });
+  }
+
+  /// 지도를 바꿉니다. 칸을 바꿀 때([_openPanel])와 같은 정리를 합니다.
+  ///
+  /// 정리하지 않으면 A 지도에서 고치던 장소가 B 지도로 넘어와, B 지도를 눌러
+  /// 저장하면 B 의 좌표가 A 의 장소에 들어갔습니다(장소의 지도는 원본 것이
+  /// 남습니다 — core/location_edit.dart). 홈·대기 장소 찍기도 같습니다.
+  /// 저장하지 않은 금지구역·레일 편집은 칸을 바꿀 때와 같은 팝업으로 먼저 묻고,
+  /// 물리면 지도를 바꾸지 않습니다.
+  Future<void> _changeMap(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    AppSettings settings,
+    String? mapId,
+  ) async {
+    if (mapId == supervisor.selectedMap?.mapId) {
+      return;
+    }
+    var leave = true;
+    if (supervisor.keepoutEditing) {
+      leave = await _leaveKeepoutEdit(context, supervisor);
+    }
+    if (leave && supervisor.routeEditing) {
+      leave = context.mounted && await _leaveRailEdit(context, supervisor);
+    }
+    if (!mounted) {
+      return;
+    }
+    if (!leave) {
+      // 드롭다운은 이미 새 지도를 보이고 있습니다. 다시 만들어 지금 지도로 되돌립니다.
+      setState(() => _mapPickerResets += 1);
+      return;
+    }
+    setState(() {
+      _foldLocationWork();
+      _foldHomeWork();
+      // 고른 장소도 지도마다 다릅니다.
+      _deleteTargetId = null;
+    });
+    supervisor.selectMap(settings, mapId);
+    // 레일 칸을 펼친 채로 바꿨으면 새 지도의 레일 정보를 받습니다(칸을 열 때와 같이).
+    if (_panel == _SettingsPanel.rail && mapId != null) {
+      supervisor.requestRouteInfo(settings, mapId);
+    }
+  }
+
+  /// 저장하지 않은 금지구역 편집을 두고 나가도 되는지 묻습니다. 나가면 편집을
+  /// 시작 시점으로 되돌립니다.
+  Future<bool> _leaveKeepoutEdit(
+    BuildContext context,
+    SupervisorProvider supervisor,
+  ) async {
+    final mapId = supervisor.selectedMap?.mapId;
+    final leave = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => VicaDialog(
+        icon: Icons.shield_outlined,
+        title: '저장하지 않은 금지구역이 있습니다',
+        body: '편집을 취소하고 넘어갈까요?',
+        actions: [
+          VicaCancelButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            label: '계속 편집',
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('편집 취소'),
+          ),
+        ],
+      ),
+    );
+    if (leave != true) {
+      return false;
+    }
+    if (mapId != null) {
+      supervisor.cancelKeepoutEdit(mapId);
+    }
+    return true;
+  }
+
+  /// 레일 편집을 닫습니다. 바뀐 것이 있으면 먼저 묻습니다(팝업 A).
+  Future<bool> _leaveRailEdit(
+    BuildContext context,
+    SupervisorProvider supervisor,
+  ) async {
+    if (supervisor.routeDirty && !await showRouteLeaveDialog(context)) {
+      return false;
+    }
+    supervisor.cancelRouteEdit();
+    return true;
+  }
+
+  // 하던 장소 일(찍기·수정·대기 장소 찍기)을 모두 접습니다. 수정 중인 원본과
+  // 입력이 남으면 돌아와 지도를 눌렀을 때 옛 수정이 되살아나 새 자리가 기존
+  // 장소를 덮어씁니다(10-07 검토). setState 안에서 부릅니다.
+  void _foldLocationWork() {
+    _pickedRos = null;
+    _editingSaved = null;
+    _resetLocationInput();
+    _clearWaitPick();
+  }
+
+  // 하던 홈 일(찍기·서 있는 자리 확인)을 접습니다. setState 안에서 부릅니다.
+  void _foldHomeWork() {
+    _homeMode = HomeCardMode.idle;
+    _homePicked = null;
+    _homeDirection = null;
+    _homeStanding = null;
   }
 
   // ------------------------------------------------------------------
