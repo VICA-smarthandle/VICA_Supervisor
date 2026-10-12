@@ -147,7 +147,6 @@ class _MappingShellState extends State<MappingShell> {
               index: 3,
               current: step,
               title: '완료',
-              isLast: true,
               child: _DoneStep(
                 mapId: savedMapId,
                 mapName: status != null &&
@@ -283,14 +282,12 @@ class _Step extends StatelessWidget {
     required this.current,
     required this.title,
     required this.child,
-    this.isLast = false,
   });
 
   final int index;
   final int current;
   final String title;
   final Widget child;
-  final bool isLast;
 
   @override
   Widget build(BuildContext context) {

@@ -933,98 +933,88 @@ class VicaRobotCard extends StatelessWidget {
   const VicaRobotCard({
     super.key,
     required this.robot,
-    this.onTap,
-    this.selected = false,
   });
 
   final RobotStatus robot;
-  final VoidCallback? onTap;
-  final bool selected;
 
   @override
   Widget build(BuildContext context) {
     return VicaCard(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const _IconBox(
-                icon: Icons.smart_toy, color: VicaColors.primaryDark),
-            const SizedBox(width: 14),
-            // Wrap은 자식에게 폭 제한을 물려주지 않아 긴 문구가 그대로 카드 밖으로
-            // 나갔습니다. 실제로 쓸 수 있는 폭을 재서 각 항목에 직접 넘깁니다.
-            Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final contentWidth = constraints.maxWidth;
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // 로봇 이름이 길고 창이 좁으면 이름과 배지가 한 줄에 못 들어갑니다.
-                      // Wrap으로 두어 그럴 때 배지가 다음 줄로 내려가게 합니다.
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 6,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          ConstrainedBox(
-                            constraints: BoxConstraints(maxWidth: contentWidth),
-                            child: Text(
-                              robot.robotName,
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _IconBox(icon: Icons.smart_toy, color: VicaColors.primaryDark),
+          const SizedBox(width: 14),
+          // Wrap은 자식에게 폭 제한을 물려주지 않아 긴 문구가 그대로 카드 밖으로
+          // 나갔습니다. 실제로 쓸 수 있는 폭을 재서 각 항목에 직접 넘깁니다.
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final contentWidth = constraints.maxWidth;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 로봇 이름이 길고 창이 좁으면 이름과 배지가 한 줄에 못 들어갑니다.
+                    // Wrap으로 두어 그럴 때 배지가 다음 줄로 내려가게 합니다.
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        ConstrainedBox(
+                          constraints: BoxConstraints(maxWidth: contentWidth),
+                          child: Text(
+                            robot.robotName,
+                            style: Theme.of(context).textTheme.titleMedium,
                           ),
-                          _Pill(
-                            text: _statusLabel(robot.status),
-                            color: robot.hasError
-                                ? VicaColors.red
-                                : VicaColors.primary,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text('ID: ${robot.robotId}',
-                          style: Theme.of(context).textTheme.bodySmall),
-                      const SizedBox(height: 16),
-                      Wrap(
-                        spacing: 14,
-                        runSpacing: 8,
-                        children: [
-                          _InfoChip(
-                              icon: Icons.location_on_outlined,
-                              maxWidth: contentWidth,
-                              text:
-                                  '현재 위치: ${_empty(robot.currentLocation, '수신 대기')}'),
-                          _InfoChip(
-                              icon: Icons.flag_outlined,
-                              maxWidth: contentWidth,
-                              text: '목적지: ${_empty(robot.currentGoal, '없음')}'),
-                          _InfoChip(
-                              icon: Icons.schedule,
-                              maxWidth: contentWidth,
-                              text:
-                                  '마지막 통신: ${_relativeTime(robot.timestamp)}'),
-                          // 좌표를 표시하는 이유: 이 카드에서 10 Hz로 실제 변하는
-                          // 값은 좌표뿐입니다. 나머지(상태·현재 위치·마지막 통신)는
-                          // 몇 초씩 같은 값이라, 좌표가 없으면 화면이 멈춘 것처럼
-                          // 보입니다. 2026-08-02에 "상태가 갱신되지 않는다"는 보고가
-                          // 있었고 실제로는 초당 6회 갱신 중이었습니다.
-                          _InfoChip(
-                              icon: Icons.my_location_outlined,
-                              maxWidth: contentWidth,
-                              text:
-                                  '좌표: ${robot.x.toStringAsFixed(2)}, ${robot.y.toStringAsFixed(2)}'),
-                        ],
-                      ),
-                    ],
-                  );
-                },
-              ),
+                        ),
+                        _Pill(
+                          text: _statusLabel(robot.status),
+                          color: robot.hasError
+                              ? VicaColors.red
+                              : VicaColors.primary,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text('ID: ${robot.robotId}',
+                        style: Theme.of(context).textTheme.bodySmall),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 14,
+                      runSpacing: 8,
+                      children: [
+                        _InfoChip(
+                            icon: Icons.location_on_outlined,
+                            maxWidth: contentWidth,
+                            text:
+                                '현재 위치: ${_empty(robot.currentLocation, '수신 대기')}'),
+                        _InfoChip(
+                            icon: Icons.flag_outlined,
+                            maxWidth: contentWidth,
+                            text: '목적지: ${_empty(robot.currentGoal, '없음')}'),
+                        _InfoChip(
+                            icon: Icons.schedule,
+                            maxWidth: contentWidth,
+                            text: '마지막 통신: ${_relativeTime(robot.timestamp)}'),
+                        // 좌표를 표시하는 이유: 이 카드에서 10 Hz로 실제 변하는
+                        // 값은 좌표뿐입니다. 나머지(상태·현재 위치·마지막 통신)는
+                        // 몇 초씩 같은 값이라, 좌표가 없으면 화면이 멈춘 것처럼
+                        // 보입니다. 2026-08-02에 "상태가 갱신되지 않는다"는 보고가
+                        // 있었고 실제로는 초당 6회 갱신 중이었습니다.
+                        _InfoChip(
+                            icon: Icons.my_location_outlined,
+                            maxWidth: contentWidth,
+                            text:
+                                '좌표: ${robot.x.toStringAsFixed(2)}, ${robot.y.toStringAsFixed(2)}'),
+                      ],
+                    ),
+                  ],
+                );
+              },
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

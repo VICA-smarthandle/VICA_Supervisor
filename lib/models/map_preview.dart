@@ -16,7 +16,6 @@ class MapPreview {
     required this.originX,
     required this.originY,
     required this.bytes,
-    required this.receivedAt,
     this.robotX,
     this.robotY,
     this.robotYaw,
@@ -35,7 +34,6 @@ class MapPreview {
   final double originX;
   final double originY;
   final int bytes;
-  final DateTime receivedAt;
 
   /// 지도 위 로봇 자세(ROS map 좌표, yaw 는 도 단위·반시계 양수).
   ///
@@ -79,7 +77,6 @@ class MapPreview {
       originX: (json['origin_x'] as num?)?.toDouble() ?? 0,
       originY: (json['origin_y'] as num?)?.toDouble() ?? 0,
       bytes: (json['bytes'] as num?)?.toInt() ?? 0,
-      receivedAt: DateTime.now(),
       robotX: (json['robot_x'] as num?)?.toDouble(),
       robotY: (json['robot_y'] as num?)?.toDouble(),
       robotYaw: (json['robot_yaw'] as num?)?.toDouble(),

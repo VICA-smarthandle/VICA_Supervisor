@@ -12,7 +12,6 @@ StackStatus status({
   return StackStatus(
     nodes: nodes,
     odomPublishers: odomPublishers,
-    checkedAt: DateTime(2026, 8, 21),
   );
 }
 

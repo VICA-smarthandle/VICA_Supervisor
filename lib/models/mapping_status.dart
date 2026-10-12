@@ -118,7 +118,6 @@ class MappingStatus {
     required this.mappingRunning,
     required this.duplicated,
     required this.prerequisitesMissing,
-    required this.receivedAt,
     this.saveAlign,
   });
 
@@ -135,7 +134,6 @@ class MappingStatus {
   final bool mappingRunning;
   final List<String> duplicated;
   final List<String> prerequisitesMissing;
-  final DateTime receivedAt;
 
   /// 마지막 저장을 바르게 세웠는지. 저장 전·옛 노드면 null 입니다.
   final MapSaveAlign? saveAlign;
@@ -173,7 +171,6 @@ class MappingStatus {
       mappingRunning: json['mapping_running'] == true,
       duplicated: _stringList(json['duplicated']),
       prerequisitesMissing: _stringList(json['prerequisites_missing']),
-      receivedAt: DateTime.now(),
       saveAlign: MapSaveAlign.fromJson(json['save_align']),
     );
   }

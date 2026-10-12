@@ -20,7 +20,6 @@ class StackStatus {
   const StackStatus({
     required this.nodes,
     required this.odomPublishers,
-    required this.checkedAt,
   });
 
   /// /rosapi/nodes 가 돌려준 노드 이름 전체. 같은 이름이 두 번 들어 있을 수 있고,
@@ -29,8 +28,6 @@ class StackStatus {
 
   /// /rosapi/publishers 로 조회한 /odom 발행자 이름. 2개 이상이면 ㉯ 다.
   final List<String> odomPublishers;
-
-  final DateTime checkedAt;
 
   /// Nav2 를 대표하는 노드들. lifecycle 관리 대상이라 하나라도 있으면 Nav2 가 떴다고 본다.
   static const nav2Nodes = <String>[

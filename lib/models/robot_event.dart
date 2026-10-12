@@ -34,17 +34,10 @@ enum FaultTransition {
 
 class RobotEvent {
   const RobotEvent({
-    required this.id,
     required this.fault,
     required this.transition,
     required this.receivedAt,
   });
-
-  /// 앱이 만드는 로컬 식별자. 목록 위젯의 key로 씁니다.
-  ///
-  /// 로봇은 event_id를 보내지 않습니다. 중복 판정 키는 (component, faultCode)로 충분하고,
-  /// 목록 표시용 고유 id는 앱이 만드는 편이 단순합니다.
-  final String id;
 
   final RobotFault fault;
   final FaultTransition transition;
@@ -57,13 +50,9 @@ class RobotEvent {
   /// 제외합니다.
   bool get belongsInHistory => transition != FaultTransition.reminder;
 
-  factory RobotEvent.fromRosMsg(
-    Map<String, Object?> msg, {
-    required String id,
-  }) {
+  factory RobotEvent.fromRosMsg(Map<String, Object?> msg) {
     final rawFault = msg['fault'];
     return RobotEvent(
-      id: id,
       fault: rawFault is Map<String, Object?>
           ? RobotFault.fromRosMsg(rawFault)
           : RobotFault.fromRosMsg(const {}),

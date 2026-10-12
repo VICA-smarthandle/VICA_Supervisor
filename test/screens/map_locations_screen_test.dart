@@ -54,7 +54,6 @@ class _FakeSupervisor extends SupervisorProvider {
         StackStatus(
           nodes: nav2 ? const ['/amcl', '/bt_navigator'] : const ['/rosbridge'],
           odomPublishers: const ['/ekf_filter_node'],
-          checkedAt: DateTime(2026, 8, 25),
         ),
       );
 }

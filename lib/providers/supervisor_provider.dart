@@ -972,7 +972,6 @@ class SupervisorProvider extends ChangeNotifier {
       _stackStatus = StackStatus(
         nodes: _asStringList(nodesResponse.values['nodes']),
         odomPublishers: odomPublishers,
-        checkedAt: DateTime.now(),
       );
       _stackStatusError = '';
     } catch (error) {
@@ -3350,7 +3349,7 @@ class SupervisorProvider extends ChangeNotifier {
   }
 
   void _handleRobotEvent(Map<String, Object?> message) {
-    final event = RobotEvent.fromRosMsg(message, id: _uuid.v4());
+    final event = RobotEvent.fromRosMsg(message);
 
     if (event.belongsInHistory) {
       _healthEvents.insert(0, event);
@@ -3493,7 +3492,6 @@ class SupervisorProvider extends ChangeNotifier {
     _logs.insert(
       0,
       SupervisorLog(
-        id: _uuid.v4(),
         filter: filter,
         message: message,
         createdAt: DateTime.now(),
