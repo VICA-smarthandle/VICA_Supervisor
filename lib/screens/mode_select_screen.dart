@@ -18,6 +18,7 @@ import '../providers/auth_provider.dart';
 import '../providers/supervisor_provider.dart';
 import 'settings_screen.dart';
 import '../ros/ros_bridge_client.dart';
+import '../widgets/confirm_logout.dart';
 import '../widgets/ros_connection_tile.dart';
 import '../widgets/vica_ui.dart';
 
@@ -83,7 +84,7 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
             tooltip: '설정',
           ),
           IconButton(
-            onPressed: () => context.read<AuthProvider>().logout(),
+            onPressed: () => confirmLogout(context),
             icon: const Icon(Icons.logout),
             tooltip: '로그아웃',
           ),

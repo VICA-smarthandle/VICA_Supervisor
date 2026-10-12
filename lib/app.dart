@@ -18,6 +18,7 @@ import 'providers/settings_provider.dart';
 import 'providers/supervisor_provider.dart';
 import 'providers/ui_preferences_provider.dart';
 import 'ros/ros_bridge_client.dart';
+import 'widgets/confirm_logout.dart';
 import 'widgets/delivery_notice_dialog.dart';
 import 'widgets/goal_alert_dialog.dart';
 import 'widgets/route_dialogs.dart';
@@ -293,7 +294,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
         // 폰 전용 '더보기' 목록. 사이드바가 있는 넓은 창에서는 쓰이지 않습니다.
         _MoreScreen(
           onSelect: (title) => setState(() => _index = _titles.indexOf(title)),
-          onLogout: _confirmLogout,
+          onLogout: () => confirmLogout(context),
         ),
       ];
 
@@ -786,7 +787,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
       ),
     );
     final logoutButton = IconButton(
-      onPressed: _confirmLogout,
+      onPressed: () => confirmLogout(context),
       icon: const Icon(Icons.logout, size: 18),
       color: onDark,
       tooltip: '로그아웃',
@@ -959,36 +960,6 @@ class _SupervisorShellState extends State<SupervisorShell> {
         ],
       ),
     );
-  }
-
-  Future<void> _confirmLogout() async {
-    final shouldLogout = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: Icons.logout,
-        title: '로그아웃',
-        body: '로그아웃하면 다음 실행 시 로그인 화면이 표시됩니다.',
-        actions: [
-          VicaCancelButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-          ),
-          FilledButton.icon(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            icon: const Icon(Icons.logout, size: 18),
-            label: const Text('로그아웃'),
-          ),
-        ],
-      ),
-    );
-    if (shouldLogout != true || !mounted) {
-      return;
-    }
-
-    await context.read<SupervisorProvider>().disconnect();
-    if (!mounted) {
-      return;
-    }
-    await context.read<AuthProvider>().logout();
   }
 
   /// 사이드바(전부)와 하단 탭(앞 네 개)이 같은 목록을 씁니다. 순서는 _titles 와

@@ -15,10 +15,10 @@ import 'package:provider/provider.dart';
 import '../core/app_settings.dart';
 import '../models/mapping_status.dart';
 import '../providers/app_mode_provider.dart';
-import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import 'settings_screen.dart';
+import '../widgets/confirm_logout.dart';
 import '../widgets/map_canvas.dart';
 import '../widgets/ros_connection_tile.dart';
 import '../widgets/teleop_pad.dart';
@@ -97,7 +97,7 @@ class _MappingShellState extends State<MappingShell> {
             tooltip: '설정',
           ),
           IconButton(
-            onPressed: () => context.read<AuthProvider>().logout(),
+            onPressed: () => confirmLogout(context),
             icon: const Icon(Icons.logout),
             tooltip: '로그아웃',
           ),
