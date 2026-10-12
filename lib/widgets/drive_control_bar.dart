@@ -51,7 +51,7 @@ class DriveControlBar extends StatelessWidget {
       children: [
         Expanded(
           child: OutlinedButton.icon(
-            onPressed: () => _send(
+            onPressed: () => sendRobotCommand(
               context,
               paused ? supervisor.resumeNavigation : supervisor.pauseNavigation,
             ),
@@ -71,18 +71,6 @@ class DriveControlBar extends StatelessWidget {
     );
   }
 
-  static Future<void> _send(
-    BuildContext context,
-    Future<String> Function(AppSettings) send,
-  ) async {
-    final settings = context.read<SettingsProvider>().settings;
-    final message = await send(settings);
-    if (context.mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
-    }
-  }
-
   Future<void> _confirmCancel(BuildContext context) async {
     final confirmed = await showVicaConfirm(
       context,
@@ -97,6 +85,22 @@ class DriveControlBar extends StatelessWidget {
     if (!confirmed || !context.mounted) {
       return;
     }
-    await _send(context, supervisor.cancelDestination);
+    await sendRobotCommand(context, supervisor.cancelDestination);
+  }
+}
+
+/// 로봇에 요청 하나를 보내고 돌아온 문구를 화면 아래 알림으로 띄웁니다.
+///
+/// 주행 조작 버튼(이 파일)과 물류 배송 카드의 '지금 복귀'·'도착 처리'가 같은 것을
+/// 씁니다. [send] 는 지금 설정을 받아 결과 문구를 돌려주는 provider 함수입니다.
+Future<void> sendRobotCommand(
+  BuildContext context,
+  Future<String> Function(AppSettings) send,
+) async {
+  final settings = context.read<SettingsProvider>().settings;
+  final message = await send(settings);
+  if (context.mounted) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 }

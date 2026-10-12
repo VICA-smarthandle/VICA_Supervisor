@@ -12,7 +12,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../core/app_settings.dart';
 import '../core/contact_phone.dart';
 import '../models/delivery_job.dart';
 import '../models/location_point.dart';
@@ -406,7 +405,8 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
           Expanded(
             child: FilledButton.icon(
               onPressed: hasHome
-                  ? () => _send(context, supervisor.returnDeliveryNow)
+                  ? () =>
+                      sendRobotCommand(context, supervisor.returnDeliveryNow)
                   : null,
               icon: const Icon(Icons.home),
               label: const Text('지금 복귀'),
@@ -428,7 +428,7 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
         Expanded(
           child: OutlinedButton.icon(
             onPressed: hasHome
-                ? () => _send(context, supervisor.returnDeliveryNow)
+                ? () => sendRobotCommand(context, supervisor.returnDeliveryNow)
                 : null,
             icon: const Icon(Icons.home_outlined),
             label: Text(hasHome ? '홈으로 복귀' : '홈이 없습니다'),
@@ -454,8 +454,8 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
       children: [
         Expanded(
           child: FilledButton.icon(
-            onPressed: () =>
-                _send(context, (_) => supervisor.confirmDeliveryArrival()),
+            onPressed: () => sendRobotCommand(
+                context, (_) => supervisor.confirmDeliveryArrival()),
             icon: const Icon(Icons.sms_outlined),
             label: const Text('도착 처리 · 문자'),
           ),
@@ -478,17 +478,5 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
       icon: const Icon(Icons.check),
       label: const Text('배송 완료 · 지우기'),
     );
-  }
-
-  static Future<void> _send(
-    BuildContext context,
-    Future<String> Function(AppSettings) send,
-  ) async {
-    final settings = context.read<SettingsProvider>().settings;
-    final message = await send(settings);
-    if (context.mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
-    }
   }
 }
