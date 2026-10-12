@@ -55,11 +55,19 @@ class FakeService:
         self.calls = []
         self.reply = {"accepted": True, "applied": True, "reason": "", "message": "레일을 저장했습니다."}
         self.error = None
+        self.writer = None          # 진짜 노드처럼 파일을 쓰게 할 때 (map_id, sketch) → None
+        self.preview = None         # 진짜 노드처럼 미리보기를 줄 때 (map_id, sketch) → preview_json
+        self.expects = []
 
-    def __call__(self, map_id, sketch, wait_sec=None):
+    def __call__(self, map_id, sketch, wait_sec=None, expect=None):
         self.calls.append((map_id, sketch))
+        self.expects.append(expect)
         if self.error:
             raise rt.TemplateError(self.error)
+        if expect is not None and self.preview:
+            rt.check_node_preview(expect, self.preview(map_id, sketch))     # 진짜와 같은 비교, 다르면 저장 전 멈춤
+        if self.writer:
+            self.writer(map_id, sketch)
         return dict(self.reply)
 
 
@@ -130,7 +138,7 @@ def test_extract_then_apply_on_rotated_home_gives_the_same_rail(roots):
     sketch = rt.place_sketch(tpl, (3.0, 3.0, 0.0))     # 다른 지도, 오른쪽(+x)을 보는 홈
     assert sketch["nodes"][0] == NODE1_AT_3_3_0
     want = dict(tpl["source"]["summary"])
-    assert want.pop("corner_radii_m") == [1.0, 0.56]
+    assert want.pop("corner_radii_m") == [1.0, 1.0]       # 짧은 변을 나눠 쓰는 두 코너도 같은 R(10-12)
     assert _summary(maps, "dst", sketch) == want
 
 
@@ -144,7 +152,8 @@ def test_extract_snaps_a_slightly_turned_source_home(roots):
 
 
 def test_node_ids_keep_their_order():
-    # 코너는 번호 순서로 둥글려진다 — 번호가 바뀌면 R 1.0 이 다른 코너로 간다.
+    # 번호를 그대로 둔다 — 같은 도장을 같은 자리에 찍으면 레일 파일이 바이트까지 같게(노드 번호는
+    # 코너를 깎는 차례로 매겨진다). 코너 R 은 10-12 부터 순서와 무관하다.
     tpl = _tpl()
     assert [n["id"] for n in tpl["nodes"]] == [1, 2, 3, 4]
     assert [n["id"] for n in rt.place_sketch(tpl, (5, 5, 90))["nodes"]] == [1, 2, 3, 4]
@@ -369,8 +378,8 @@ def test_stretch_moves_only_the_far_rail_and_the_far_end():
     assert got == {1: (5.4, 0.5), 2: (0.0, 0.5), 3: (0.0, 2.94), 4: (5.4, 2.94)}
     assert tpl["edges"] == base["edges"]
     assert (tpl["zone"]["left_min"], tpl["zone"]["forward_min"]) == (base["zone"]["left_min"], base["zone"]["forward_min"])
-    # 폭이 2.44 m 면 둘째 코너가 0.45 × (2.44 − 1.0) = 0.65 m 를 받는다.
-    assert tpl["source"]["summary"]["corner_radii_m"] == [1.0, 0.65]
+    # 폭이 2.44 m 여도 두 코너 모두 R 1.0 (45 % 는 깎기 전 변 길이 2.44 m 로 잰다, 10-12).
+    assert tpl["source"]["summary"]["corner_radii_m"] == [1.0, 1.0]
 
 
 def test_stretch_refuses_shapes_it_cannot_read():
@@ -505,9 +514,10 @@ def test_make_refuses_a_second_template_of_the_same_size_and_keeps_two_decimals(
         assert rt.zone_size(rt.load_template(name)) == zone
 
 
-@pytest.mark.parametrize("width, want", [(2.24, [1.0, 0.56]), (2.44, [1.0, 0.65]), (1.2, [0.54, 0.3])])
+@pytest.mark.parametrize("width, want", [(2.24, [1.0, 1.0]), (2.44, [1.0, 1.0]), (1.2, [0.54, 0.54])])
 def test_corner_radii_are_the_real_fillets(roots, width, want):
-    # 폭 1.2 m 면 두 호 사이 직선이 0.36 m 뿐이다 — 두 코너를 하나로 합치면 안 된다.
+    # 폭 1.2 m 면 두 코너가 0.45 × 1.2 = 0.54 m 씩 쓰고 사이 직선은 0.12 m 뿐이다 — 반지름이 같아도
+    # 중심이 다른 두 코너를 하나로 합치면 안 된다.
     maps, _, _ = roots
     _write_map(maps, "m", [(1, 1, 19, 11)])
     cap = [(1, 4.9, 0.5), (2, 0.0, 0.5), (3, 0.0, 0.5 + width), (4, 4.9, 0.5 + width)]
@@ -527,3 +537,108 @@ def test_stretched_template_with_mirror(roots, capsys):
     assert "원본과 같음" in out and "(8.400, 8.500)" in out
     nodes = {n["id"]: (n["x"], n["y"]) for n in fake.calls[0][1]["nodes"]}
     assert nodes[3] == (3.0, 6.06)                                   # 9.0 − 2.94
+
+
+# ── 2026-10-12 새 홈 기준 · 두 코너 R 1.0 ──────────────────────────────────
+
+# 홈 기준을 지켜야 하는 것은 demo_cap 과 그것을 늘린 버전뿐이다(다른 지도에서 뜬 도장은 제외, 검토 10-12).
+REAL_TEMPLATES = sorted(p.stem for p in rt.TEMPLATE_DIR.glob("*.json")
+                        if p.stem == rt.DEFAULT_TEMPLATE
+                        or json.loads(p.read_text(encoding="utf-8")).get("source", {}).get("made_from") == rt.DEFAULT_TEMPLATE)
+
+
+@pytest.mark.parametrize("name", REAL_TEMPLATES)
+def test_real_templates_follow_the_home_standard(tmp_path, name):
+    # 홈 = 홈 쪽 꼭짓점(2)에서 옆 0.30 m · 뒤 0.30 m. 홈 ↔ 레일 0.49 m 로 레일 올라타기 문턱 0.8 m 안.
+    tpl = rt.load_template(name)
+    nodes = {n["id"]: (n["forward"], n["left"]) for n in tpl["nodes"]}
+    assert nodes[2] == pytest.approx((-0.30, 0.30), abs=1e-3)
+    fs, ls = [f for f, _ in nodes.values()], [l for _, l in nodes.values()]
+    assert tpl["zone"] == pytest.approx({"forward_min": min(fs) - rt.ZONE_END_M, "forward_max": max(fs) + rt.ZONE_END_M,
+                                         "left_min": min(ls) - rt.ZONE_SIDE_M, "left_max": max(ls) + rt.ZONE_SIDE_M},
+                                        abs=1e-3)
+    # 적어 둔 요약이 지금 코드로 찍은 모양과 같아야 한다 — 둥글리기를 다시 바꾸면 도장도 다시 만든다.
+    assert tpl["source"]["summary"] == rt.free_space_summary(tpl)
+    assert tpl["source"]["summary"]["corner_radii_m"] == [1.0, 1.0]
+    _write_map(tmp_path, "room", [(1, 1, 19, 11)])
+    home = (6.0, 4.0, 0.0)
+    g = rb.process_sketch(rb.MapGrid(tmp_path, "room"), rt.place_sketch(tpl, home))["graph"]
+    near = min(math.dist(p, home[:2]) for a, b in g.edges() for p in rb._samples(g.nodes[a], g.nodes[b]))
+    assert 0.45 < near < 0.55
+
+
+def _real_node_writer(maps, shift=0.0):
+    """레일 노드처럼 받은 스케치를 다듬어 파일로 쓴다. shift 는 다른 코드로 다듬은 셈 치는 차이."""
+    def write(map_id, sketch):
+        sk = json.loads(json.dumps(sketch))
+        sk["nodes"][0]["x"] += shift
+        rb.save_route(maps, map_id, rb.process_sketch(rb.MapGrid(maps, map_id), sk), sk, "t")
+    return write
+
+
+def test_save_checks_what_the_rail_node_wrote(roots, capsys):
+    maps, dest, fake = roots
+    args = _prepare(maps, dest)
+    _home_file(dest, "dst", 3.0, 3.0, 0.0)
+    fake.writer = _real_node_writer(maps)
+    assert rt.main(args + ["apply", "--map", "dst", "--save"]) == rt.EXIT_OK
+    assert "저장·적용했습니다" in capsys.readouterr().out
+    # 노드가 고치기 전 코드로 떠 있어 다른 레일을 저장하면 성공으로 넘기지 않는다.
+    fake.writer = _real_node_writer(maps, shift=0.3)
+    assert rt.main(args + ["apply", "--map", "dst", "--save"]) == rt.EXIT_FAIL
+    out = capsys.readouterr().out
+    assert "미리보기와 다른 레일을 저장했습니다" in out and "supervisor 를 다시 켠 뒤" in out
+
+
+def _node_preview(maps, shift=0.0):
+    """레일 노드처럼 받은 스케치를 다듬어 preview_json 을 돌려준다(노드와 같은 rb.preview_json)."""
+    def preview(map_id, sketch):
+        sk = json.loads(json.dumps(sketch))
+        sk["nodes"][0]["x"] += shift
+        g = rb.process_sketch(rb.MapGrid(maps, map_id), sk)["graph"]
+        return json.dumps(rb.preview_json(g))
+    return preview
+
+
+def test_save_stops_before_saving_when_the_rail_node_would_make_another_rail(roots, capsys):
+    maps, dest, fake = roots
+    args = _prepare(maps, dest)
+    _home_file(dest, "dst", 3.0, 3.0, 0.0)
+    fake.writer = _real_node_writer(maps)
+    fake.preview = _node_preview(maps, shift=0.3)                       # 노드가 옛 코드로 떠 있는 셈
+    assert rt.main(args + ["apply", "--map", "dst", "--save"]) == rt.EXIT_FAIL
+    assert "다른 레일을 만듭니다" in capsys.readouterr().err
+    assert not rb.route_paths(maps, "dst")["graph"].exists()             # 저장 전에 멈췄다
+    fake.preview = _node_preview(maps)                                   # 같은 코드면 그대로 저장
+    assert rt.main(args + ["apply", "--map", "dst", "--save"]) == rt.EXIT_OK
+    assert rb.route_paths(maps, "dst")["graph"].exists()
+    assert fake.expects[-1] and len(fake.expects[-1]) == len(json.loads(fake.preview("dst", fake.calls[-1][1]))["nodes"])
+
+
+def test_node_preview_check(tmp_path):
+    _write_map(tmp_path, "m", [(1, 1, 19, 11)])
+    g = rb.process_sketch(rb.MapGrid(tmp_path, "m"), _sketch_at((3.0, 3.0, 0.0)))["graph"]
+    good = json.dumps(rb.preview_json(g))
+    rt.check_node_preview(list(g.nodes.values()), good)                 # 같으면 지나간다(소수 셋째 자리여도)
+    rt.check_node_preview(list(g.nodes.values()), "")                   # 노드가 미리보기를 안 주면 넘어간다
+    moved = [(x + 0.01, y) for x, y in g.nodes.values()]
+    with pytest.raises(rt.TemplateError):
+        rt.check_node_preview(moved, good)
+    with pytest.raises(rt.TemplateError):
+        rt.check_node_preview(list(g.nodes.values()), "{broken")
+
+
+def test_extract_does_not_overwrite_the_home_standard_original(roots, capsys):
+    maps, dest, _ = roots
+    args = _prepare(maps, dest)
+    tpl = rt.load_template("demo_cap")
+    tpl["source"]["home_standard"] = {"since": "2026-10-12"}
+    rt._write_template("demo_cap", tpl, overwrite=True)
+    assert rt.main(args + ["make", "--zone", "4x7"]) == rt.EXIT_OK      # 늘린 버전은 base_source 로 이어받는다
+    capsys.readouterr()
+    for name in ("demo_cap", "demo_cap_4.0x7.0"):
+        assert rt.main(args + ["extract", "--map", "src", "--name", name, "--overwrite"]) == rt.EXIT_FAIL
+        assert "extract 로 덮지 않습니다" in capsys.readouterr().err
+    assert rt.main(args + ["extract", "--map", "src", "--name", "other"]) == rt.EXIT_OK
+    (rt.TEMPLATE_DIR / "broken.json").write_text("{", encoding="utf-8")   # 깨진 파일은 전처럼 덮어 고친다
+    assert rt.main(args + ["extract", "--map", "src", "--name", "broken", "--overwrite"]) == rt.EXIT_OK

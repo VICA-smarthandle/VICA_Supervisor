@@ -275,6 +275,12 @@ def _turn_deg(a, b, c) -> float:
                                        v1[0] * v2[0] + v1[1] * v2[1])))
 
 
+def _unit(a, b) -> tuple[float, float]:
+    """a 에서 b 쪽 단위 벡터(같은 점이면 0)."""
+    d = math.dist(a, b)
+    return ((b[0] - a[0]) / d, (b[1] - a[1]) / d) if d > 1e-12 else (0.0, 0.0)
+
+
 def _seg_intersection(p1, p2, p3, p4):
     """두 선분이 끝점이 아닌 곳에서 만나면 교점, 아니면 None."""
     d = (p2[0] - p1[0]) * (p4[1] - p3[1]) - (p2[1] - p1[1]) * (p4[0] - p3[0])
@@ -423,7 +429,24 @@ def fillet_junctions(g: Graph, grid: MapGrid) -> list[dict[str, Any]]:
 
 
 def fillet_corners(g: Graph, grid: MapGrid) -> None:
-    """이웃 둘인 노드의 15~120° 코너를 호로. 안 들어가면 그대로(검사가 잡는다)."""
+    """이웃 둘인 노드의 15~120° 코너를 호로. 안 들어가면 그대로(검사가 잡는다).
+
+    접점 거리는 이웃 변의 45 % 까지 — 한 변을 나눠 쓰는 두 코너가 겹치지 않게. 45 % 는 깎기 전 변
+    길이로 잰다(2026-10-12 사용자 결정, 옛 생성기 scripts/vica_route_graph.py 와 같은 규칙). 차례로
+    깎으면서 지금 이웃까지 재면 먼저 깎은 코너가 R 1.0 을 가져가고 다음 코너는 남은 길이의 45 % 만
+    받았다(∩ 레일 폭 2.24 m 에서 R 1.00 · 0.56, 연습장 실측 먼 코너가 직진의 62~65 % 로 감속).
+    """
+    # 깎기 전 이웃 방향과 변 길이. 앞 코너를 깎으면 이웃이 그 접점으로 바뀌지만 방향은 같다.
+    before = {b: [(_unit(g.nodes[b], g.nodes[n]), math.dist(g.nodes[b], g.nodes[n])) for n in g.adj[b]]
+              for b in g.nodes if len(g.adj.get(b, ())) == 2}
+
+    def edge_before(b: int, P) -> float:
+        u = _unit(g.nodes[b], P)
+        for v, length in before.get(b, ()):
+            if u[0] * v[0] + u[1] * v[1] > 0.9999:
+                return length
+        return math.dist(g.nodes[b], P)
+
     for b in [n for n in list(g.nodes) if len(g.adj.get(n, ())) == 2]:
         if b not in g.nodes or len(g.adj[b]) != 2 or b in g.arc_nodes:
             continue
@@ -434,7 +457,8 @@ def fillet_corners(g: Graph, grid: MapGrid) -> None:
             continue
         phi = math.radians(180 - turn)
         for R in FILLET_RADII:
-            t = min(R / math.tan(phi / 2.0), 0.45 * math.dist(A, B), 0.45 * math.dist(B, C))
+            # 이웃 코너도 같은 변의 45 % 까지만 쓰므로 0.45 × 깎기 전 길이는 늘 지금 이웃보다 가깝다.
+            t = min(R / math.tan(phi / 2.0), 0.45 * edge_before(b, A), 0.45 * edge_before(b, C))
             arc = _arc_points(A, B, C, t)
             if not arc or arc[3] < 0.15:
                 continue

@@ -8,15 +8,24 @@
 원리: 레일은 스케치(꼭짓점 몇 개 + 선)만 있으면 된다. 코너 둥글리기·1 m 나누기·벽 검사는
 route_graph_build.process_sketch 가 한다(앱 레일 저장과 같은 코드). 꼭짓점을 홈 좌표계
 (앞 = 홈이 보는 방향, 왼쪽 = 홈의 왼쪽, m)로 바꿔 두면, 새 지도에서 홈만 알면 같은 레일이
-나온다. 노드 번호도 그대로 둔다 — 코너는 번호 순서로 둥글려져 먼저 찍힌 코너가 R 1.0 을
-가져가기 때문이다.
+나온다. 노드 번호도 그대로 둔다 — 같은 자리에 찍으면 레일 파일이 바이트까지 같게(노드 번호는
+코너를 깎는 차례로 매겨진다). 짧은 변을 나눠 쓰는 두 코너는 2026-10-12 부터 둘 다 R 1.0 이다
+(route_graph_build.fillet_corners: 45 % 를 깎기 전 변 길이로 잰다).
+
+홈 기준(2026-10-12 사용자 결정): 홈 = 홈 쪽 꼭짓점(2)에서 옆 0.30 m · 뒤 0.30 m. 레일은 홈 뒤
+0.30 ~ 앞 4.60 m(7 m 판 5.10 m), 홈 왼쪽 0.30 ~ 2.54 m(4 m 판 2.74 m)에 놓이고, 홈 ↔ 가장 가까운
+레일 점은 0.49 m 다(레일 올라타기 문턱 0.8 m · 복귀 문턱 0.5 m 안). 시연 구역이 홈 뒤 1.10 m · 오른쪽 0.48 m 까지
+가므로 홈은 뒤쪽 벽에서 1.1 m 넘게 띄워 찍는다. 옛 기준(홈 왼쪽 0.50 · 앞 0)은 10-10 연습장 레일만
+옮긴 흔적이었다.
 
 쓰는 법(젯슨, ROS 환경을 불러온 셸 — `humble` 별칭 또는 install/setup.bash):
     cd ~/VICA-smarthandle/VICA_Supervisor/ros2
     python3 rail_template.py apply --map <지도>            # 미리보기만. 파일을 쓰지 않는다
     python3 rail_template.py apply --map <지도> --save     # 레일 노드(/vica/route/save)로 저장·적용
     python3 rail_template.py apply --map <지도> --offline  # 레일 노드 없이 파일만 쓴다
-    python3 rail_template.py extract --map map_1002_150946 --overwrite  # 연습장 레일을 바꾼 뒤 도장 다시 뜨기
+    python3 rail_template.py extract --map <지도> --name <새 이름>  # 다른 지도 레일을 새 도장으로 뜨기
+도장 원본은 rail_templates/demo_cap.json 이다. 연습장(map_1002_150946)에서 demo_cap 을 다시 뜨지
+않는다 — 그 지도 레일은 10-12 부터 홈 기준이 아니라 금지구역 가운데에 깔았다.
 
 크기 버전(2026-10-11 사용자 요청: 시연장 빈 곳이 더 넓으면 공간을 최대로 쓴다):
     python3 rail_template.py list                          # 있는 버전·구역 크기·레일 크기·코너
@@ -292,7 +301,7 @@ def stretch_template(base: dict[str, Any], width: float, length: float, *,
     """구역 폭·길이에 맞게 늘인다. 홈 쪽 레일·변은 그대로, 홈에서 먼 쪽 레일과 먼 끝만 민다.
 
     꼭짓점이 레일 네 모서리에 있는 ∩ 모양용이다. 가운데 줄 근처(0.05 m 안)에 꼭짓점이 있으면
-    어느 쪽으로 밀지 정할 수 없어 멈춘다. 번호·선은 그대로 둔다(코너 R 순서 유지).
+    어느 쪽으로 밀지 정할 수 없어 멈춘다. 번호·선은 그대로 둔다(같은 자리면 레일 파일이 바이트까지 같게).
     """
     z = base["zone"]
     dw = width - (z["left_max"] - z["left_min"])
@@ -520,8 +529,12 @@ def zone_blocks(zone: dict[str, Any], ignore_zone: bool = False) -> list[str]:
 # 저장
 # ---------------------------------------------------------------------------
 
-def save_via_service(map_id: str, sketch: dict[str, Any], wait_sec: float = SERVICE_WAIT_SEC) -> dict[str, Any]:
+def save_via_service(map_id: str, sketch: dict[str, Any], wait_sec: float = SERVICE_WAIT_SEC,
+                     expect=None) -> dict[str, Any]:
     """route_graph_node(/vica/route/get → /vica/route/save)로 저장·적용한다.
+
+    expect(이 도구가 다듬은 레일 노드 좌표)를 주면 먼저 노드에게 미리보기만(preview_only) 받아
+    같은지 본다 — 노드가 옛 코드로 떠 있으면 다른 레일이 저장·적용되기 전에 멈춘다(검토 10-12).
 
     못 하면 원인을 TemplateError 로 알린다. 몰래 파일을 직접 쓰지 않는다 — 노드가 떠 있는데
     파일만 바꾸면 적용도 앱 알림도 없이 끝난다(검토 10-10). 파일만 쓰려면 --offline.
@@ -550,6 +563,20 @@ def save_via_service(map_id: str, sketch: dict[str, Any], wait_sec: float = SERV
                 raise TemplateError("레일 조회(/vica/route/get)가 10초 안에 답하지 않아 저장하지 않았습니다.")
             # 레일이 아직 없는 지도는 found=False·version "" 이고, 노드도 판 비교를 건너뛴다.
             version = future.result().version
+            if expect is not None:
+                req = SaveRoute.Request()
+                req.map_id = map_id
+                req.sketch_json = json.dumps(sketch, ensure_ascii=False)
+                req.preview_only = True
+                req.apply_now = False
+                req.base_version = version
+                req.overwrite = False
+                future = save.call_async(req)
+                rclpy.spin_until_future_complete(node, future, timeout_sec=20.0)
+                if not future.done() or future.result() is None:
+                    raise TemplateError("레일 노드 미리보기(/vica/route/save preview_only)가 20초 안에 답하지 않아 "
+                                        "저장하지 않았습니다.")
+                check_node_preview(expect, future.result().preview_json)
             req = SaveRoute.Request()
             req.map_id = map_id
             req.sketch_json = json.dumps(sketch, ensure_ascii=False)
@@ -568,6 +595,53 @@ def save_via_service(map_id: str, sketch: dict[str, Any], wait_sec: float = SERV
             node.destroy_node()
     finally:
         rclpy.shutdown()
+
+
+def shape_differs(mine, theirs, tol_m: float = 0.002) -> str:
+    """두 레일 노드 좌표 목록이 같은 모양이면 "", 다르면 무엇이 다른지. 파일은 소수 넷째,
+    앱 미리보기(preview_json)는 셋째 자리로 적히므로 2 mm 안이면 같은 점으로 본다."""
+    mine, theirs = list(mine), list(theirs)
+    if len(mine) != len(theirs):
+        return f"노드 수 레일 노드 쪽 {len(theirs)}개 · 미리보기 {len(mine)}개"
+    worst = max((min(math.dist(p, q) for q in mine) for p in theirs), default=0.0)
+    if worst < tol_m:
+        return ""
+    return f"노드 수는 {len(mine)}개로 같고 자리가 최대 {worst:.2f} m 다름"
+
+
+SUPERVISOR_HINT = ("레일 노드(앱 쪽 supervisor)가 둥글리기 코드를 고치기 전에 켜졌을 수 있습니다 — 로봇이 서 있을 때 "
+                   "supervisor 를 다시 켠 뒤 다시 저장하세요(supervisor 에 앱 비상정지 통로 rosbridge 도 들어 있습니다).")
+
+
+def check_node_preview(expect, preview_json: str) -> None:
+    """저장 전에 레일 노드가 만든 미리보기(SaveRoute preview_only)가 이 도구의 미리보기와 같은지.
+    다르면 저장하지 않고 TemplateError. 노드가 미리보기를 안 주면(빈 문자열) 넘어간다."""
+    if not preview_json:
+        return
+    try:
+        theirs = [(float(n["x"]), float(n["y"])) for n in json.loads(preview_json)["nodes"]]
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+        raise TemplateError(f"레일 노드 미리보기를 읽지 못해 저장하지 않았습니다({error!r}).") from error
+    diff = shape_differs(expect, theirs)
+    if diff:
+        raise TemplateError(f"레일 노드가 이 도구의 미리보기와 다른 레일을 만듭니다({diff}). 저장하지 않았습니다. "
+                            + SUPERVISOR_HINT)
+
+
+def saved_rail_differs(path: Path, version_before: str, graph: rb.Graph) -> str:
+    """레일 노드가 쓴 레일이 미리보기와 다르면 그 내용, 같으면 "".
+
+    레일 노드(route_graph_node)는 스케치를 받아 자기가 불러 둔 route_graph_build 로 다시 다듬는다.
+    둥글리기 코드를 고친 뒤 supervisor 를 다시 안 켜면 미리보기와 다른 레일이 저장된다(2026-10-12
+    두 코너 R 1.0 수정 때 생긴 틈). 이번 저장으로 파일이 안 바뀌었으면(노드가 다른 maps 폴더를 씀) 보지 않는다.
+    """
+    if rb.file_version(path) in ("", version_before):
+        return ""
+    try:
+        saved = rb.graph_from_geojson(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+        return f"저장된 레일 파일을 다시 읽지 못했습니다({error!r})"
+    return shape_differs(graph.nodes.values(), saved.nodes.values())
 
 
 def save_offline(maps_root: Path, map_id: str, result: dict[str, Any], sketch: dict[str, Any]) -> None:
@@ -620,6 +694,8 @@ def cmd_list(args) -> int:
             continue
         base = tpl["source"].get("made_from")
         origin = f" ← {base} 를 늘림" if base else f" ← {tpl['source'].get('map_id', '?')} 에서 뜸"
+        if tpl["source"].get("home_standard"):
+            origin += f" · {tpl['source']['home_standard'].get('since', '')} 홈 기준으로 옮김"
         mark = " (기본)" if name == DEFAULT_TEMPLATE else ""
         print(f"  {name}{mark}: {_describe(tpl)}{origin}")
     return EXIT_OK
@@ -649,7 +725,26 @@ def cmd_make(args) -> int:
     return EXIT_OK
 
 
+def _is_home_standard(tpl: dict[str, Any]) -> bool:
+    src = tpl.get("source", {})
+    return bool(src.get("home_standard") or (src.get("base_source") or {}).get("home_standard"))
+
+
+def _protected(name: str) -> bool:
+    """extract 로 덮으면 안 되는 도장인가. 못 읽는 파일은 보호하지 않는다(전처럼 --overwrite 로 다시 쓴다)."""
+    if not template_path(name).exists():
+        return False
+    try:
+        return _is_home_standard(load_template(name))
+    except TemplateError:
+        return False
+
+
 def cmd_extract(args) -> int:
+    if _protected(args.name):
+        # demo_cap 은 2026-10-12 새 홈 기준으로 옮긴 원본이다. 연습장에서 뜨면 옛 배치로 돌아간다(검토 10-12).
+        raise TemplateError(f"도장 '{args.name}' 은 새 홈 기준(꼭짓점이 홈 옆 0.30 · 뒤 0.30) 원본·버전이라 extract 로 "
+                            f"덮지 않습니다. 다른 --name 을 쓰거나 rail_templates/{args.name}.json 을 직접 고치세요.")
     tpl = extract(args.maps_root, args.dest_root, args.map, args.name, snap=not args.no_snap)
     path = _write_template(args.name, tpl, args.overwrite)
     src = tpl["source"]
@@ -741,11 +836,18 @@ def cmd_apply(args) -> int:
         print("파일만 저장했습니다(레일 노드 안 거침). 이 지도로 Nav2 를 띄우면 읽습니다 — "
               "이미 이 지도로 떠 있으면 Nav2 를 다시 띄우세요.")
         return EXIT_NOT_APPLIED
-    reply = save_via_service(args.map, sketch)
+    graph_path = rb.route_paths(args.maps_root, args.map)["graph"]
+    version_before = rb.file_version(graph_path)
+    reply = save_via_service(args.map, sketch, expect=list(result["graph"].nodes.values()))
     if not reply["accepted"]:
         hint = {"conflict": " 저장 직전에 레일 판이 달라졌습니다(다른 기기에서 저장했거나 레일 파일을 못 읽음). "
                             "앱 레일 칸을 확인한 뒤 다시 실행하세요."}.get(reply["reason"], "")
         print(f"저장 안 됨[{reply['reason']}]: {reply['message']}{hint}")
+        return EXIT_FAIL
+    drift = saved_rail_differs(graph_path, version_before, result["graph"])
+    if drift:
+        print(f"주의: 레일 노드가 미리보기와 다른 레일을 저장했습니다({drift}). 이미 저장됐고, 노드 답대로 "
+              f"적용됐을 수 있습니다(노드 답: {reply['message']}). " + SUPERVISOR_HINT)
         return EXIT_FAIL
     if reply["applied"]:
         print(f"저장·적용했습니다: {reply['message']}")

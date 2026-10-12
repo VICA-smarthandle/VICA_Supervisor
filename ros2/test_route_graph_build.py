@@ -93,6 +93,59 @@ def test_corner_is_rounded(t_map):
             assert rb._turn_deg(g.nodes[a], g.nodes[b], g.nodes[c]) < rb.SHARP_MIN_DEG
 
 
+def _tangent(g, B, P) -> float:
+    """다듬은 레일에서 꼭짓점 B 와 B→P 선 위 가장 가까운 노드(호의 접점) 사이 거리. 90° 면 = R."""
+    best = math.inf
+    bx, by = P[0] - B[0], P[1] - B[1]
+    L = math.hypot(bx, by)
+    for x, y in g.nodes.values():
+        dx, dy = x - B[0], y - B[1]
+        along = (dx * bx + dy * by) / L
+        if 1e-6 < along <= L + 1e-9 and abs(dx * by - dy * bx) / L < 1e-6:
+            best = min(best, along)
+    return best
+
+
+def _cap(tmp_path, width, reverse=False):
+    """빈 방에 ∩ 레일(다리 4.9 m, 짧은 변 width). reverse 면 꼭짓점을 반대 끝부터 찍은 스케치."""
+    _write_map(tmp_path, "room", [(1, 1, 19, 11)])
+    pts = [(6.0, 7.9), (6.0, 3.0), (6.0 + width, 3.0), (6.0 + width, 7.9)]
+    order = pts[::-1] if reverse else pts
+    nodes = {i + 1: p for i, p in enumerate(order)}
+    return pts, rb.process_sketch(rb.MapGrid(tmp_path, "room"), _sk(nodes, [(1, 2), (2, 3), (3, 4)]))
+
+
+@pytest.mark.parametrize("width, want", [(2.24, 1.0), (2.44, 1.0), (1.2, 0.54)])
+def test_two_corners_sharing_a_short_edge_get_the_same_radius(tmp_path, width, want):
+    # 2026-10-12: 45 % 는 깎기 전 변 길이로 잰다. 전에는 먼저 깎은 코너가 R 1.0, 다음 코너가 남은
+    # 길이의 45 %(폭 2.24 → 0.56)를 받아 연습장 먼 코너에서 직진의 62~65 % 로 감속했다.
+    pts, r = _cap(tmp_path, width)
+    g = r["graph"]
+    t2 = _tangent(g, pts[1], pts[2])
+    t3 = _tangent(g, pts[2], pts[1])
+    assert t2 == pytest.approx(want, abs=1e-6) and t3 == pytest.approx(want, abs=1e-6)
+    assert _tangent(g, pts[1], pts[0]) == pytest.approx(want, abs=1e-6)       # 다리 쪽 접점도 같은 R
+    assert width - t2 - t3 >= 0.1 * width - 1e-6                              # 두 호 사이 직선이 남는다
+    assert r["errors"] == [] and "sharp_corner" not in _codes(r["warnings"])
+
+
+def test_corner_radius_does_not_depend_on_the_drawing_order(tmp_path):
+    # 옛 규칙에서는 먼저 찍은 코너가 R 1.0 을 가져가 반대 끝부터 찍으면 레일 모양이 달라졌다.
+    pts, a = _cap(tmp_path, 2.24)
+    _, b = _cap(tmp_path, 2.24, reverse=True)
+    shape = lambda r: sorted((round(x, 3), round(y, 3)) for x, y in r["graph"].nodes.values())  # noqa: E731
+    assert shape(a) == shape(b)
+
+
+@pytest.mark.parametrize("short, want", [(8.0, 1.0), (1.5, 0.675)])
+def test_lone_corner_keeps_the_old_radius(tmp_path, short, want):
+    # 코너 하나뿐인 변은 전과 같다: R 1.0, 짧으면 그 변의 45 %.
+    _write_map(tmp_path, "room", [(1, 1, 19, 11)])
+    B, A, C = (10.0, 2.0), (10.0, 2.0 + short), (2.0, 2.0)
+    r = rb.process_sketch(rb.MapGrid(tmp_path, "room"), _sk({1: A, 2: B, 3: C}, [(1, 2), (2, 3)]))
+    assert _tangent(r["graph"], B, C) == pytest.approx(want, abs=1e-6)
+
+
 def test_t_junction_becomes_y_with_penalty_and_no_detour(t_map):
     grid, _ = t_map
     sk = _sk({1: (3, 6), 2: (10, 6), 3: (17, 6), 4: (10, 1.5)}, [(1, 2), (2, 3), (2, 4)])
