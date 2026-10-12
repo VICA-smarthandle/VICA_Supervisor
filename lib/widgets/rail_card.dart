@@ -268,9 +268,11 @@ class RailCard extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             if (errors.isNotEmpty)
-              _Badge(text: '검사 ${errors.length}건', color: VicaColors.red)
+              VicaStateBadge(
+                  text: '검사 ${errors.length}건', color: VicaColors.red)
             else
-              const _Badge(text: '편집 중 · 저장 전', color: VicaColors.primary),
+              const VicaStateBadge(
+                  text: '편집 중 · 저장 전', color: VicaColors.primary),
           ],
         ),
         const SizedBox(height: 10),
@@ -374,15 +376,17 @@ class RailCard extends StatelessWidget {
   Widget _badgeRow() {
     final Widget badge;
     if (!connected) {
-      badge = const _Badge(text: 'ROS 연결 없음', color: VicaColors.red);
+      badge = const VicaStateBadge(text: 'ROS 연결 없음', color: VicaColors.red);
     } else if (drivingHold && info?.status != 'apply_pending') {
-      badge = const _Badge(text: '주행 중 · 편집 잠김', color: VicaColors.muted);
+      badge =
+          const VicaStateBadge(text: '주행 중 · 편집 잠김', color: VicaColors.muted);
     } else if (!_hasRail) {
-      badge = const _Badge(text: '레일 없음', color: VicaColors.muted);
+      badge = const VicaStateBadge(text: '레일 없음', color: VicaColors.muted);
     } else if (info?.status == 'apply_pending') {
-      badge = const _Badge(text: '적용 대기 · 주행 끝나면', color: VicaColors.muted);
+      badge =
+          const VicaStateBadge(text: '적용 대기 · 주행 끝나면', color: VicaColors.muted);
     } else {
-      badge = const _Badge(text: '레일 적용됨', color: VicaColors.green);
+      badge = const VicaStateBadge(text: '레일 적용됨', color: VicaColors.green);
     }
     return Row(children: [badge]);
   }
@@ -472,29 +476,6 @@ class _Fact extends StatelessWidget {
             style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _Badge extends StatelessWidget {
-  const _Badge({required this.text, required this.color});
-
-  final String text;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-            fontSize: 11.5, fontWeight: FontWeight.w800, color: color),
       ),
     );
   }

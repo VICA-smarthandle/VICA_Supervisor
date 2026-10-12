@@ -146,15 +146,15 @@ class KeepoutCard extends StatelessWidget {
         ),
         const SizedBox(width: 10),
         if (!connected)
-          const _Badge(text: 'ROS 연결 없음', color: VicaColors.red)
+          const VicaStateBadge(text: 'ROS 연결 없음', color: VicaColors.red)
         else if (editing)
-          const _Badge(text: '편집 중 · 저장 전', color: VicaColors.primary)
+          const VicaStateBadge(text: '편집 중 · 저장 전', color: VicaColors.primary)
         else if (drivingHold)
-          const _Badge(text: '주행 중 · 편집 잠김', color: VicaColors.muted)
+          const VicaStateBadge(text: '주행 중 · 편집 잠김', color: VicaColors.muted)
         else if (maskApplied)
-          const _Badge(text: '금지구역 적용됨', color: VicaColors.green)
+          const VicaStateBadge(text: '금지구역 적용됨', color: VicaColors.green)
         else
-          const _Badge(text: '적용 대기', color: VicaColors.muted),
+          const VicaStateBadge(text: '적용 대기', color: VicaColors.muted),
       ],
     );
   }
@@ -288,29 +288,6 @@ class KeepoutCard extends StatelessWidget {
           ],
         ),
       ],
-    );
-  }
-}
-
-class _Badge extends StatelessWidget {
-  const _Badge({required this.text, required this.color});
-
-  final String text;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-            fontSize: 11.5, fontWeight: FontWeight.w800, color: color),
-      ),
     );
   }
 }

@@ -1127,6 +1127,31 @@ InputDecoration vicaCompactDropdownDecoration(String label) {
   );
 }
 
+/// 칸 머리의 작은 상태 꼬리표('편집 중 · 저장 전'·'레일 적용됨' 등). 옅은 바탕에 같은 색
+/// 굵은 글자입니다. 금지구역·레일 칸이 같은 것을 씁니다.
+class VicaStateBadge extends StatelessWidget {
+  const VicaStateBadge({super.key, required this.text, required this.color});
+
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+            fontSize: 11.5, fontWeight: FontWeight.w800, color: color),
+      ),
+    );
+  }
+}
+
 // 선택 드롭다운과 그 옆의 실행 버튼을 한 줄에 놓습니다.
 //
 // 버튼 폭이 고정이라 좁은 창에서는 드롭다운이 130px까지 밀려 지도 이름이 거의
