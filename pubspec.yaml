@@ -26,8 +26,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  assets:
-    - assets/icon/app_icon.png
+  # assets/icon/app_icon.png 는 앱 안에 싣지 않습니다 — 앱이 읽는 곳이 없고, 런처 아이콘
+  # 원본(아래 flutter_launcher_icons.image_path)으로만 씁니다.
 
   # 폰트를 앱에 넣는다. 이름만 지정하고 파일을 넣지 않으면 그 기기에 같은 이름의
   # 폰트가 깔려 있을 때만 한글이 보인다. Jetson에는 fonts-nanum이 깔려 있어 넘어갔지만
