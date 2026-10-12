@@ -318,11 +318,16 @@ class MapCanvas extends StatelessWidget {
                     Positioned.fill(
                       child: Image.network(
                         _imageUrl,
+                        // 다른 지도로 바꾸면 위젯을 새로 만들어 옛 지도 그림을 남기지
+                        // 않습니다(남기면 B 지도 위에 A 의 벽이 깔려 엉뚱한 자리를
+                        // 찍게 됩니다). 미리보기는 mapId 가 늘 'preview' 라 아래
+                        // gaplessPlayback 이 그대로 듣습니다.
+                        key: ValueKey(map.mapId),
                         fit: BoxFit.fill,
                         filterQuality: FilterQuality.medium,
-                        // 주소가 바뀌어도 새 그림이 올 때까지 옛 그림을 둡니다.
-                        // 매핑 미리보기는 2초마다 주소가 바뀌어, 그사이 빈 칸으로
-                        // 깜박일 수 있습니다.
+                        // 같은 지도에서 주소가 바뀌면 새 그림이 올 때까지 옛 그림을
+                        // 둡니다. 매핑 미리보기는 2초마다 주소가 바뀌어, 그사이 빈
+                        // 칸으로 깜박일 수 있습니다.
                         gaplessPlayback: true,
                         errorBuilder: (context, error, stackTrace) {
                           return ColoredBox(
