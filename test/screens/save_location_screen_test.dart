@@ -472,6 +472,21 @@ void main() {
     expect(tester.widget<MapCanvas>(find.byType(MapCanvas)).ghostPoint, isNull);
   });
 
+  // 고른 지도가 목록에서 사라지면(다른 기기가 지움) 화면은 첫 지도를 대신 보입니다. 그 지도를
+  // 고르는 것은 "같은 지도" 가 아니라 새로 고르는 것입니다 — 장소·홈·금지구역을 받아야 합니다.
+  testWidgets('고른 지도가 지워져 대신 보이는 지도를 고르면 그 지도로 바뀐다', (tester) async {
+    final supervisor = await pumpWithMap(tester);
+    final onlyB = twoMapsMsg();
+    onlyB['maps'] = [(onlyB['maps']! as List).last];
+    supervisor.injectMaps(onlyB);
+    await tester.pump();
+    expect(supervisor.selectedMapId, 'vica_map_test', reason: '전제: 고른 값은 낡았다');
+    expect(supervisor.selectedMap?.mapId, 'map_b', reason: '전제: 화면은 첫 지도를 보인다');
+
+    await chooseMap(tester, '두번째 지도');
+    expect(supervisor.selectedMapId, 'map_b');
+  });
+
   testWidgets('다른 지도의 임시 저장 장소는 보이지 않고, 돌아오면 다시 보인다', (tester) async {
     final supervisor = await pumpWithMap(tester);
     supervisor.injectMaps(twoMapsMsg());

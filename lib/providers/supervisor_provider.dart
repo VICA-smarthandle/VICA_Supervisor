@@ -264,6 +264,10 @@ class SupervisorProvider extends ChangeNotifier {
   RobotStatus? get primaryRobot =>
       _robotsById.isEmpty ? null : _robotsById.values.first;
 
+  /// 실제로 고른 지도 id. [selectedMap] 은 고른 지도가 목록에 없으면 첫 지도로 대신하므로,
+  /// "이미 고른 지도인가" 는 이 값으로 판정합니다([selectMap] 과 같은 기준).
+  String? get selectedMapId => _selectedMapId;
+
   VicaMap? get selectedMap {
     for (final map in _maps) {
       if (map.mapId == _selectedMapId) {

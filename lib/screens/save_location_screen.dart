@@ -579,7 +579,9 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     AppSettings settings,
     String? mapId,
   ) async {
-    if (mapId == supervisor.selectedMap?.mapId) {
+    // 화면에 보이는 대체 지도(selectedMap)가 아니라 실제로 고른 값과 비교합니다. 고른 지도가
+    // 지워져 첫 지도가 대신 보일 때 그 지도를 고르면 장소·홈·금지구역을 받아야 합니다.
+    if (mapId == supervisor.selectedMapId) {
       return;
     }
     var leave = true;
