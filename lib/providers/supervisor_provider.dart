@@ -888,30 +888,20 @@ class SupervisorProvider extends ChangeNotifier {
     required String service,
     Map<String, String> gateMessages = const {},
   }) async {
-    final client = _client;
-    if (client == null || _connectionState != RosConnectionState.connected) {
-      return (false, 'ROS Bridge에 연결되지 않았습니다.');
-    }
-    try {
-      final response = await client.callService(
-        service: service,
-        type: 'vica_interfaces/srv/RequestDestination',
-        args: {
-          'request_id': _uuid.v4(),
-          'map_id': location.mapId,
-          'destination_id': location.locationId,
-        },
-      );
-      final message = response.message.isEmpty
+    final reply = await _callService(
+      service: service,
+      type: 'vica_interfaces/srv/RequestDestination',
+      args: {
+        'request_id': _uuid.v4(),
+        'map_id': location.mapId,
+        'destination_id': location.locationId,
+      },
+      describe: (response) => response.message.isEmpty
           ? (response.accepted ? '주행 요청을 수락했습니다.' : '주행 요청이 거부되었습니다.')
-          : _localizeGateReason(response.message, gateMessages);
-      _addLog(LogFilter.coordinateTransfer, message);
-      return (response.accepted, message);
-    } catch (error) {
-      final message = 'Mission Manager 목적지 요청 실패: $error';
-      _addLog(LogFilter.coordinateTransfer, message);
-      return (false, message);
-    }
+          : _localizeGateReason(response.message, gateMessages),
+      failurePrefix: 'Mission Manager 목적지 요청 실패',
+    );
+    return (reply.accepted, reply.message);
   }
 
   // 진행 중인 주행 제어. 요청만 보내고 허용 여부는 Mission Manager가 판정합니다.
@@ -990,11 +980,6 @@ class SupervisorProvider extends ChangeNotifier {
     return value.whereType<String>().toList(growable: false);
   }
 
-  /// 저장된 지도를 지웁니다. 되돌릴 수 없습니다.
-  ///
-  /// "지도 한 장은 사람이 로봇을 끌고 다닌 시간"이라(vica_map_save.sh 주석) 실제
-  /// 검사는 노드가 합니다 — 이름 규칙, 지금 쓰는 지도인지, 파일이 있는지.
-  /// 앱은 확인을 받고 결과를 보여줄 뿐입니다.
   /// 지도의 표시 이름(한글 가능)을 바꿉니다. 파일·URL·장소는 map_id 로 묶여
   /// 있어 그대로이고, 노드가 목록을 다시 보내면 드롭다운이 새 이름을 보입니다.
   Future<String> renameMap(
@@ -1002,61 +987,48 @@ class SupervisorProvider extends ChangeNotifier {
     String mapId,
     String displayName,
   ) async {
-    final client = _client;
-    if (client == null || _connectionState != RosConnectionState.connected) {
-      return 'ROS Bridge에 연결되지 않았습니다.';
-    }
-    try {
-      final response = await client.callService(
-        service: settings.renameMapService,
-        type: 'vica_interfaces/srv/RenameMap',
-        args: {'map_id': mapId, 'display_name': displayName},
-      );
-      final message = response.message.isEmpty
+    final reply = await _callService(
+      service: settings.renameMapService,
+      type: 'vica_interfaces/srv/RenameMap',
+      args: {'map_id': mapId, 'display_name': displayName},
+      describe: (response) => response.message.isEmpty
           ? (response.accepted ? '이름을 바꿨습니다.' : '이름 바꾸기가 거부되었습니다.')
-          : response.message;
-      _addLog(LogFilter.coordinateTransfer, message);
-      return message;
-    } catch (error) {
-      final message = '이름 바꾸기 요청 실패: $error';
-      _addLog(LogFilter.coordinateTransfer, message);
-      return message;
-    }
+          : response.message,
+      failurePrefix: '이름 바꾸기 요청 실패',
+    );
+    return reply.message;
   }
 
+  /// 저장된 지도를 지웁니다. 되돌릴 수 없습니다.
+  ///
+  /// "지도 한 장은 사람이 로봇을 끌고 다닌 시간"이라(vica_map_save.sh 주석) 실제
+  /// 검사는 노드가 합니다 — 이름 규칙, 지금 쓰는 지도인지, 파일이 있는지.
+  /// 앱은 확인을 받고 결과를 보여줄 뿐입니다.
   Future<String> deleteMap(
     AppSettings settings,
     String mapId, {
     required bool deleteDestinations,
   }) async {
-    final client = _client;
-    if (client == null || _connectionState != RosConnectionState.connected) {
-      return 'ROS Bridge에 연결되지 않았습니다.';
-    }
-    try {
-      final response = await client.callService(
-        service: settings.deleteMapService,
-        type: 'vica_interfaces/srv/DeleteMap',
-        args: {
-          'map_id': mapId,
-          'delete_destinations': deleteDestinations,
-        },
-      );
-      final message = response.message.isEmpty
+    final reply = await _callService(
+      service: settings.deleteMapService,
+      type: 'vica_interfaces/srv/DeleteMap',
+      args: {
+        'map_id': mapId,
+        'delete_destinations': deleteDestinations,
+      },
+      describe: (response) => response.message.isEmpty
           ? (response.accepted ? '지도가 삭제되었습니다.' : '삭제가 거부되었습니다.')
-          : response.message;
-      _addLog(LogFilter.coordinateTransfer, message);
-      if (response.accepted && _selectedMapId == mapId) {
-        // 지운 지도를 계속 고른 채로 두면 없는 지도의 장소를 보여주게 됩니다.
-        _selectedMapId = null;
-        _selectedLocationId = null;
-      }
-      return message;
-    } catch (error) {
-      final message = '지도 삭제 요청 실패: $error';
-      _addLog(LogFilter.coordinateTransfer, message);
-      return message;
-    }
+          : response.message,
+      failurePrefix: '지도 삭제 요청 실패',
+      onAccepted: (_) {
+        if (_selectedMapId == mapId) {
+          // 지운 지도를 계속 고른 채로 두면 없는 지도의 장소를 보여주게 됩니다.
+          _selectedMapId = null;
+          _selectedLocationId = null;
+        }
+      },
+    );
+    return reply.message;
   }
 
   // ---- 홈 위치 ------------------------------------------------------------
@@ -1130,31 +1102,26 @@ class SupervisorProvider extends ChangeNotifier {
     double score = 0,
     String label = '',
   }) async {
-    final client = _client;
-    if (client == null || _connectionState != RosConnectionState.connected) {
-      return 'ROS Bridge에 연결되지 않았습니다.';
-    }
-    _homeBusy = true;
-    notifyListeners();
-    try {
-      final response = await client.callService(
-        service: settings.homeSaveService,
-        type: 'vica_interfaces/srv/SaveHome',
-        args: {
-          'map_id': mapId,
-          'x': x,
-          'y': y,
-          'yaw': yawDeg,
-          'source': source.wire,
-          'score': score,
-          'label': label,
-        },
-      );
-      final message = response.message.isEmpty
+    final reply = await _callService(
+      service: settings.homeSaveService,
+      type: 'vica_interfaces/srv/SaveHome',
+      args: {
+        'map_id': mapId,
+        'x': x,
+        'y': y,
+        'yaw': yawDeg,
+        'source': source.wire,
+        'score': score,
+        'label': label,
+      },
+      // 문구가 비었을 때의 기본 문구가 '삭제'로 되어 있습니다(deleteHome 에서 옮겨 온 듯).
+      // 로봇은 늘 "홈을 저장했습니다. …"를 실어 보내 화면에 거의 안 나옵니다. 저장용
+      // 앱 문구가 따로 없어 바꾸지 않았습니다 — 사용자 결정 대기(검토 35bc1d0 D3).
+      describe: (response) => response.message.isEmpty
           ? (response.accepted ? '홈 위치가 삭제되었습니다.' : '홈 위치 삭제가 거부되었습니다.')
-          : response.message;
-      _addLog(LogFilter.coordinateTransfer, message);
-      if (response.accepted) {
+          : response.message,
+      failurePrefix: '홈 저장 실패',
+      onAccepted: (_) {
         _homeMapId = mapId;
         _home = HomePosition(
           x: x,
@@ -1166,47 +1133,31 @@ class SupervisorProvider extends ChangeNotifier {
           visitedOk: false,
           savedAt: DateTime.now().toIso8601String(),
         );
-      }
-      return message;
-    } catch (error) {
-      final message = '홈 저장 실패: $error';
-      _addLog(LogFilter.coordinateTransfer, message);
-      return message;
-    } finally {
-      _homeBusy = false;
-      notifyListeners();
-    }
+      },
+      busy: _setHomeBusy,
+    );
+    return reply.message;
   }
 
   Future<String> deleteHome(AppSettings settings, String mapId) async {
-    final client = _client;
-    if (client == null || _connectionState != RosConnectionState.connected) {
-      return 'ROS Bridge에 연결되지 않았습니다.';
-    }
-    _homeBusy = true;
-    notifyListeners();
-    try {
-      final response = await client.callService(
-        service: settings.homeDeleteService,
-        type: 'vica_interfaces/srv/DeleteHome',
-        args: {'map_id': mapId},
-      );
-      final message = response.message.isEmpty
+    final reply = await _callService(
+      service: settings.homeDeleteService,
+      type: 'vica_interfaces/srv/DeleteHome',
+      args: {'map_id': mapId},
+      describe: (response) => response.message.isEmpty
           ? (response.accepted ? '홈 위치가 삭제되었습니다.' : '홈 위치 삭제가 거부되었습니다.')
-          : response.message;
-      _addLog(LogFilter.coordinateTransfer, message);
-      if (response.accepted) {
-        _home = null;
-      }
-      return message;
-    } catch (error) {
-      final message = '홈 삭제 실패: $error';
-      _addLog(LogFilter.coordinateTransfer, message);
-      return message;
-    } finally {
-      _homeBusy = false;
-      notifyListeners();
-    }
+          : response.message,
+      failurePrefix: '홈 삭제 실패',
+      onAccepted: (_) => _home = null,
+      busy: _setHomeBusy,
+    );
+    return reply.message;
+  }
+
+  // 홈 저장·삭제를 기다리는 동안 홈 칸 버튼을 잠급니다.
+  void _setHomeBusy(bool busy) {
+    _homeBusy = busy;
+    notifyListeners();
   }
 
   /// 로봇을 홈으로 보냅니다. **관리자만 부를 수 있는 경로입니다.**
@@ -1226,26 +1177,16 @@ class SupervisorProvider extends ChangeNotifier {
   /// 홈 복귀 서비스 호출. 관리자 버튼과 배송 자동 복귀가 같은 문으로 나갑니다.
   /// 배송은 수락됐을 때만 '복귀 중'으로 옮겨야 해서 수락 여부를 함께 돌려줍니다.
   Future<(bool, String)> _callReturnHome(AppSettings settings) async {
-    final client = _client;
-    if (client == null || _connectionState != RosConnectionState.connected) {
-      return (false, 'ROS Bridge에 연결되지 않았습니다.');
-    }
-    try {
-      final response = await client.callService(
-        service: settings.missionReturnHomeService,
-        type: 'vica_interfaces/srv/MissionCommand',
-        args: {'request_id': _uuid.v4()},
-      );
-      final message = response.message.isEmpty
+    final reply = await _callService(
+      service: settings.missionReturnHomeService,
+      type: 'vica_interfaces/srv/MissionCommand',
+      args: {'request_id': _uuid.v4()},
+      describe: (response) => response.message.isEmpty
           ? (response.accepted ? '홈으로 복귀합니다.' : '홈 복귀 요청이 거부되었습니다.')
-          : _localizeGateReason(response.message);
-      _addLog(LogFilter.coordinateTransfer, message);
-      return (response.accepted, message);
-    } catch (error) {
-      final message = '홈 복귀 요청 실패: $error';
-      _addLog(LogFilter.coordinateTransfer, message);
-      return (false, message);
-    }
+          : _localizeGateReason(response.message),
+      failurePrefix: '홈 복귀 요청 실패',
+    );
+    return (reply.accepted, reply.message);
   }
 
   // ---- 물류 배송 -----------------------------------------------------------
@@ -2916,25 +2857,16 @@ class SupervisorProvider extends ChangeNotifier {
   }
 
   Future<String> _callMappingTrigger(String service, String fallback) async {
-    final client = _client;
-    if (client == null || _connectionState != RosConnectionState.connected) {
-      return 'ROS Bridge에 연결되지 않았습니다.';
-    }
-    try {
-      final response = await client.callService(
-        service: service,
-        type: 'std_srvs/srv/Trigger',
-        // 시작은 launch 를 띄우는 일이라 응답이 조금 늦을 수 있습니다.
-        timeout: const Duration(seconds: 15),
-      );
-      final message = response.message.isEmpty ? fallback : response.message;
-      _addLog(LogFilter.coordinateTransfer, message);
-      return message;
-    } catch (error) {
-      final message = '매핑 요청 실패: $error';
-      _addLog(LogFilter.coordinateTransfer, message);
-      return message;
-    }
+    final reply = await _callService(
+      service: service,
+      type: 'std_srvs/srv/Trigger',
+      // 시작은 launch 를 띄우는 일이라 응답이 조금 늦을 수 있습니다.
+      timeout: const Duration(seconds: 15),
+      describe: (response) =>
+          response.message.isEmpty ? fallback : response.message,
+      failurePrefix: '매핑 요청 실패',
+    );
+    return reply.message;
   }
 
   /// 지도를 저장합니다. 이름은 사람이, 날짜는 로봇이 붙입니다.
@@ -3099,30 +3031,66 @@ class SupervisorProvider extends ChangeNotifier {
     String service,
     String defaultSuccessMessage,
   ) async {
-    final client = _client;
-    if (client == null || _connectionState != RosConnectionState.connected) {
-      return 'ROS Bridge에 연결되지 않았습니다.';
-    }
-    try {
-      final response = await client.callService(
-        service: service,
-        type: 'vica_interfaces/srv/MissionCommand',
-        args: {'request_id': _uuid.v4()},
-      );
+    final reply = await _callService(
+      service: service,
+      type: 'vica_interfaces/srv/MissionCommand',
+      args: {'request_id': _uuid.v4()},
       // 수락이면 앱 문구를 씁니다. 미션은 수락에도 'pause 요청을 처리했습니다.'처럼
       // 명령 이름을 그대로 실어 보내, 관리자가 읽을 말이 아닙니다
       // (mission_manager_node._handle_mission_command). 거부 사유만 옮깁니다.
-      final message = response.accepted
+      describe: (response) => response.accepted
           ? defaultSuccessMessage
           : response.message.isEmpty
               ? '요청이 거부되었습니다.'
-              : _localizeGateReason(response.message);
+              : _localizeGateReason(response.message),
+      failurePrefix: 'Mission Manager 요청 실패',
+    );
+    return reply.message;
+  }
+
+  /// 미션·지도·홈 서비스 한 번 부르기의 공통 틀입니다.
+  ///
+  /// 연결을 확인하고(없으면 부르지 않고 'ROS Bridge에 연결되지 않았습니다.'), 부르고,
+  /// [describe] 가 응답으로 화면 문구를 고르고, 그 문구를 '좌표 전송' 알림에 남깁니다.
+  /// 호출이 실패하면(시간 초과·서비스 없음·연결 끊김) '[failurePrefix]: 오류' 입니다.
+  /// 자리마다 기본 문구와 거부 사유를 읽는 법이 달라 [describe] 로 받습니다.
+  ///
+  /// [onAccepted] 는 수락됐을 때 기록 뒤에 한 번 불립니다(상태 바꾸기). [busy] 는 부르기
+  /// 직전에 true, 끝나면(실패 포함) false 로 불립니다 — 연결이 없으면 부르지 않습니다.
+  Future<({bool accepted, String message})> _callService({
+    required String service,
+    required String type,
+    Map<String, Object?> args = const {},
+    Duration timeout = RosBridgeClient.defaultServiceTimeout,
+    required String Function(RosServiceResponse response) describe,
+    required String failurePrefix,
+    void Function(RosServiceResponse response)? onAccepted,
+    void Function(bool calling)? busy,
+  }) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return (accepted: false, message: 'ROS Bridge에 연결되지 않았습니다.');
+    }
+    busy?.call(true);
+    try {
+      final response = await client.callService(
+        service: service,
+        type: type,
+        args: args,
+        timeout: timeout,
+      );
+      final message = describe(response);
       _addLog(LogFilter.coordinateTransfer, message);
-      return message;
+      if (response.accepted) {
+        onAccepted?.call(response);
+      }
+      return (accepted: response.accepted, message: message);
     } catch (error) {
-      final message = 'Mission Manager 요청 실패: $error';
+      final message = '$failurePrefix: $error';
       _addLog(LogFilter.coordinateTransfer, message);
-      return message;
+      return (accepted: false, message: message);
+    } finally {
+      busy?.call(false);
     }
   }
 

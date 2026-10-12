@@ -32,6 +32,9 @@ class RosServiceResponse {
 }
 
 class RosBridgeClient {
+  /// [callService] 가 응답을 기다리는 기본 시간.
+  static const defaultServiceTimeout = Duration(seconds: 5);
+
   RosBridgeClient({
     required this.onState,
     RosChannelConnector? connector,
@@ -172,7 +175,7 @@ class RosBridgeClient {
     required String service,
     String type = 'std_srvs/Trigger',
     Map<String, Object?> args = const {},
-    Duration timeout = const Duration(seconds: 5),
+    Duration timeout = defaultServiceTimeout,
   }) {
     if (_channel == null) {
       return Future.error(StateError('ROS Bridge에 연결되지 않았습니다.'));
