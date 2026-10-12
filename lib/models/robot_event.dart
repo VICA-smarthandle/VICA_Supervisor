@@ -8,6 +8,7 @@
 // supervisor_provider의 _lastLoggedErrorReason이 억제를 담당합니다. 두 경로의 억제
 // 지점이 다르다는 것이 중요합니다.
 import 'robot_fault.dart';
+import '../core/json_read.dart';
 
 /// 결함 상태 전이. RobotEvent.msg의 TRANSITION_* 상수와 값이 같습니다.
 enum FaultTransition {
@@ -56,21 +57,8 @@ class RobotEvent {
       fault: rawFault is Map<String, Object?>
           ? RobotFault.fromRosMsg(rawFault)
           : RobotFault.fromRosMsg(const {}),
-      transition: FaultTransition.fromValue(_asInt(msg['transition'])),
+      transition: FaultTransition.fromValue(jsonInt(msg['transition'])),
       receivedAt: DateTime.now(),
     );
   }
-}
-
-int _asInt(Object? value) {
-  if (value is int) {
-    return value;
-  }
-  if (value is num) {
-    return value.toInt();
-  }
-  if (value is String) {
-    return int.tryParse(value) ?? 0;
-  }
-  return 0;
 }

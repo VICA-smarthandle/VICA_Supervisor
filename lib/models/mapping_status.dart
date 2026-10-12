@@ -3,6 +3,8 @@
 // 앱이 "지금 시작해도 되나 / 저장해도 되나 / 모드를 바꿔도 되나"를 이것으로 판정합니다.
 // 젯슨에서 프로세스를 실제로 소유한 노드가 보내는 값이라, 노드 목록을 훑어 추측하는
 // 것보다 정확합니다.
+import '../core/json_read.dart';
+
 enum MappingState {
   idle('idle', '대기'),
   starting('starting', '시작하는 중'),
@@ -154,13 +156,6 @@ class MappingStatus {
 
   bool get canSave => state == MappingState.mapping;
 
-  static List<String> _stringList(Object? value) {
-    if (value is! List) {
-      return const [];
-    }
-    return value.whereType<String>().toList(growable: false);
-  }
-
   factory MappingStatus.fromJson(Map<String, Object?> json) {
     return MappingStatus(
       state: MappingState.fromValue(json['state'] as String? ?? ''),
@@ -169,8 +164,8 @@ class MappingStatus {
       mapName: json['map_name'] as String? ?? '',
       nav2Running: json['nav2_running'] == true,
       mappingRunning: json['mapping_running'] == true,
-      duplicated: _stringList(json['duplicated']),
-      prerequisitesMissing: _stringList(json['prerequisites_missing']),
+      duplicated: jsonStringList(json['duplicated']),
+      prerequisitesMissing: jsonStringList(json['prerequisites_missing']),
       saveAlign: MapSaveAlign.fromJson(json['save_align']),
     );
   }

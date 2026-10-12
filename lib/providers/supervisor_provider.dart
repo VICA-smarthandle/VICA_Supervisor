@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/app_settings.dart';
+import '../core/json_read.dart';
 import '../core/log_filter.dart';
 import '../models/delivery_job.dart';
 import '../models/goal_event.dart';
@@ -954,13 +955,14 @@ class SupervisorProvider extends ChangeNotifier {
           type: 'rosapi_msgs/srv/Publishers',
           args: const {'topic': '/odom'},
         );
-        odomPublishers = _asStringList(publishersResponse.values['publishers']);
+        odomPublishers =
+            jsonStringList(publishersResponse.values['publishers']);
       } catch (_) {
         odomPublishers = const [];
       }
 
       _stackStatus = StackStatus(
-        nodes: _asStringList(nodesResponse.values['nodes']),
+        nodes: jsonStringList(nodesResponse.values['nodes']),
         odomPublishers: odomPublishers,
       );
       _stackStatusError = '';
@@ -971,13 +973,6 @@ class SupervisorProvider extends ChangeNotifier {
       _stackStatusLoading = false;
       notifyListeners();
     }
-  }
-
-  static List<String> _asStringList(Object? value) {
-    if (value is! List) {
-      return const [];
-    }
-    return value.whereType<String>().toList(growable: false);
   }
 
   /// 지도의 표시 이름(한글 가능)을 바꿉니다. 파일·URL·장소는 map_id 로 묶여
