@@ -320,6 +320,10 @@ class MapCanvas extends StatelessWidget {
                         _imageUrl,
                         fit: BoxFit.fill,
                         filterQuality: FilterQuality.medium,
+                        // 주소가 바뀌어도 새 그림이 올 때까지 옛 그림을 둡니다.
+                        // 매핑 미리보기는 2초마다 주소가 바뀌어, 그사이 빈 칸으로
+                        // 깜박일 수 있습니다.
+                        gaplessPlayback: true,
                         errorBuilder: (context, error, stackTrace) {
                           return ColoredBox(
                             color: Theme.of(context)

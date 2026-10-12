@@ -106,4 +106,12 @@ void main() {
     await pumpDraft('other_map');
     expect(find.byTooltip('임시 저장'), findsNothing);
   });
+
+  // 매핑 미리보기는 2초마다 그림 주소가 바뀝니다. 새 그림이 올 때까지 옛 그림을
+  // 두어야 빈 칸으로 깜박이지 않습니다.
+  testWidgets('지도 그림은 주소가 바뀌어도 옛 그림을 둔다', (tester) async {
+    await pump(tester);
+    final image = tester.widget<Image>(find.byType(Image));
+    expect(image.gaplessPlayback, isTrue);
+  });
 }
