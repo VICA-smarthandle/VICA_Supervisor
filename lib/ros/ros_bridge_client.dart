@@ -15,6 +15,9 @@ typedef RosTopicHandler = void Function(Map<String, Object?> message);
 typedef RosStateHandler = void Function(
     RosConnectionState state, String detail);
 
+/// WebSocket 을 여는 함수. 시험은 실제 소켓 대신 가짜 채널을 끼웁니다.
+typedef RosChannelConnector = WebSocketChannel Function(Uri uri);
+
 // rosbridge call_service 응답. result=false 이면 서비스 호출 자체가 실패한 것이고,
 // values 에는 서비스가 돌려준 필드(std_srvs/Trigger 라면 success, message)가 담긴다.
 class RosServiceResponse {
@@ -29,9 +32,13 @@ class RosServiceResponse {
 }
 
 class RosBridgeClient {
-  RosBridgeClient({required this.onState});
+  RosBridgeClient({
+    required this.onState,
+    RosChannelConnector? connector,
+  }) : _connector = connector ?? WebSocketChannel.connect;
 
   final RosStateHandler onState;
+  final RosChannelConnector _connector;
   final Map<String, RosTopicHandler> _handlers = {};
   final Map<String, Completer<RosServiceResponse>> _pendingServiceCalls = {};
   int _serviceCallCounter = 0;
@@ -46,19 +53,37 @@ class RosBridgeClient {
     await close();
     _setState(RosConnectionState.connecting, 'ROS 연결 시도: $url');
     try {
-      _channel = WebSocketChannel.connect(Uri.parse(url));
+      _channel = _connector(Uri.parse(url));
       await _channel!.ready;
       _subscription = _channel!.stream.listen(
         _handleRawMessage,
-        onDone: () => _setState(RosConnectionState.disconnected, 'ROS 연결 종료'),
-        onError: (Object error) =>
-            _setState(RosConnectionState.failed, 'ROS 연결 오류: $error'),
+        onDone: () => _handleChannelLost(
+          RosConnectionState.disconnected,
+          'ROS 연결 종료',
+        ),
+        onError: (Object error) => _handleChannelLost(
+          RosConnectionState.failed,
+          'ROS 연결 오류: $error',
+        ),
       );
       _setState(RosConnectionState.connected, 'ROS 연결 완료');
     } catch (error) {
       _setState(RosConnectionState.failed, 'ROS 연결 실패: $error');
       await close();
     }
+  }
+
+  // 소켓이 저절로 끊겼을 때(서버 종료·와이파이 끊김). 채널을 비워 두지 않으면
+  // 다음 callService 가 죽은 소켓에 요청을 보내고 5초 timeout 까지 기다립니다.
+  // 이미 기다리던 호출도 timeout 을 기다리지 않고 지금 실패로 돌려줍니다.
+  void _handleChannelLost(RosConnectionState next, String detail) {
+    final channel = _channel;
+    _channel = null;
+    _failPendingServiceCalls();
+    _setState(next, detail);
+    // 끊긴 소켓의 sink 도 닫아 둡니다. 이미 닫혔으면 아무 일도 없고, 닫다 나는
+    // 오류는 이미 끊긴 연결의 일이라 버립니다.
+    channel?.sink.close().ignore();
   }
 
   // 화면이나 앱이 연결을 해제할 때 subscription과 channel을 함께 정리합니다.

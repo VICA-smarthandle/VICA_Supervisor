@@ -103,12 +103,18 @@ class SupervisorProvider extends ChangeNotifier {
     RouteGraphLoader? routeGraphLoader,
     RouteServiceCall? routeServiceCall,
     WallMaskLoader? wallMaskLoader,
+    RosChannelConnector? rosChannelConnector,
   })  : _deliveryNotifier = deliveryNotifier ?? createDeliveryNotifier(),
         _deliveryStore =
             deliveryJobStore ?? const SharedPreferencesDeliveryJobStore(),
         _routeGraphLoader = routeGraphLoader ?? const RouteGraphLoader(),
         _routeServiceCall = routeServiceCall,
-        _wallMaskLoader = wallMaskLoader ?? MapWallMask.load;
+        _wallMaskLoader = wallMaskLoader ?? MapWallMask.load,
+        _rosChannelConnector = rosChannelConnector;
+
+  /// rosbridge 소켓을 여는 함수. null 이면 실제 WebSocket 을 엽니다. 시험은 가짜
+  /// 채널을 끼워 끊김·재연결을 젯슨 없이 재현합니다.
+  final RosChannelConnector? _rosChannelConnector;
 
   static const _nav2UnavailableReason = 'Nav2/AMCL 미실행';
   static const _nav2UnavailableMessage =
@@ -149,6 +155,9 @@ class SupervisorProvider extends ChangeNotifier {
   // 지도 목록 응답을 처리할 때도 자동 요청 설정이 필요해 연결에 쓴 설정을 보관합니다.
   AppSettings? _lastSettings;
   RosBridgeClient? _client;
+  // 일부러 닫는 중인 옛 연결. 그 연결이 내는 '연결 해제'는 지금처럼 화면에 반영하되
+  // 재연결은 잡지 않습니다.
+  RosBridgeClient? _closingClient;
   RosConnectionState _connectionState = RosConnectionState.disconnected;
   String _connectionDetail = '';
   List<VicaMap> _maps = const [];
@@ -276,18 +285,72 @@ class SupervisorProvider extends ChangeNotifier {
     _resetNav2NotificationState();
     final oldClient = _client;
     _client = null;
-    await oldClient?.close();
-    _client = RosBridgeClient(onState: (state, detail) {
-      _setConnectionState(state, detail);
-      if (state == RosConnectionState.disconnected ||
-          state == RosConnectionState.failed) {
-        _scheduleReconnect(settings);
-      }
-    });
-    await _client!.connect(settings.rosBridgeUrl);
+    await _closeClient(oldClient);
+    late final RosBridgeClient client;
+    client = RosBridgeClient(
+      onState: (state, detail) =>
+          _handleClientState(client, settings, state, detail),
+      connector: _rosChannelConnector,
+    );
+    _client = client;
+    await client.connect(settings.rosBridgeUrl);
+    if (!identical(_client, client)) {
+      // 연결을 기다리는 사이 connect 가 또 불려 새 연결로 바뀌었습니다. 이 연결은
+      // 아무도 닫지 않으므로 여기서 닫습니다 — 남겨 두면 토픽을 두 번씩 받습니다.
+      await client.close();
+      return;
+    }
     if (_connectionState == RosConnectionState.connected) {
       _subscribeRequiredTopics(settings);
       _requestSyncAfterConnect(settings);
+    }
+  }
+
+  // 연결 하나가 낸 상태 소식을 받습니다.
+  //
+  // 이미 바뀐 옛 연결의 소식은 버립니다. 그 연결이 뒤늦게 '실패'를 내면 지금 연결이
+  // 멀쩡한데 화면이 실패로 바뀌고, 새 연결에 옛 주소로 재연결을 거는 일이 생깁니다.
+  // 일부러 닫는 연결의 '연결 해제'만은 지금처럼 화면에 반영합니다.
+  void _handleClientState(
+    RosBridgeClient client,
+    AppSettings settings,
+    RosConnectionState state,
+    String detail,
+  ) {
+    if (_disposed) {
+      return;
+    }
+    final current = identical(client, _client);
+    if (!current && !identical(client, _closingClient)) {
+      return;
+    }
+    _setConnectionState(state, detail);
+    if (!current) {
+      return;
+    }
+    if (state == RosConnectionState.connected) {
+      // 다시 붙었으면 재시도 횟수를 처음부터 셉니다. 안 그러면 끊김이 몇 번 쌓인
+      // 뒤로는 자동 재연결이 아무 말 없이 멈춥니다.
+      _reconnectAttempts = 0;
+    } else if (state == RosConnectionState.disconnected ||
+        state == RosConnectionState.failed) {
+      _scheduleReconnect(settings);
+    }
+  }
+
+  // 연결을 일부러 닫습니다. 닫는 동안 그 연결이 내는 소식은 [_handleClientState] 가
+  // 화면에만 반영합니다.
+  Future<void> _closeClient(RosBridgeClient? client) async {
+    if (client == null) {
+      return;
+    }
+    _closingClient = client;
+    try {
+      await client.close();
+    } finally {
+      if (identical(_closingClient, client)) {
+        _closingClient = null;
+      }
     }
   }
 
@@ -309,7 +372,7 @@ class SupervisorProvider extends ChangeNotifier {
     _reconnectAttempts = 0;
     final client = _client;
     _client = null;
-    await client?.close();
+    await _closeClient(client);
     _clearRobotRuntimeState();
     notifyListeners();
   }
@@ -349,17 +412,27 @@ class SupervisorProvider extends ChangeNotifier {
     _robotsById.clear();
   }
 
-  // 무한 재시도를 피하기 위해 설정된 횟수까지만 재연결합니다.
+  // 무한 재시도를 피하기 위해 설정된 횟수까지만 재연결합니다. 횟수는 연달아
+  // 실패한 횟수입니다 — 다시 붙으면 [_handleClientState] 가 0 으로 되돌립니다.
   void _scheduleReconnect(AppSettings settings) {
+    // 연결 실패 한 번이 '실패'와 '연결 해제' 두 소식으로 옵니다. 이미 잡아 둔
+    // 재시도가 있으면 같은 실패이므로 다시 세지 않습니다.
+    if (_reconnectTimer?.isActive ?? false) {
+      return;
+    }
     if (_client == null ||
         _reconnectAttempts >= settings.maxReconnectAttempts) {
       return;
     }
-    _reconnectTimer?.cancel();
     _reconnectAttempts += 1;
     _reconnectTimer = Timer(const Duration(seconds: 3), () async {
-      await _client?.connect(settings.rosBridgeUrl);
-      if (_connectionState == RosConnectionState.connected) {
+      final client = _client;
+      if (client == null) {
+        return;
+      }
+      await client.connect(settings.rosBridgeUrl);
+      if (identical(_client, client) &&
+          _connectionState == RosConnectionState.connected) {
         _subscribeRequiredTopics(settings);
         _requestSyncAfterConnect(settings);
       }
