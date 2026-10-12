@@ -393,6 +393,10 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
       );
       return;
     }
+    // 들어오기 전부터 남아 있던 채점 결과는 이번에 잡은 것이 아닙니다(지도 설정
+    // 홈 칸의 '여기가 맞는지 확인', 화면을 떠나기 전의 지난 회차). 남기면 짚은
+    // 점도 없는데 그 점수로 '확정'이 열립니다. 확정 뒤 라이다 점은 그대로 둡니다.
+    supervisor.discardPoseCheck(supervisor.poseCheck);
     setState(() => _picking = true);
   }
 

@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:vica_supervisor/core/app_settings.dart';
 import 'package:vica_supervisor/models/location_point.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
@@ -14,7 +15,25 @@ import 'package:vica_supervisor/widgets/vica_ui.dart';
 import 'package:vica_supervisor/widgets/map_canvas.dart';
 import 'package:vica_supervisor/widgets/rail_card.dart';
 
+import '../ros/fake_ros_socket.dart';
+
 class _FakeSupervisor extends SupervisorProvider {
+  _FakeSupervisor({super.rosChannelConnector});
+
+  void injectRobot() => handleRobotStatusForTest({
+        'robot_id': 'vica_robot_01',
+        'robot_name': 'VICA 1호기',
+        'status': 'idle',
+        'x': 1.0,
+        'y': 2.0,
+        'yaw': 0.0,
+        'current_location': '로비',
+        'current_goal': '',
+        'error_reason': '',
+        'waiting_reason': '',
+        'map_id': 'vica_map_test',
+      });
+
   void injectMaps(Map<String, Object?> message) =>
       handleMapListForTest(message);
 
@@ -506,5 +525,104 @@ void main() {
     await tester.pumpAndSettle();
     expect(supervisor.selectedMap?.mapId, 'map_b');
     expect(supervisor.keepoutEditing, isFalse);
+  });
+
+  // ---- 홈 칸 '여기가 맞는지 확인' 결과 (검토 35bc1d0 B4) ---------------------
+  //
+  // 이 확인은 원격 주행의 초기 위치 채점을 빌려 씁니다(provider.poseCheck). 종전에는
+  // 홈을 저장할 때만 치워서, 칸을 접거나 화면을 떠나면 원격 주행 화면이 그 점수와
+  // 라이다 점을 보이고 초기 위치 '확정'을 열어 두었습니다.
+
+  const poseValues = <String, Object?>{
+    'ok': true,
+    'message': '잘 맞습니다',
+    'score': 88.0,
+    'x': 1.0,
+    'y': 2.0,
+    'yaw': 0.0,
+    'hit_x': [1.0, 2.0],
+    'hit_y': [3.0, 4.0],
+  };
+
+  Future<(_FakeSupervisor, FakeRosServer)> pumpConnected(
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1200, 2400);
+    addTearDown(() {
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetPhysicalSize();
+    });
+    final server = FakeRosServer();
+    final supervisor = _FakeSupervisor(rosChannelConnector: server.connect);
+    await supervisor.connect(const AppSettings());
+    supervisor.injectMaps(mapListMsg());
+    supervisor.injectRobot();
+    // 지도를 고르며 홈을 묻습니다. 답이 오기 전에는 홈 칸 버튼이 잠깁니다.
+    server.last.answer('/vica/home/get', {'exists': false});
+    await tester.pumpWidget(wrap(supervisor));
+    await tester.pump();
+    return (supervisor, server);
+  }
+
+  Future<void> startStandingCheck(WidgetTester tester) async {
+    await tester.tap(find.text('홈 위치'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('지금 로봇이 있는 위치로'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('여기가 맞는지 확인'));
+    await tester.pump();
+  }
+
+  // 지도를 고르며 나간 홈·금지구역 조회가 응답 없이 끝나기를(timeout) 기다립니다.
+  Future<void> drainServiceCalls(WidgetTester tester) =>
+      tester.pump(const Duration(seconds: 15));
+
+  testWidgets('홈 칸을 접으면 확인 결과를 원격 주행 쪽에 남기지 않는다', (tester) async {
+    final (supervisor, server) = await pumpConnected(tester);
+    await startStandingCheck(tester);
+    expect(server.last.answer('/vica/pose_check', poseValues), isTrue);
+    await tester.pump();
+    expect(supervisor.poseCheck, isNotNull);
+    expect(find.text('다시 확인'), findsOneWidget);
+
+    await tester.tap(find.text('홈 위치'));
+    await tester.pumpAndSettle();
+
+    expect(supervisor.poseCheck, isNull);
+    await drainServiceCalls(tester);
+  });
+
+  testWidgets('확인 결과를 둔 채 화면을 떠나도 원격 주행 쪽에 남기지 않는다', (tester) async {
+    final (supervisor, server) = await pumpConnected(tester);
+    await startStandingCheck(tester);
+    server.last.answer('/vica/pose_check', poseValues);
+    await tester.pump();
+    expect(supervisor.poseCheck, isNotNull);
+
+    // 셸이 다른 탭을 그리면 이 화면은 걷어집니다.
+    await tester.pumpWidget(
+      ChangeNotifierProvider<SupervisorProvider>.value(
+        value: supervisor,
+        child: const MaterialApp(home: Scaffold(body: SizedBox())),
+      ),
+    );
+    await tester.pump();
+
+    expect(supervisor.poseCheck, isNull);
+    await drainServiceCalls(tester);
+  });
+
+  testWidgets('확인을 기다리는 사이 칸을 접으면 늦게 온 결과도 남기지 않는다', (tester) async {
+    final (supervisor, server) = await pumpConnected(tester);
+    await startStandingCheck(tester);
+
+    await tester.tap(find.text('홈 위치'));
+    await tester.pumpAndSettle();
+    server.last.answer('/vica/pose_check', poseValues);
+    await tester.pump();
+
+    expect(supervisor.poseCheck, isNull);
+    await drainServiceCalls(tester);
   });
 }

@@ -7,13 +7,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vica_supervisor/core/app_settings.dart';
 import 'package:vica_supervisor/models/stack_status.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/screens/map_locations_screen.dart';
+import 'package:vica_supervisor/widgets/drive_map_canvas.dart';
+import 'package:vica_supervisor/widgets/initial_pose_card.dart';
 import 'package:vica_supervisor/widgets/vica_ui.dart';
 
+import '../ros/fake_ros_socket.dart';
+
 class _FakeSupervisor extends SupervisorProvider {
+  _FakeSupervisor({super.rosChannelConnector});
+
   void injectMap() => handleMapListForTest({
         'maps': [
           {
@@ -136,5 +143,69 @@ void main() {
       find.widgetWithText(FilledButton, '여기가 맞는지 확인'),
     );
     expect(check.onPressed, isNull);
+  });
+
+  // 지도 설정의 홈 칸('여기가 맞는지 확인')도 같은 채점을 빌려 씁니다. 그 결과가
+  // 남은 채로 초기 위치 잡기를 열면, 짚은 점도 없는데 그 점수로 '확정'이 열렸습니다
+  // (검토 35bc1d0 B4).
+  testWidgets('들어오기 전부터 남아 있던 채점 결과는 보이지 않는다', (tester) async {
+    final server = FakeRosServer();
+    final supervisor = _FakeSupervisor(rosChannelConnector: server.connect);
+    await supervisor.connect(const AppSettings());
+    supervisor.injectMap();
+    supervisor.injectRobot();
+    supervisor.injectStack(nav2: true);
+    // 다른 화면이 남긴 결과.
+    final leftover = supervisor.checkInitialPose(
+      const AppSettings(),
+      x: 1,
+      y: 2,
+    );
+    server.last.answer('/vica/pose_check', {
+      'ok': true,
+      'score': 88.0,
+      'x': 1.0,
+      'y': 2.0,
+      'hit_x': [1.0],
+      'hit_y': [2.0],
+    });
+    await leftover;
+    expect(supervisor.poseCheck, isNotNull);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<SupervisorProvider>.value(value: supervisor),
+          ChangeNotifierProvider(create: (_) => SettingsProvider()),
+        ],
+        child: const MaterialApp(home: Scaffold(body: MapLocationsScreen())),
+      ),
+    );
+    await tester.pump();
+
+    final entry = find.widgetWithText(OutlinedButton, '초기 위치 잡기');
+    await tester.ensureVisible(entry);
+    await tester.pump();
+    await tester.tap(entry);
+    await tester.pump();
+    // 문을 열 때 Nav2 생사를 새로 묻습니다.
+    server.last.answer('/rosapi/nodes', {
+      'nodes': ['/amcl', '/bt_navigator'],
+    });
+    await tester.pump();
+    server.last.answer('/rosapi/publishers', {
+      'publishers': ['/ekf_filter_node'],
+    });
+    await tester.pump();
+
+    final card = tester.widget<InitialPoseCard>(find.byType(InitialPoseCard));
+    expect(card.result, isNull);
+    expect(supervisor.poseCheck, isNull);
+    expect(
+      tester.widget<DriveMapCanvas>(find.byType(DriveMapCanvas)).scanHits,
+      isEmpty,
+    );
+    // 홈·금지구역 조회가 응답 없이 끝나기를 기다립니다.
+    await tester.pump(const Duration(seconds: 15));
   });
 }

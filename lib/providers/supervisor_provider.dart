@@ -2027,6 +2027,20 @@ class SupervisorProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// [result] 가 지금 남아 있는 채점 결과이면 그것만 지웁니다.
+  ///
+  /// 지도 설정의 홈 칸('여기가 맞는지 확인')도 이 채점을 빌려 씁니다. 그 칸을 접거나
+  /// 화면을 떠나며 결과를 남기면, 원격 주행 화면이 그 점수와 라이다 점을 보이고
+  /// 초기 위치 '확정'을 열어 둡니다. 확정 뒤 라이다 점([committedScanHits])은
+  /// 건드리지 않습니다 — 그쪽은 원격 주행 화면의 일입니다.
+  void discardPoseCheck(PoseCheckResult? result) {
+    if (_disposed || result == null || !identical(_poseCheck, result)) {
+      return;
+    }
+    _poseCheck = null;
+    notifyListeners();
+  }
+
   /// 지도에서 짚은 자리를 채점합니다. AMCL 은 건드리지 않습니다.
   ///
   /// [yawHint] 는 사람이 4방향 버튼으로 고른 값입니다. 사람 손은 각도를 10~20도

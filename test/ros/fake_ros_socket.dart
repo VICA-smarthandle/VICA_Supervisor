@@ -40,6 +40,26 @@ class FakeRosSocket implements WebSocketChannel {
   void receive(Map<String, Object?> message) =>
       _incoming.add(jsonEncode(message));
 
+  /// 앱이 [service] 를 부른 가장 최근 요청에 응답합니다. 요청이 없으면 false.
+  bool answer(
+    String service,
+    Map<String, Object?> values, {
+    bool result = true,
+  }) {
+    for (final command in sent.reversed) {
+      if (command['op'] == 'call_service' && command['service'] == service) {
+        receive({
+          'op': 'service_response',
+          'id': command['id'],
+          'result': result,
+          'values': values,
+        });
+        return true;
+      }
+    }
+    return false;
+  }
+
   @override
   Future<void> get ready => _ready.future;
 

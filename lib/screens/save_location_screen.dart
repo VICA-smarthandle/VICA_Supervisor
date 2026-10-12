@@ -81,6 +81,9 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   Offset? _homePicked;
   PoseDirection? _homeDirection;
   PoseCheckResult? _homeStanding;
+  // [_homeStanding] 을 받아 온 provider. dispose 에서는 context 로 찾을 수 없어
+  // 그 결과를 치우려고 붙잡아 둡니다.
+  SupervisorProvider? _homeStandingFrom;
   bool _homeSending = false;
   // 임시 저장 장소를 수정하는 중이면 그 id를 들고 있습니다. 새로 저장할 때 id가
   // 바뀌면 같은 장소가 둘로 늘어나므로, 수정 중에는 기존 id를 그대로 씁니다.
@@ -124,6 +127,16 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
 
   @override
   void dispose() {
+    // 홈 칸의 '여기가 맞는지 확인' 결과는 provider 에 있어 화면을 떠나도 남습니다.
+    // 남기면 원격 주행 화면이 그 점수·라이다 점을 보이고 '확정'을 열어 둡니다.
+    // 화면을 걷어 내는 중에는 provider 를 알릴 수 없어 이 프레임 뒤로 미룹니다.
+    final standing = _homeStanding;
+    final standingFrom = _homeStandingFrom;
+    if (standing != null && standingFrom != null) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => standingFrom.discardPoseCheck(standing),
+      );
+    }
     _nameController.dispose();
     _aliasesController.dispose();
     _buildingController.dispose();
@@ -434,26 +447,21 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               canSendRobot: _canSendRobot(supervisor),
               blockedReason: _blockedReason(supervisor),
               onStartPicking: () => setState(() {
+                _dropHomeStanding(supervisor);
                 _homeMode = HomeCardMode.picking;
                 _homePicked = null;
                 _homeDirection = null;
-                _homeStanding = null;
               }),
               onStartStanding: () => setState(() {
+                _dropHomeStanding(supervisor);
                 _homeMode = HomeCardMode.standing;
                 _homePicked = null;
                 _homeDirection = null;
-                _homeStanding = null;
               }),
               onDirection: (value) => setState(() => _homeDirection = value),
               onCheckStanding: () => _checkStandingHome(context, supervisor),
               onSave: () => _saveHome(context, supervisor, map.mapId, settings),
-              onCancel: () => setState(() {
-                _homeMode = HomeCardMode.idle;
-                _homePicked = null;
-                _homeDirection = null;
-                _homeStanding = null;
-              }),
+              onCancel: () => setState(() => _foldHomeWork(supervisor)),
               onGoHome: () => _goHome(context, supervisor),
               onDelete: () =>
                   _confirmDeleteHome(context, supervisor, map.mapId),
@@ -592,7 +600,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
         _foldLocationWork();
       }
       if (target != _SettingsPanel.home) {
-        _foldHomeWork();
+        _foldHomeWork(supervisor);
       }
     });
   }
@@ -630,7 +638,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     }
     setState(() {
       _foldLocationWork();
-      _foldHomeWork();
+      _foldHomeWork(supervisor);
       // 고른 장소도 지도마다 다릅니다.
       _deleteTargetId = null;
     });
@@ -698,10 +706,18 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   }
 
   // 하던 홈 일(찍기·서 있는 자리 확인)을 접습니다. setState 안에서 부릅니다.
-  void _foldHomeWork() {
+  void _foldHomeWork(SupervisorProvider supervisor) {
+    _dropHomeStanding(supervisor);
     _homeMode = HomeCardMode.idle;
     _homePicked = null;
     _homeDirection = null;
+  }
+
+  // '여기가 맞는지 확인' 결과를 버립니다. 그 결과는 원격 주행의 초기 위치 채점과
+  // 같은 자리(provider.poseCheck)에 있어, 남기면 원격 주행 화면이 그 점수와 라이다
+  // 점을 보이고 '확정'을 열어 둡니다. 다른 화면의 결과는 건드리지 않습니다.
+  void _dropHomeStanding(SupervisorProvider supervisor) {
+    supervisor.discardPoseCheck(_homeStanding);
     _homeStanding = null;
   }
 
@@ -1807,11 +1823,19 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       y: robot.y,
       yawHint: robot.yaw * math.pi / 180.0,
     );
-    if (!mounted) {
+    final result = supervisor.poseCheck;
+    if (!mounted || _homeMode != HomeCardMode.standing) {
+      // 기다리는 사이 홈 칸을 접었거나 화면을 떠났습니다. 이 결과를 보일 곳이
+      // 없으니 남기지 않습니다(원격 주행 화면에 새어 나갑니다).
+      supervisor.discardPoseCheck(result);
+      if (mounted) {
+        setState(() => _homeSending = false);
+      }
       return;
     }
     setState(() {
-      _homeStanding = supervisor.poseCheck;
+      _homeStanding = result;
+      _homeStandingFrom = supervisor;
       _homeSending = false;
     });
     if (supervisor.poseCheck == null) {
