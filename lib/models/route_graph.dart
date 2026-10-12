@@ -63,14 +63,8 @@ class RouteGraph {
       if (a == null || b == null) {
         continue;
       }
-      final ab = b - a;
-      final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
-      if (len2 == 0) {
-        continue;
-      }
-      final t =
-          (((p - a).dx * ab.dx + (p - a).dy * ab.dy) / len2).clamp(0.0, 1.0);
-      best = math.min(best, (a + ab * t - p).distance);
+      // 길이 0 인 선은 끝점까지 거리가 되는데, 그 끝점(노드)은 위에서 이미 쟀습니다.
+      best = math.min(best, distanceToSegment(p, a, b));
     }
     return best;
   }
@@ -178,4 +172,16 @@ class RouteEdge {
 
   @override
   String toString() => 'RouteEdge($a-$b)';
+}
+
+/// 점 [p] 에서 선분 [a]–[b] 까지 가장 짧은 거리. 길이 0 인 선분이면 [a] 까지 거리입니다.
+/// 레일 표시(RouteGraph.distanceTo)와 레일 편집(선 고르기)이 같이 씁니다.
+double distanceToSegment(Offset p, Offset a, Offset b) {
+  final ab = b - a;
+  final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
+  if (len2 == 0) {
+    return (p - a).distance;
+  }
+  final t = (((p - a).dx * ab.dx + (p - a).dy * ab.dy) / len2).clamp(0.0, 1.0);
+  return (a + ab * t - p).distance;
 }
