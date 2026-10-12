@@ -90,12 +90,18 @@ class RosBridgeClient {
   }
 
   // 화면이나 앱이 연결을 해제할 때 subscription과 channel을 함께 정리합니다.
+  //
+  // sink.close() 는 기다리지 않습니다. 연결에 **실패한** 채널은 web_socket_channel 3.x 가
+  // 안쪽 stream 을 듣지 않아 close() 가 영영 끝나지 않습니다(2026-10-12 실측: 거부된
+  // 주소에서 3초를 넘겨도 안 끝남). 기다리면 그 뒤의 재연결과 로그아웃이 거기서 멈춥니다.
   Future<void> close() async {
     _failPendingServiceCalls();
-    await _subscription?.cancel();
+    final subscription = _subscription;
+    final channel = _channel;
     _subscription = null;
-    await _channel?.sink.close();
     _channel = null;
+    await subscription?.cancel();
+    channel?.sink.close().ignore();
     if (_state != RosConnectionState.disconnected) {
       _setState(RosConnectionState.disconnected, 'ROS 연결 해제');
     }

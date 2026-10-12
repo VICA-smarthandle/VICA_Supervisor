@@ -8,6 +8,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 class FakeRosSocket implements WebSocketChannel {
   FakeRosSocket({bool connectFails = false}) {
     if (connectFails) {
+      connectFailed = true;
       _ready.completeError(StateError('connection refused'));
       // connect 가 기다리기 전에 실패가 나도 처리되지 않은 오류로 보지 않게 합니다.
       _ready.future.ignore();
@@ -24,11 +25,18 @@ class FakeRosSocket implements WebSocketChannel {
   final List<Map<String, Object?>> sent = [];
   bool sinkClosed = false;
 
+  /// 연결 시도가 실패했는지. 실패한 소켓의 sink.close() 는 진짜 web_socket_channel 3.x 처럼
+  /// 끝나지 않는다(안쪽 stream 을 아무도 듣지 않는다 — 2026-10-12 실측).
+  bool connectFailed = false;
+
   /// 소켓이 열렸다고 알립니다.
   void open() => _ready.complete();
 
   /// 연결 시도가 실패했다고 알립니다.
-  void failOpen() => _ready.completeError(StateError('connection refused'));
+  void failOpen() {
+    connectFailed = true;
+    _ready.completeError(StateError('connection refused'));
+  }
 
   /// 서버가 소켓을 닫습니다(젯슨 rosbridge 종료·와이파이 끊김).
   Future<void> drop() => _incoming.close();
@@ -84,8 +92,12 @@ class _FakeSink implements WebSocketSink {
   }
 
   @override
-  Future<void> close([int? closeCode, String? closeReason]) async {
+  Future<void> close([int? closeCode, String? closeReason]) {
     _socket.sinkClosed = true;
+    if (_socket.connectFailed) {
+      return Completer<void>().future; // 끝나지 않는다
+    }
+    return Future<void>.value();
   }
 
   @override

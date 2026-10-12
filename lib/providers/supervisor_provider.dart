@@ -169,6 +169,10 @@ class SupervisorProvider extends ChangeNotifier {
   LocationPoint? _draftLocation;
   int _reconnectAttempts = 0;
   Timer? _reconnectTimer;
+  // 다시 붙은 연결이 이만큼 버티면 재시도 횟수를 처음부터 센다. 붙자마자 끊는 서버에
+  // 3초마다 끝없이 다시 붙지 않게 한다(그때는 종전처럼 상한에서 멈춘다).
+  static const _reconnectStableAfter = Duration(seconds: 10);
+  Timer? _reconnectStableTimer;
   EmergencyStopState _emergencyStopState = EmergencyStopState.inactive;
   String _emergencyStopMessage = '';
   List<String> _emergencyStopSources = const [];
@@ -280,6 +284,7 @@ class SupervisorProvider extends ChangeNotifier {
   Future<void> connect(AppSettings settings) async {
     _lastSettings = settings;
     _reconnectTimer?.cancel();
+    _reconnectStableTimer?.cancel();
     _reconnectAttempts = 0;
     _resetNav2NotificationState();
     final oldClient = _client;
@@ -328,11 +333,15 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     if (state == RosConnectionState.connected) {
-      // 다시 붙었으면 재시도 횟수를 처음부터 셉니다. 안 그러면 끊김이 몇 번 쌓인
+      // 다시 붙어 버티면 재시도 횟수를 처음부터 셉니다. 안 그러면 끊김이 몇 번 쌓인
       // 뒤로는 자동 재연결이 아무 말 없이 멈춥니다.
-      _reconnectAttempts = 0;
+      _reconnectStableTimer?.cancel();
+      _reconnectStableTimer =
+          Timer(_reconnectStableAfter, () => _reconnectAttempts = 0);
     } else if (state == RosConnectionState.disconnected ||
         state == RosConnectionState.failed) {
+      _reconnectStableTimer?.cancel();
+      _reconnectStableTimer = null;
       _scheduleReconnect(settings);
     }
   }
@@ -368,6 +377,8 @@ class SupervisorProvider extends ChangeNotifier {
   Future<void> disconnect() async {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
+    _reconnectStableTimer?.cancel();
+    _reconnectStableTimer = null;
     _reconnectAttempts = 0;
     final client = _client;
     _client = null;
@@ -3471,6 +3482,7 @@ class SupervisorProvider extends ChangeNotifier {
     _routePreviewTimer?.cancel();
     _teleopTimer?.cancel();
     _reconnectTimer?.cancel();
+    _reconnectStableTimer?.cancel();
     _deliveryReturnTimer?.cancel();
     unawaited(_client?.close());
     super.dispose();

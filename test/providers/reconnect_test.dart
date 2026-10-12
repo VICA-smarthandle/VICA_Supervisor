@@ -45,14 +45,36 @@ void main() {
     });
   });
 
-  test('다시 붙으면 재시도 횟수를 처음부터 센다', () {
+  // 진짜 web_socket_channel 은 연결에 실패한 채널의 sink.close() 가 끝나지 않는다. 그것을
+  // 기다리면 로그아웃(묻기 → 연결 끊기 → 로그아웃)이 연결 끊기에서 멈췄다(10-12 검토).
+  test('연결에 실패한 뒤에도 연결 끊기(로그아웃 첫 단계)가 끝난다', () {
+    fakeAsync((async) {
+      server.refuse = true;
+      final provider = newProvider();
+      provider.connect(const AppSettings(maxReconnectAttempts: 0));
+      async.flushMicrotasks();
+      expect(provider.connectionState, isNot(RosConnectionState.connected));
+
+      var disconnected = false;
+      provider.disconnect().then((_) => disconnected = true);
+      async.flushMicrotasks();
+      expect(disconnected, isTrue);
+      expect(provider.connectionState, RosConnectionState.disconnected);
+
+      provider.dispose();
+      async.flushMicrotasks();
+    });
+  });
+
+  test('다시 붙어 버티면 재시도 횟수를 처음부터 센다', () {
     fakeAsync((async) {
       final provider = newProvider();
       provider.connect(const AppSettings(maxReconnectAttempts: 1));
       async.flushMicrotasks();
 
-      // 상한이 1번이어도 끊길 때마다 다시 붙습니다.
+      // 상한이 1번이어도, 붙어서 10초를 버틴 연결이 끊기면 매번 다시 붙습니다.
       for (var drop = 1; drop <= 4; drop += 1) {
+        async.elapse(const Duration(seconds: 10));
         server.last.drop();
         async.flushMicrotasks();
         expect(provider.connectionState, RosConnectionState.disconnected);
@@ -61,6 +83,28 @@ void main() {
         expect(server.sockets, hasLength(1 + drop), reason: '끊김 $drop번째');
         expect(provider.connectionState, RosConnectionState.connected);
       }
+
+      provider.dispose();
+      async.flushMicrotasks();
+    });
+  });
+
+  // 붙자마자 끊는 서버(예: 기동하다 죽기를 되풀이하는 rosbridge)에는 3초마다 끝없이 붙으며
+  // 지도·장소를 다시 받지 않습니다. 종전처럼 상한에서 멈춥니다(10-12 검토).
+  test('붙자마자 끊기는 연결은 상한에서 멈춘다', () {
+    fakeAsync((async) {
+      final provider = newProvider();
+      provider.connect(const AppSettings(maxReconnectAttempts: 3));
+      async.flushMicrotasks();
+
+      for (var i = 0; i < 10; i += 1) {
+        server.last.drop();
+        async.flushMicrotasks();
+        async.elapse(_retryDelay);
+      }
+
+      // 처음 연결 1번 + 상한 3번.
+      expect(server.sockets, hasLength(1 + 3));
 
       provider.dispose();
       async.flushMicrotasks();
