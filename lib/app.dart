@@ -699,7 +699,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
     );
 
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: expanded ? 12 : 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: expanded
           ? destination
           : Tooltip(message: item.label, child: destination),

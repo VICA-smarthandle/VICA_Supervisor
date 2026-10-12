@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/app_settings.dart';
+import '../core/auth_config.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/vica_ui.dart';
 
@@ -93,7 +94,7 @@ class SettingsScreenState extends State<SettingsScreen> {
           title: '계정 정보',
           children: [
             // 로그인 계정은 여기서 바꾸지 않습니다. 값만 보여 주고 탭을 받지 않습니다.
-            _ValueRow(label: '관리자 정보', value: 'admin'),
+            _ValueRow(label: '관리자 정보', value: AuthConfig.adminUsername),
           ],
         ),
         _SettingsCard(
