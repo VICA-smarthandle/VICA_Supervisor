@@ -11,16 +11,49 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vica_supervisor/app.dart';
+import 'package:vica_supervisor/models/delivery_job.dart';
+import 'package:vica_supervisor/models/location_point.dart';
 import 'package:vica_supervisor/providers/app_mode_provider.dart';
 import 'package:vica_supervisor/providers/auth_provider.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/providers/ui_preferences_provider.dart';
+import 'package:vica_supervisor/services/delivery_notifier.dart';
+import 'package:vica_supervisor/widgets/delivery_notice_dialog.dart';
 import 'package:vica_supervisor/widgets/goal_alert_dialog.dart';
 import 'package:vica_supervisor/widgets/vica_ui.dart';
 
 // 넓은 창이라 사이드바(NavigationRail)가 섭니다. 900 이 그 경계입니다.
 const _wide = Size(1400, 1100);
+
+const _office = LocationPoint(
+  locationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  mapId: 'm1',
+  name: '305호',
+  x: 1,
+  y: 2,
+  yaw: 0,
+  contactPhone: '01012345678',
+);
+
+/// 이 기기에서 직접 보내고 늘 성공하는 척합니다.
+class _SentNotifier implements DeliveryNotifier {
+  @override
+  String get modeLabel => '시험';
+
+  @override
+  Future<bool> canSend() async => true;
+
+  @override
+  Future<bool> needsRelay() async => false;
+
+  @override
+  Future<DeliveryNotifyResult> send({
+    required String phone,
+    required String text,
+  }) async =>
+      const DeliveryNotifyResult(sent: true, detail: '통신사가 받았습니다');
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -191,5 +224,50 @@ void main() {
     expect(inDialog('목적지'), findsOneWidget);
     expect(inDialog('홈'), findsOneWidget);
     expect(inDialog('사유'), findsNothing);
+  });
+
+  // 도착 문자 결과 팝업도 셸이 띄웁니다. 종전에는 물류 배송 화면이 띄워서 다른
+  // 화면을 보고 있으면 결과가 담긴 채로 남았다가 그 화면을 열어야 떴습니다.
+  testWidgets('대시보드를 보고 있어도 도착 문자 결과 팝업이 뜬다', (tester) async {
+    await pumpShell(tester);
+    expect(find.widgetWithText(AppBar, '대시보드'), findsOneWidget);
+
+    final supervisor =
+        tester.element(find.byType(SupervisorShell)).read<SupervisorProvider>();
+    supervisor.deliveryNotifierForTest = _SentNotifier();
+    supervisor.setDeliveryForTest(
+      DeliveryJob(destination: _office, startedAt: DateTime(2026)),
+    );
+    supervisor.handleGoalEventForTest({
+      'event': 'goal_succeeded',
+      'map_id': 'm1',
+      'location_id': _office.locationId,
+      'destination_id': _office.locationId,
+      'name': '305호',
+      'reason': '',
+    });
+    await tester.pumpAndSettle();
+
+    final dialog = find.byType(DeliveryNoticeDialog);
+    Finder inDialog(String text) =>
+        find.descendant(of: dialog, matching: find.text(text));
+
+    expect(dialog, findsOneWidget);
+    expect(inDialog('도착 문자를 보냈습니다'), findsOneWidget);
+    expect(inDialog('받는 곳: 305호'), findsOneWidget);
+    expect(inDialog('통신사가 받았습니다'), findsOneWidget);
+    // 보던 화면은 그대로입니다.
+    expect(find.widgetWithText(AppBar, '대시보드'), findsOneWidget);
+
+    // 확인을 누르면 닫히고, 같은 결과가 다시 뜨지 않습니다.
+    await tester.tap(
+      find.descendant(
+        of: dialog,
+        matching: find.widgetWithText(FilledButton, '확인'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(dialog, findsNothing);
+    expect(supervisor.pendingDeliveryNotice, isNull);
   });
 }

@@ -5,7 +5,8 @@
 //   1. 연락처가 저장된 장소만 고를 수 있다.
 //   2. 출발 전에 "물건을 실었다"를 한 번 확인한다 — 로봇은 적재 센서가 없어
 //      물건이 있는지 모른다. 이 확인은 사람의 선언이다.
-//   3. 도착하면 문자를 보내고 결과를 팝업으로 알린다.
+//   3. 도착하면 문자를 보내고 결과를 팝업으로 알린다. 팝업은 이 화면이 아니라
+//      앱 셸이 어느 화면에서든 띄운다(widgets/delivery_notice_dialog.dart).
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -45,8 +46,6 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>().settings;
     final supervisor = context.watch<SupervisorProvider>();
-
-    _scheduleDialogs(supervisor);
 
     final map = supervisor.selectedMap;
     final candidates = supervisor
@@ -132,72 +131,6 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
           _pickCard(context, supervisor, candidates, selected, busy),
         ],
       ],
-    );
-  }
-
-  /// 도착 문자 팝업을 한 프레임 뒤에 띄웁니다. build 중에 화면을 바꾸면 예외입니다.
-  ///
-  /// 주행 실패·취소 팝업은 여기서 띄우지 않습니다. 앱 셸(SupervisorShell)이 어느
-  /// 화면에서든 띄웁니다(2026-09-30, widgets/goal_alert_dialog.dart).
-  void _scheduleDialogs(SupervisorProvider supervisor) {
-    final notice = supervisor.pendingDeliveryNotice;
-    if (notice == null) {
-      return;
-    }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-      supervisor.consumeDeliveryNotice();
-      _showNotice(notice);
-    });
-  }
-
-  /// 도착 문자 결과. **안 갔으면 크게 알립니다** — 안 간 문자를 갔다고 믿고
-  /// 자리를 뜨는 것이 이 기능의 가장 나쁜 실패입니다.
-  void _showNotice(DeliveryNotice notice) {
-    final sent = notice.result.sent;
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: sent ? Icons.sms_outlined : Icons.sms_failed_outlined,
-        iconColor: sent ? VicaColors.green : VicaColors.red,
-        title: sent ? '도착 문자를 보냈습니다' : '도착 문자가 가지 않았습니다',
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('받는 곳: ${notice.job.destination.name}'),
-            Text(
-              '받는 번호: ${maskContactPhone(notice.job.destination.contactPhone)}',
-            ),
-            const SizedBox(height: 10),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: VicaColors.accentTint,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(notice.text),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              notice.result.detail,
-              style: TextStyle(
-                color: sent ? VicaColors.muted : VicaColors.red,
-                fontSize: 13,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('확인'),
-          ),
-        ],
-      ),
     );
   }
 

@@ -18,6 +18,7 @@ import 'providers/settings_provider.dart';
 import 'providers/supervisor_provider.dart';
 import 'providers/ui_preferences_provider.dart';
 import 'ros/ros_bridge_client.dart';
+import 'widgets/delivery_notice_dialog.dart';
 import 'widgets/goal_alert_dialog.dart';
 import 'widgets/route_dialogs.dart';
 import 'widgets/vica_ui.dart';
@@ -372,6 +373,22 @@ class _SupervisorShellState extends State<SupervisorShell> {
         showDialog<void>(
           context: context,
           builder: (_) => GoalAlertDialog(event: alert),
+        );
+      });
+    }
+
+    // 도착 문자 결과 팝업도 같은 이유로 셸이 띄웁니다. 물류 배송 화면 안에서
+    // 띄우면 다른 화면을 보고 있을 때 문자 결과가 와도 아무것도 뜨지 않았습니다.
+    final deliveryNotice = supervisor.pendingDeliveryNotice;
+    if (deliveryNotice != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        supervisor.consumeDeliveryNotice();
+        showDialog<void>(
+          context: context,
+          builder: (_) => DeliveryNoticeDialog(notice: deliveryNotice),
         );
       });
     }
