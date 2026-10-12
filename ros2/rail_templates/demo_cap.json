@@ -53,13 +53,28 @@
       "yaw_deg_file": 270.0
     },
     "sketch_updated_at": "2026-10-10T17:21:10+09:00",
-    "extracted_at": "2026-10-10T21:42:31+09:00",
+    "extracted_at": "2026-10-11T21:50:41+09:00",
+    "source_map_summary": {
+      "node_count": 21,
+      "edge_count": 40,
+      "length_m": 11.4,
+      "junction_count": 0,
+      "penalty_edge_count": 0,
+      "corner_radii_m": [
+        1.0,
+        0.56
+      ]
+    },
     "summary": {
       "node_count": 21,
       "edge_count": 40,
       "length_m": 11.4,
       "junction_count": 0,
-      "penalty_edge_count": 0
+      "penalty_edge_count": 0,
+      "corner_radii_m": [
+        1.0,
+        0.56
+      ]
     }
   }
 }

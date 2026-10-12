@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import shutil
 import sys
 from pathlib import Path
 
@@ -128,7 +129,9 @@ def test_extract_then_apply_on_rotated_home_gives_the_same_rail(roots):
     assert tpl["zone"] == {"forward_min": -0.8, "forward_max": 5.7, "left_min": -0.28, "left_max": 3.52}
     sketch = rt.place_sketch(tpl, (3.0, 3.0, 0.0))     # 다른 지도, 오른쪽(+x)을 보는 홈
     assert sketch["nodes"][0] == NODE1_AT_3_3_0
-    assert _summary(maps, "dst", sketch) == tpl["source"]["summary"]
+    want = dict(tpl["source"]["summary"])
+    assert want.pop("corner_radii_m") == [1.0, 0.56]
+    assert _summary(maps, "dst", sketch) == want
 
 
 def test_extract_snaps_a_slightly_turned_source_home(roots):
@@ -340,3 +343,187 @@ def test_home_argument_replaces_home_file(roots, capsys, home_args):
 def test_negative_home_x_is_read_as_a_value():
     assert rt._join_negative_home(["apply", "--home", "-1.0,2,90"]) == ["apply", "--home=-1.0,2,90"]
     assert rt._join_negative_home(["apply", "--home", "1,2,90"]) == ["apply", "--home", "1,2,90"]
+
+
+# ── 크기 버전(10-11) ───────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("text, want", [
+    ("4x7", (4.0, 7.0)), ("3.8x6.5", (3.8, 6.5)), ("4*7", (4.0, 7.0)), ("4×7", (4.0, 7.0)), (" 4.0X7.0 ", (4.0, 7.0)),
+])
+def test_parse_zone(text, want):
+    assert rt.parse_zone(text) == want
+
+
+@pytest.mark.parametrize("text", ["4", "4x", "x7", "4x7x2", "0x7", "-4x7"])
+def test_parse_zone_rejects(text):
+    with pytest.raises(rt.TemplateError):
+        rt.parse_zone(text)
+
+
+def test_stretch_moves_only_the_far_rail_and_the_far_end():
+    base = _tpl()
+    assert rt.zone_size(base) == (3.8, 6.5)
+    tpl = rt.stretch_template(base, 4.0, 7.0, name="t47", base_name="t")
+    assert rt.zone_size(tpl) == (4.0, 7.0) and rt.rail_size(tpl) == (2.44, 5.4)
+    got = {n["id"]: (n["forward"], n["left"]) for n in tpl["nodes"]}
+    assert got == {1: (5.4, 0.5), 2: (0.0, 0.5), 3: (0.0, 2.94), 4: (5.4, 2.94)}
+    assert tpl["edges"] == base["edges"]
+    assert (tpl["zone"]["left_min"], tpl["zone"]["forward_min"]) == (base["zone"]["left_min"], base["zone"]["forward_min"])
+    # 폭이 2.44 m 면 둘째 코너가 0.45 × (2.44 − 1.0) = 0.65 m 를 받는다.
+    assert tpl["source"]["summary"]["corner_radii_m"] == [1.0, 0.65]
+
+
+def test_stretch_refuses_shapes_it_cannot_read():
+    base = _tpl()
+    with pytest.raises(rt.TemplateError):
+        rt.stretch_template(base, 2.5, 6.5, name="x", base_name="t")        # 레일 폭 0.94 m
+    mid = dict(base)
+    mid["nodes"] = base["nodes"] + [{"id": 5, "forward": 2.45, "left": 0.5}]
+    with pytest.raises(rt.TemplateError):
+        rt.stretch_template(mid, 4.0, 7.0, name="x", base_name="t")
+
+
+def test_extract_keeps_the_free_space_shape_as_the_basis(roots):
+    # 비교 기준은 빈 지도 모양. 원본 지도도 벽이 멀어 같은 값이 나와야 한다.
+    maps, dest, _ = roots
+    _prepare(maps, dest)
+    tpl = rt.load_template("demo_cap")
+    assert tpl["source"]["summary"] == rt.free_space_summary(tpl) == tpl["source"]["source_map_summary"]
+
+
+def test_make_list_and_pick_by_zone(roots, capsys):
+    maps, dest, _ = roots
+    args = _prepare(maps, dest)
+    assert rt.main(args + ["make", "--zone", "4x7"]) == rt.EXIT_OK
+    assert (rt.TEMPLATE_DIR / "demo_cap_4.0x7.0.json").is_file()
+    capsys.readouterr()
+    assert rt.main(args + ["make", "--zone", "4x7"]) == rt.EXIT_FAIL             # 이미 있음
+    assert "--overwrite" in capsys.readouterr().err
+    assert rt.main(args + ["make", "--zone", "4x7", "--overwrite"]) == rt.EXIT_OK
+    capsys.readouterr()
+    assert rt.main(args + ["list"]) == rt.EXIT_OK
+    out = capsys.readouterr().out
+    assert "demo_cap (기본): 구역 3.8 × 6.5 m" in out
+    assert "demo_cap_4.0x7.0: 구역 4.0 × 7.0 m · 레일 2.44 × 5.4 m" in out
+    _home_file(dest, "dst", 3.0, 3.0, 0.0)
+    assert rt.main(args + ["apply", "--map", "dst", "--zone", "4×7"]) == rt.EXIT_OK
+    out = capsys.readouterr().out
+    assert "도장 'demo_cap_4.0x7.0'" in out and "원본과 같음" in out and "(8.400, 3.500)" in out
+
+
+def test_zone_not_found_or_ambiguous(roots, capsys):
+    maps, dest, _ = roots
+    args = _prepare(maps, dest)
+    _home_file(dest, "dst", 3.0, 3.0, 0.0)
+    assert rt.main(args + ["apply", "--map", "dst", "--zone", "5x9"]) == rt.EXIT_FAIL
+    err = capsys.readouterr().err
+    assert "5.0 × 9.0 m 도장이 없습니다" in err and "3.8x6.5(demo_cap)" in err and "make --zone 5.0x9.0" in err
+    shutil.copy(rt.TEMPLATE_DIR / "demo_cap.json", rt.TEMPLATE_DIR / "copy.json")
+    assert rt.main(args + ["apply", "--map", "dst", "--zone", "3.8x6.5"]) == rt.EXIT_FAIL
+    assert "여럿입니다" in capsys.readouterr().err
+
+
+def test_template_and_zone_are_exclusive(roots):
+    maps, dest, _ = roots
+    args = _prepare(maps, dest)
+    with pytest.raises(SystemExit):
+        rt.main(args + ["apply", "--map", "dst", "--template", "demo_cap", "--zone", "4x7"])
+
+
+def test_extract_does_not_overwrite_without_flag(roots, capsys):
+    maps, dest, _ = roots
+    args = _prepare(maps, dest)                      # demo_cap 이 이미 있다
+    assert rt.main(args + ["extract", "--map", "src"]) == rt.EXIT_FAIL
+    assert "--overwrite" in capsys.readouterr().err
+    assert rt.main(args + ["extract", "--map", "src", "--overwrite"]) == rt.EXIT_OK
+
+
+def test_ignore_zone_skips_only_the_zone_margin(roots, capsys):
+    # 위 벽 y 6.5: 구역 끝(홈 왼쪽 3.52 m = y 6.52)에만 걸리고, 레일 위 변(y 5.74)은 0.76 m 떨어진다.
+    maps, dest, fake = roots
+    args = _prepare(maps, dest)
+    _home_file(dest, "dst", 3.0, 3.0, 0.0)
+    _write_map(maps, "dst", [(1, 1, 19, 6.52)])
+    assert rt.main(args + ["apply", "--map", "dst", "--save"]) == rt.EXIT_STOPPED
+    assert "--ignore-zone" in capsys.readouterr().out
+    assert rt.main(args + ["apply", "--map", "dst", "--save", "--ignore-zone"]) == rt.EXIT_OK
+    assert len(fake.calls) == 1
+
+
+def test_ignore_zone_still_stops_a_rail_too_close_to_a_wall(roots, capsys):
+    maps, dest, fake = roots
+    args = _prepare(maps, dest)
+    _home_file(dest, "dst", 3.0, 3.0, 0.0)
+    _write_map(maps, "dst", [(1, 1, 19, 6.32)])      # 레일 위 변에서 0.56 m
+    assert rt.main(args + ["apply", "--map", "dst", "--save", "--ignore-zone"]) == rt.EXIT_STOPPED
+    out = capsys.readouterr().out
+    assert "미달" in out and "레일 벽 여유 0.5" in out and fake.calls == []
+
+
+def test_corner_radii_of_a_straight_line_is_empty(roots):
+    maps, _, _ = roots
+    _write_map(maps, "m", [(1, 1, 19, 11)])
+    r = rb.process_sketch(rb.MapGrid(maps, "m"), {"nodes": [{"id": 1, "x": 3, "y": 6}, {"id": 2, "x": 15, "y": 6}],
+                                                  "edges": [[1, 2]]})
+    assert rt.corner_radii(r["graph"]) == []
+
+
+def _template_from(cap, edges=EDGES):
+    nodes = [{"id": i, "forward": f, "left": l} for i, f, l in cap]
+    fs, ls = [f for _, f, _ in cap], [l for _, _, l in cap]
+    return {"name": "t", "nodes": nodes, "edges": [list(e) for e in edges], "source": {},
+            "zone": {"forward_min": round(min(fs) - rt.ZONE_END_M, 4), "forward_max": round(max(fs) + rt.ZONE_END_M, 4),
+                     "left_min": round(min(ls) - rt.ZONE_SIDE_M, 4), "left_max": round(max(ls) + rt.ZONE_SIDE_M, 4)}}
+
+
+def test_stretch_pushes_the_side_far_from_home_when_the_rail_is_on_homes_right():
+    right = _template_from([(i, f, -l) for i, f, l in CAP])           # 레일이 홈 오른쪽
+    tpl = rt.stretch_template(right, 4.0, 7.0, name="r", base_name="t")
+    got = {n["id"]: (n["forward"], n["left"]) for n in tpl["nodes"]}
+    assert got == {1: (5.4, -0.5), 2: (0.0, -0.5), 3: (0.0, -2.94), 4: (5.4, -2.94)}   # 홈 쪽 다리 −0.5 그대로
+    assert rt.zone_size(tpl) == (4.0, 7.0) and tpl["zone"]["left_max"] == right["zone"]["left_max"]
+
+
+def test_stretch_pushes_the_far_end_when_the_rail_is_behind_home():
+    behind = _template_from([(i, -f, l) for i, f, l in CAP])          # 레일이 홈 뒤
+    tpl = rt.stretch_template(behind, 4.0, 7.0, name="b", base_name="t")
+    got = {n["id"]: (n["forward"], n["left"]) for n in tpl["nodes"]}
+    assert got == {1: (-5.4, 0.5), 2: (0.0, 0.5), 3: (0.0, 2.94), 4: (-5.4, 2.94)}     # 홈 쪽 끝 0 그대로
+    assert rt.zone_size(tpl) == (4.0, 7.0) and tpl["zone"]["forward_max"] == behind["zone"]["forward_max"]
+
+
+def test_make_refuses_a_second_template_of_the_same_size_and_keeps_two_decimals(roots, capsys):
+    maps, dest, _ = roots
+    args = _prepare(maps, dest)
+    assert rt.main(args + ["make", "--zone", "3.8x6.5"]) == rt.EXIT_FAIL      # demo_cap 과 같은 크기
+    assert "도장이 이미 있습니다(demo_cap)" in capsys.readouterr().err
+    assert rt.main(args + ["make", "--zone", "4.25x7"]) == rt.EXIT_OK
+    assert rt.main(args + ["make", "--zone", "4.2x7"]) == rt.EXIT_OK
+    names = sorted(p.stem for p in rt.TEMPLATE_DIR.glob("*.json"))
+    assert names == ["demo_cap", "demo_cap_4.25x7.0", "demo_cap_4.2x7.0"]
+    for name, zone in (("demo_cap_4.25x7.0", (4.25, 7.0)), ("demo_cap_4.2x7.0", (4.2, 7.0))):
+        assert rt.zone_size(rt.load_template(name)) == zone
+
+
+@pytest.mark.parametrize("width, want", [(2.24, [1.0, 0.56]), (2.44, [1.0, 0.65]), (1.2, [0.54, 0.3])])
+def test_corner_radii_are_the_real_fillets(roots, width, want):
+    # 폭 1.2 m 면 두 호 사이 직선이 0.36 m 뿐이다 — 두 코너를 하나로 합치면 안 된다.
+    maps, _, _ = roots
+    _write_map(maps, "m", [(1, 1, 19, 11)])
+    cap = [(1, 4.9, 0.5), (2, 0.0, 0.5), (3, 0.0, 0.5 + width), (4, 4.9, 0.5 + width)]
+    sketch = rt.place_sketch(_template_from(cap), (3.0, 3.0, 0.0))
+    r = rb.process_sketch(rb.MapGrid(maps, "m"), sketch)
+    assert rt.corner_radii(r["graph"]) == want
+
+
+def test_stretched_template_with_mirror(roots, capsys):
+    maps, dest, fake = roots
+    args = _prepare(maps, dest)
+    assert rt.main(args + ["make", "--zone", "4x7"]) == rt.EXIT_OK
+    _home_file(dest, "dst", 3.0, 9.0, 0.0)                         # 오른쪽(−y)으로 뒤집어 깔 자리
+    capsys.readouterr()
+    assert rt.main(args + ["apply", "--map", "dst", "--zone", "4x7", "--mirror", "--save"]) == rt.EXIT_OK
+    out = capsys.readouterr().out
+    assert "원본과 같음" in out and "(8.400, 8.500)" in out
+    nodes = {n["id"]: (n["x"], n["y"]) for n in fake.calls[0][1]["nodes"]}
+    assert nodes[3] == (3.0, 6.06)                                   # 9.0 − 2.94
