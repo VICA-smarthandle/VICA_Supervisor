@@ -64,10 +64,18 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
           settings: settings,
           map: map,
           label: '지도 선택',
-          actionWidth: 112,
-          onChanged: (value) => supervisor.selectMap(settings, value),
-          refreshIcon: Icons.sync,
-          refreshLabel: const Text('동기화', maxLines: 1),
+          onChanged: (value) {
+            // 초기 위치를 짚던 중이면 그 점과 점수는 이전 지도의 것입니다. 알리지 않고
+            // 지웁니다 — 남기면 새 지도의 같은 좌표에 점이 떠 엉뚱한 자리를 확정하게 됩니다.
+            if (value != supervisor.selectedMapId) {
+              setState(() => _picked = null);
+              supervisor.clearPoseCheck();
+            }
+            supervisor.selectMap(settings, value);
+          },
+          // 지도 설정 화면과 같은 버튼(2026-10-12 사용자 결정: '새로고침').
+          refreshIcon: Icons.refresh,
+          refreshLabel: const Text('새로고침'),
         ),
         const SizedBox(height: 18),
         if (map == null)

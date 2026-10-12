@@ -31,7 +31,7 @@ class MapPickerRow extends StatelessWidget {
   /// 지금 보이는 지도. 지도 목록을 아직 못 받았으면 null 이고 버튼이 잠깁니다.
   final VicaMap? map;
 
-  /// 드롭다운 칸의 이름('지도 선택'·'불러온 지도').
+  /// 드롭다운 칸의 이름(세 화면 모두 '지도 선택').
   final String label;
 
   /// 지도를 고르면 부릅니다. 지도를 바꾸는 일(selectMap)도 화면이 정합니다 — 지도

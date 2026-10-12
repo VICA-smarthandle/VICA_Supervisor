@@ -58,14 +58,14 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
           settings: settings,
           map: map,
           label: '지도 선택',
-          actionWidth: 112,
           onChanged: (value) {
             setState(() => _selectedId = null);
             supervisor.selectMap(settings, value);
           },
-          // 장소·홈·금지구역을 함께 받습니다 — 원격 주행의 '동기화'와 같은 뜻입니다.
-          refreshIcon: Icons.sync,
-          refreshLabel: const Text('동기화', maxLines: 1),
+          // 장소·홈·금지구역을 함께 받습니다 — 지도 설정·원격 주행의 '새로고침'과 같은
+          // 버튼입니다(2026-10-12 사용자 결정으로 세 화면 글자를 맞춤).
+          refreshIcon: Icons.refresh,
+          refreshLabel: const Text('새로고침'),
         ),
         const SizedBox(height: 18),
         if (map == null)
@@ -306,7 +306,8 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
           ? '도착 · ${_remaining(job.returnAt!)} 뒤 홈 복귀'
           : '도착 · 문 앞 대기',
       DeliveryPhase.returning => paused ? '홈 복귀 일시정지' : '홈 복귀 중',
-      DeliveryPhase.completed => '완료 · 홈 도착',
+      // 알림 기록(DeliveryPhase.label)과 같은 말(2026-10-12 사용자 결정).
+      DeliveryPhase.completed => '완료',
       DeliveryPhase.aborted => '중단',
       DeliveryPhase.unconfirmed => '확인 필요',
     };

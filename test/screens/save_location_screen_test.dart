@@ -487,7 +487,9 @@ void main() {
     expect(supervisor.selectedMapId, 'map_b');
   });
 
-  testWidgets('다른 지도의 임시 저장 장소는 보이지 않고, 돌아오면 다시 보인다', (tester) async {
+  // 임시 저장한 장소는 지도를 바꾸면 가려졌다가, 새 지도를 누르는 순간 말없이 지워졌습니다.
+  // 바꾸기 전에 모드 바꾸기와 같은 꼴의 팝업으로 묻습니다(2026-10-12 사용자 결정).
+  testWidgets('임시 저장한 장소가 있으면 지도를 바꾸기 전에 묻는다', (tester) async {
     final supervisor = await pumpWithMap(tester);
     supervisor.injectMaps(twoMapsMsg());
     supervisor.setDraftLocation(const LocationPoint(
@@ -501,16 +503,31 @@ void main() {
     await tester.pump();
     expect(find.text('임시 저장 장소 수정'), findsOneWidget);
 
+    // '남아서 저장' 이면 지도도 임시 저장 장소도 그대로입니다.
     await chooseMap(tester, '두번째 지도');
-    expect(find.text('임시 저장 장소 수정'), findsNothing);
-    expect(find.text('ROS2에 장소 저장'), findsNothing);
+    expect(find.text('저장하지 않은 장소가 있습니다'), findsOneWidget);
     expect(
-      tester.widget<MapCanvas>(find.byType(MapCanvas)).draftLocation,
-      isNull,
+      find.text(
+          vicaKeepWords("'새 장소'을(를) 아직 ROS2에 저장하지 않았습니다. 지도를 바꾸면 사라집니다.")),
+      findsOneWidget,
     );
-
-    await chooseMap(tester, '시험 지도');
+    await tester.tap(find.text('남아서 저장'));
+    await tester.pumpAndSettle();
+    expect(supervisor.selectedMapId, 'vica_map_test');
+    expect(supervisor.draftLocation, isNotNull);
     expect(find.text('임시 저장 장소 수정'), findsOneWidget);
+    final picker = tester.widget<DropdownButtonFormField<String>>(
+      find.byType(DropdownButtonFormField<String>).first,
+    );
+    expect(picker.initialValue, 'vica_map_test');
+
+    // '버리고 바꾸기' 면 임시 저장 장소를 지우고 바꿉니다.
+    await chooseMap(tester, '두번째 지도');
+    await tester.tap(find.text('버리고 바꾸기'));
+    await tester.pumpAndSettle();
+    expect(supervisor.selectedMapId, 'map_b');
+    expect(supervisor.draftLocation, isNull);
+    expect(find.text('임시 저장 장소 수정'), findsNothing);
   });
 
   testWidgets('저장하지 않은 금지구역이 있으면 지도를 바꾸기 전에 같은 팝업으로 묻는다', (tester) async {

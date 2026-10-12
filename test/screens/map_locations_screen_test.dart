@@ -128,6 +128,51 @@ void main() {
     expect(button.onPressed, isNull);
   });
 
+  // 초기 위치를 짚던 중에 지도를 바꾸면 그 점은 이전 지도의 좌표입니다. 남기면 새 지도의 같은
+  // 자리에 점이 떠 엉뚱한 곳을 확정하게 됩니다. 알리지 않고 지웁니다(2026-10-12 사용자 결정).
+  testWidgets('초기 위치를 짚던 중 지도를 바꾸면 점이 알림 없이 지워진다', (tester) async {
+    final supervisor = await pump(tester);
+    supervisor.handleMapListForTest({
+      'maps': [
+        for (final id in ['starlight_1f', 'starlight_2f'])
+          {
+            'map_id': id,
+            'map_name': id,
+            'resolution': 0.05,
+            'origin_x': 0.0,
+            'origin_y': 0.0,
+            'width': 200,
+            'height': 200,
+          },
+      ],
+    });
+    await tester.pump();
+    final entry = find.widgetWithText(OutlinedButton, '초기 위치 잡기');
+    await tester.ensureVisible(entry);
+    await tester.pump();
+    await tester.tap(entry);
+    await tester.pump();
+    tester.widget<DriveMapCanvas>(find.byType(DriveMapCanvas)).onTapMap!(
+      const Offset(3, 3),
+    );
+    await tester.pump();
+    expect(tester.widget<InitialPoseCard>(find.byType(InitialPoseCard)).picked,
+        isNotNull);
+
+    final picker = find.byType(DropdownButtonFormField<String>).first;
+    await tester.ensureVisible(picker);
+    await tester.pumpAndSettle();
+    await tester.tap(picker);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('starlight_2f').last);
+    await tester.pumpAndSettle();
+
+    expect(supervisor.selectedMapId, 'starlight_2f');
+    expect(find.byType(VicaDialog), findsNothing);
+    expect(tester.widget<InitialPoseCard>(find.byType(InitialPoseCard)).picked,
+        isNull);
+  });
+
   testWidgets('버튼을 누르면 3단계 화면이 열린다', (tester) async {
     await pump(tester);
     final entry = find.widgetWithText(OutlinedButton, '초기 위치 잡기');

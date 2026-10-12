@@ -242,7 +242,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
           supervisor: supervisor,
           settings: settings,
           map: map,
-          label: '불러온 지도',
+          label: '지도 선택',
           dropdownKey: ValueKey('map-picker-$_mapPickerResets'),
           onChanged: (value) =>
               _changeMap(context, supervisor, settings, value),
@@ -584,8 +584,29 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     if (mapId == supervisor.selectedMapId) {
       return;
     }
+    // 임시 저장한 장소는 만든 지도의 것입니다. 지도를 바꾸면 화면에서 가려지고, 새 지도를
+    // 누르는 순간 말없이 지워졌습니다 — 바꾸기 전에 묻습니다(2026-10-12 사용자 결정).
+    // 모드를 바꿀 때 묻는 팝업과 같은 꼴입니다. 다른 물음까지 통과한 뒤에 지웁니다.
     var leave = true;
-    if (supervisor.keepoutEditing) {
+    final draft = supervisor.draftLocation;
+    if (draft != null) {
+      leave = await showVicaConfirm(
+        context,
+        icon: Icons.place_outlined,
+        iconColor: VicaColors.warning,
+        title: '저장하지 않은 장소가 있습니다',
+        body: "'${draft.name}'을(를) 아직 ROS2에 저장하지 않았습니다. "
+            '지도를 바꾸면 사라집니다.',
+        cancelLabel: '남아서 저장',
+        confirmLabel: '버리고 바꾸기',
+        confirmIcon: Icons.delete_outline,
+        danger: true,
+      );
+      if (!context.mounted) {
+        return;
+      }
+    }
+    if (leave && supervisor.keepoutEditing) {
       leave = await _leaveKeepoutEdit(context, supervisor);
     }
     if (leave && supervisor.routeEditing) {
@@ -598,6 +619,9 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       // 드롭다운은 이미 새 지도를 보이고 있습니다. 다시 만들어 지금 지도로 되돌립니다.
       setState(() => _mapPickerResets += 1);
       return;
+    }
+    if (draft != null) {
+      supervisor.setDraftLocation(null);
     }
     setState(() {
       _foldLocationWork();
