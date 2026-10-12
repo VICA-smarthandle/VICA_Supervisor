@@ -3112,9 +3112,14 @@ class SupervisorProvider extends ChangeNotifier {
         type: 'vica_interfaces/srv/MissionCommand',
         args: {'request_id': _uuid.v4()},
       );
-      final message = response.message.isEmpty
-          ? (response.accepted ? defaultSuccessMessage : '요청이 거부되었습니다.')
-          : _localizeGateReason(response.message);
+      // 수락이면 앱 문구를 씁니다. 미션은 수락에도 'pause 요청을 처리했습니다.'처럼
+      // 명령 이름을 그대로 실어 보내, 관리자가 읽을 말이 아닙니다
+      // (mission_manager_node._handle_mission_command). 거부 사유만 옮깁니다.
+      final message = response.accepted
+          ? defaultSuccessMessage
+          : response.message.isEmpty
+              ? '요청이 거부되었습니다.'
+              : _localizeGateReason(response.message);
       _addLog(LogFilter.coordinateTransfer, message);
       return message;
     } catch (error) {
