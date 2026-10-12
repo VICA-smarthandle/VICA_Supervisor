@@ -59,6 +59,22 @@ void main() {
     expect(location.yaw, 180.0);
   });
 
+  test('목적지 목록 transport의 map_id를 fallback으로 사용한다', () {
+    final location = LocationPoint.fromJson(
+      {
+        'id': '11111111-1111-4111-8111-111111111111',
+        'name': '목적지',
+        'pose': {'frame_id': 'map', 'x': 4, 'y': 5, 'yaw': 180},
+      },
+      'vica_map_0630',
+    );
+
+    expect(location.mapId, 'vica_map_0630');
+    expect(location.x, 4.0);
+    expect(location.y, 5.0);
+    expect(location.yaw, 180.0);
+  });
+
   // -- 연락처 (물류 배송 도착 문자) ------------------------------------------
   //
   // 파일 키는 contact_phone 하나이고 숫자만 들어 있습니다. 옛 파일에는 키가
