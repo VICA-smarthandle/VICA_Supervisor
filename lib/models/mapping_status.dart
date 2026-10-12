@@ -156,8 +156,6 @@ class MappingStatus {
 
   bool get canSave => state == MappingState.mapping;
 
-  bool get canStop => state != MappingState.idle;
-
   static List<String> _stringList(Object? value) {
     if (value is! List) {
       return const [];

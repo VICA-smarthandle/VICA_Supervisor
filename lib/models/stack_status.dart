@@ -47,12 +47,6 @@ class StackStatus {
     '/occupancy_grid_node',
   ];
 
-  /// 두 스택이 공유하는 노드들. 여기서 같은 이름이 두 번 보이면 두 벌이 도는 것이다.
-  static const sharedNodes = <String>[
-    '/ekf_filter_node',
-    '/encoder_feedback',
-  ];
-
   bool get nav2Running => nav2Nodes.any(nodes.contains);
 
   bool get mappingRunning => mappingNodes.any(nodes.contains);

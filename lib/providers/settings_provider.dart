@@ -8,10 +8,8 @@ import '../core/app_settings.dart';
 
 class SettingsProvider extends ChangeNotifier {
   AppSettings _settings = const AppSettings();
-  bool _loaded = false;
 
   AppSettings get settings => _settings;
-  bool get loaded => _loaded;
 
   // 앱 시작 시 저장된 설정을 읽습니다. 설정 화면에서 고칠 수 있는 값만 되살립니다 —
   // 예전 판이 함께 저장해 둔 나머지 값은 버리고 코드의 기본값을 씁니다.
@@ -23,7 +21,6 @@ class SettingsProvider extends ChangeNotifier {
         _editableOnly(jsonDecode(raw) as Map<String, Object?>),
       );
     }
-    _loaded = true;
     notifyListeners();
   }
 

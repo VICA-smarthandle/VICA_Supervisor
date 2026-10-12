@@ -52,7 +52,6 @@ enum KeepoutSaveState {
 /// 레일 칸의 상태입니다(2026-09-30). 버튼 잠금과 문구가 이 값으로 정해집니다.
 enum RouteEditState {
   idle,
-  loading,
   drafting,
   editing,
   saving,
@@ -247,7 +246,6 @@ class SupervisorProvider extends ChangeNotifier {
   bool get emergencyOverlayVisible =>
       _emergencyStopState != EmergencyStopState.inactive;
   List<VicaMap> get maps => _maps;
-  String? get selectedMapId => _selectedMapId;
   String? get selectedLocationId => _selectedLocationId;
   LocationPoint? get draftLocation => _draftLocation;
   List<SupervisorLog> get logs => List.unmodifiable(_logs);
@@ -3400,14 +3398,6 @@ class SupervisorProvider extends ChangeNotifier {
   @visibleForTesting
   void handleMapPreviewForTest(Map<String, Object?> message) =>
       _handleMapPreview(message);
-
-  /// 젯슨 없이 초기 위치 화면의 표시 규칙만 검증하기 위한 주입 지점입니다.
-  @visibleForTesting
-  void setPoseCheckForTest(PoseCheckResult? result) {
-    _poseCheck = result;
-    _poseChecking = false;
-    notifyListeners();
-  }
 
   /// rosapi 를 띄우지 않고 모드 선택 화면의 표시 규칙만 검증하기 위한 주입 지점입니다.
   @visibleForTesting
