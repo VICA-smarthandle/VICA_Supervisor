@@ -231,26 +231,16 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
     LocationPoint location,
   ) async {
     final settings = context.read<SettingsProvider>().settings;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: Icons.play_arrow_outlined,
-        title: '배송 출발',
-        body: '${location.name}(으)로 물건을 보냅니다. '
-            '도착하면 ${maskContactPhone(location.contactPhone)} 로 문자를 보냅니다.\n\n'
-            '로봇 주변에 사람과 장애물이 없는지 확인하세요.',
-        actions: [
-          VicaCancelButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('출발'),
-          ),
-        ],
-      ),
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.play_arrow_outlined,
+      title: '배송 출발',
+      body: '${location.name}(으)로 물건을 보냅니다. '
+          '도착하면 ${maskContactPhone(location.contactPhone)} 로 문자를 보냅니다.\n\n'
+          '로봇 주변에 사람과 장애물이 없는지 확인하세요.',
+      confirmLabel: '출발',
     );
-    if (confirmed != true || !context.mounted) {
+    if (!confirmed || !context.mounted) {
       return;
     }
     final message = await supervisor.startDelivery(settings, location);

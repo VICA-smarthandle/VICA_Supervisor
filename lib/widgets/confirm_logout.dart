@@ -12,25 +12,15 @@ import 'vica_ui.dart';
 
 /// 로그아웃할지 묻고, 그러면 ROS 연결을 끊은 뒤 로그아웃합니다.
 Future<void> confirmLogout(BuildContext context) async {
-  final shouldLogout = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => VicaDialog(
-      icon: Icons.logout,
-      title: '로그아웃',
-      body: '로그아웃하면 다음 실행 시 로그인 화면이 표시됩니다.',
-      actions: [
-        VicaCancelButton(
-          onPressed: () => Navigator.of(dialogContext).pop(false),
-        ),
-        FilledButton.icon(
-          onPressed: () => Navigator.of(dialogContext).pop(true),
-          icon: const Icon(Icons.logout, size: 18),
-          label: const Text('로그아웃'),
-        ),
-      ],
-    ),
+  final shouldLogout = await showVicaConfirm(
+    context,
+    icon: Icons.logout,
+    title: '로그아웃',
+    body: '로그아웃하면 다음 실행 시 로그인 화면이 표시됩니다.',
+    confirmLabel: '로그아웃',
+    confirmIcon: Icons.logout,
   );
-  if (shouldLogout != true || !context.mounted) {
+  if (!shouldLogout || !context.mounted) {
     return;
   }
 

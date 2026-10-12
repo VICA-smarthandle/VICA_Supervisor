@@ -332,27 +332,17 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
       return;
     }
     final settings = context.read<SettingsProvider>().settings;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: Icons.gps_fixed,
-        title: '초기 위치 확정',
-        body: '로봇이 여기 있다고 알려 줍니다.\n'
-            '(${result.x.toStringAsFixed(2)}, ${result.y.toStringAsFixed(2)}) '
-            '${result.yawDegrees.round()}° · 일치도 ${result.score.round()}%\n\n'
-            '잘못 잡으면 로봇이 엉뚱한 곳으로 갑니다. 지도 위 화살표가 실제 로봇 위치와 같은지 확인하세요.',
-        actions: [
-          VicaCancelButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('확정'),
-          ),
-        ],
-      ),
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.gps_fixed,
+      title: '초기 위치 확정',
+      body: '로봇이 여기 있다고 알려 줍니다.\n'
+          '(${result.x.toStringAsFixed(2)}, ${result.y.toStringAsFixed(2)}) '
+          '${result.yawDegrees.round()}° · 일치도 ${result.score.round()}%\n\n'
+          '잘못 잡으면 로봇이 엉뚱한 곳으로 갑니다. 지도 위 화살표가 실제 로봇 위치와 같은지 확인하세요.',
+      confirmLabel: '확정',
     );
-    if (confirmed != true || !mounted) {
+    if (!confirmed || !mounted) {
       return;
     }
     final message = await supervisor.commitInitialPose(
@@ -459,25 +449,15 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     SupervisorProvider supervisor,
   ) async {
     final settings = context.read<SettingsProvider>().settings;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: Icons.home_outlined,
-        title: '홈으로 복귀',
-        body: '로봇이 홈 위치로 이동합니다. '
-            '경로에 사람과 장애물이 없는지 확인하세요.',
-        actions: [
-          VicaCancelButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('복귀 시작'),
-          ),
-        ],
-      ),
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.home_outlined,
+      title: '홈으로 복귀',
+      body: '로봇이 홈 위치로 이동합니다. '
+          '경로에 사람과 장애물이 없는지 확인하세요.',
+      confirmLabel: '복귀 시작',
     );
-    if (confirmed != true || !context.mounted) {
+    if (!confirmed || !context.mounted) {
       return;
     }
     final message = await supervisor.returnHome(settings);
@@ -494,25 +474,15 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     LocationPoint location,
   ) async {
     final settings = context.read<SettingsProvider>().settings;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: Icons.navigation_outlined,
-        title: '원격 주행 요청',
-        body: '${location.name}(으)로 주행을 요청합니다. '
-            '로봇 주변에 사람과 장애물이 없는지 확인하세요.',
-        actions: [
-          VicaCancelButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('주행 요청'),
-          ),
-        ],
-      ),
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.navigation_outlined,
+      title: '원격 주행 요청',
+      body: '${location.name}(으)로 주행을 요청합니다. '
+          '로봇 주변에 사람과 장애물이 없는지 확인하세요.',
+      confirmLabel: '주행 요청',
     );
-    if (confirmed != true || !context.mounted) {
+    if (!confirmed || !context.mounted) {
       return;
     }
     final message = await supervisor.requestDestination(settings, location);

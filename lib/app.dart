@@ -894,29 +894,19 @@ class _SupervisorShellState extends State<SupervisorShell> {
     //    것인지 아는 유일한 주체입니다.
     final draft = supervisor.draftLocation;
     if (draft != null) {
-      final leave = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => VicaDialog(
-          icon: Icons.place_outlined,
-          iconColor: VicaColors.warning,
-          title: '저장하지 않은 장소가 있습니다',
-          body: "'${draft.name}'을(를) 아직 ROS2에 저장하지 않았습니다. "
-              '모드를 바꾸면 사라집니다.',
-          actions: [
-            VicaCancelButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              label: '남아서 저장',
-            ),
-            FilledButton.icon(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              style: FilledButton.styleFrom(backgroundColor: VicaColors.red),
-              icon: const Icon(Icons.delete_outline, size: 18),
-              label: const Text('버리고 나가기'),
-            ),
-          ],
-        ),
+      final leave = await showVicaConfirm(
+        context,
+        icon: Icons.place_outlined,
+        iconColor: VicaColors.warning,
+        title: '저장하지 않은 장소가 있습니다',
+        body: "'${draft.name}'을(를) 아직 ROS2에 저장하지 않았습니다. "
+            '모드를 바꾸면 사라집니다.',
+        cancelLabel: '남아서 저장',
+        confirmLabel: '버리고 나가기',
+        confirmIcon: Icons.delete_outline,
+        danger: true,
       );
-      if (leave != true || !context.mounted) {
+      if (!leave || !context.mounted) {
         return;
       }
       supervisor.setDraftLocation(null);
@@ -945,20 +935,12 @@ class _SupervisorShellState extends State<SupervisorShell> {
     required String title,
     required String body,
   }) {
-    return showDialog<void>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: icon,
-        title: title,
-        body: body,
-        actions: [
-          FilledButton.icon(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            icon: const Icon(Icons.check, size: 18),
-            label: const Text('확인'),
-          ),
-        ],
-      ),
+    return showVicaNotice(
+      context,
+      icon: icon,
+      title: title,
+      body: body,
+      okIcon: Icons.check,
     );
   }
 

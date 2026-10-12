@@ -348,6 +348,103 @@ class VicaCancelButton extends StatelessWidget {
   }
 }
 
+/// 취소·확정 두 버튼짜리 확인 팝업을 띄웁니다. 확정을 눌렀을 때만 true 입니다.
+///
+/// 앱의 확인 팝업 대부분이 같은 모양입니다 — [VicaDialog] 에 왼쪽 [VicaCancelButton]
+/// (물러나기)과 오른쪽 채움 버튼(확정). 화면마다 손으로 짜던 것을 한 곳에 모읍니다.
+/// 바깥을 눌러 닫으면 취소와 같습니다.
+///
+/// [danger] 면 확정 버튼이 빨강입니다(지우기·주행 취소처럼 되돌리기 어려운 일).
+/// [confirmIcon] 이 있으면 확정 버튼 글자 앞에 아이콘을 붙입니다.
+Future<bool> showVicaConfirm(
+  BuildContext context, {
+  required String title,
+  required String confirmLabel,
+  IconData? icon,
+  Color iconColor = VicaColors.primary,
+  String? body,
+  Widget? content,
+  List<VicaDialogRow> rows = const [],
+  String cancelLabel = '취소',
+  IconData? confirmIcon,
+  bool danger = false,
+}) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      void pop(bool value) => Navigator.of(dialogContext).pop(value);
+      final style = danger
+          ? FilledButton.styleFrom(backgroundColor: VicaColors.red)
+          : null;
+      return VicaDialog(
+        icon: icon,
+        iconColor: iconColor,
+        title: title,
+        body: body,
+        content: content,
+        rows: rows,
+        actions: [
+          VicaCancelButton(onPressed: () => pop(false), label: cancelLabel),
+          if (confirmIcon == null)
+            FilledButton(
+              onPressed: () => pop(true),
+              style: style,
+              child: Text(confirmLabel),
+            )
+          else
+            FilledButton.icon(
+              onPressed: () => pop(true),
+              style: style,
+              icon: Icon(confirmIcon, size: 18),
+              label: Text(confirmLabel),
+            ),
+        ],
+      );
+    },
+  );
+  return confirmed == true;
+}
+
+/// 버튼 하나('확인')짜리 알림 팝업을 띄우고 닫힐 때까지 기다립니다.
+///
+/// [okIcon] 이 있으면 버튼 글자 앞에 아이콘을 붙입니다.
+Future<void> showVicaNotice(
+  BuildContext context, {
+  required String title,
+  IconData? icon,
+  Color iconColor = VicaColors.primary,
+  String? body,
+  Widget? content,
+  List<VicaDialogRow> rows = const [],
+  String okLabel = '확인',
+  IconData? okIcon,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      void close() => Navigator.of(dialogContext).pop();
+      return VicaDialog(
+        icon: icon,
+        iconColor: iconColor,
+        title: title,
+        body: body,
+        content: content,
+        rows: rows,
+        actions: [
+          if (okIcon == null)
+            FilledButton(onPressed: close, child: Text(okLabel))
+          else
+            FilledButton.icon(
+              onPressed: close,
+              icon: Icon(okIcon, size: 18),
+              label: Text(okLabel),
+            ),
+        ],
+      );
+    },
+  );
+}
+
 /// 팝업 안의 '라벨 …… 값' 한 줄.
 class VicaDialogRow extends StatelessWidget {
   const VicaDialogRow({

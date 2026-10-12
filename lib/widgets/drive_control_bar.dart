@@ -84,27 +84,17 @@ class DriveControlBar extends StatelessWidget {
   }
 
   Future<void> _confirmCancel(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: Icons.stop_circle_outlined,
-        iconColor: VicaColors.red,
-        title: cancelTitle,
-        body: cancelBody,
-        actions: [
-          VicaCancelButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            label: keepLabel,
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            style: FilledButton.styleFrom(backgroundColor: VicaColors.red),
-            child: const Text('취소하기'),
-          ),
-        ],
-      ),
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.stop_circle_outlined,
+      iconColor: VicaColors.red,
+      title: cancelTitle,
+      body: cancelBody,
+      cancelLabel: keepLabel,
+      confirmLabel: '취소하기',
+      danger: true,
     );
-    if (confirmed != true || !context.mounted) {
+    if (!confirmed || !context.mounted) {
       return;
     }
     await _send(context, supervisor.cancelDestination);

@@ -251,22 +251,14 @@ class _MappingShellState extends State<MappingShell> {
     // [A4] 매핑이 진행 중이면 나가지 못하게 합니다. 화면을 떠나면 종료·저장
     // 버튼에 손이 닿지 않고, 그 사이 로봇은 계속 그리고 있습니다.
     if (status != null && status.busy) {
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) => VicaDialog(
-          icon: Icons.place_outlined,
-          title: '매핑이 진행 중입니다',
-          // 문장은 마침표에서 나뉘고 그 안은 어절 단위로 접힙니다(VicaDialog).
-          body: '${status.state.label}입니다. '
-              '모드를 바꾸면 종료·저장 버튼이 보이지 않을 수 있으니 '
-              '먼저 저장하거나 종료해 주세요.',
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('확인'),
-            ),
-          ],
-        ),
+      await showVicaNotice(
+        context,
+        icon: Icons.place_outlined,
+        title: '매핑이 진행 중입니다',
+        // 문장은 마침표에서 나뉘고 그 안은 어절 단위로 접힙니다(VicaDialog).
+        body: '${status.state.label}입니다. '
+            '모드를 바꾸면 종료·저장 버튼이 보이지 않을 수 있으니 '
+            '먼저 저장하거나 종료해 주세요.',
       );
       return;
     }

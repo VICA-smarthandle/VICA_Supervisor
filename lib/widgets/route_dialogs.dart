@@ -10,49 +10,27 @@ import 'package:flutter/material.dart';
 import 'vica_ui.dart';
 
 /// 팝업 A. true 면 편집을 버리고 넘어간다.
-Future<bool> showRouteLeaveDialog(BuildContext context) async {
-  final leave = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => VicaDialog(
-      icon: Icons.edit_road_outlined,
-      title: '저장하지 않은 레일이 있습니다',
-      body: '편집을 취소하고 넘어갈까요?',
-      actions: [
-        VicaCancelButton(
-          onPressed: () => Navigator.of(dialogContext).pop(false),
-          label: '계속 편집',
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: const Text('편집 취소'),
-        ),
-      ],
-    ),
+Future<bool> showRouteLeaveDialog(BuildContext context) {
+  return showVicaConfirm(
+    context,
+    icon: Icons.edit_road_outlined,
+    title: '저장하지 않은 레일이 있습니다',
+    body: '편집을 취소하고 넘어갈까요?',
+    cancelLabel: '계속 편집',
+    confirmLabel: '편집 취소',
   );
-  return leave == true;
 }
 
 /// 팝업 B. true 면 초안을 만든다.
-Future<bool> showRouteDraftDialog(BuildContext context) async {
-  final go = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => VicaDialog(
-      icon: Icons.auto_awesome_outlined,
-      title: '자동 초안으로 다시 시작할까요?',
-      body: '지금 편집 중인 노드와 선이 지워집니다.\n'
-          '저장하기 전에는 로봇의 레일은 그대로입니다.',
-      actions: [
-        VicaCancelButton(
-          onPressed: () => Navigator.of(dialogContext).pop(false),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: const Text('초안 만들기'),
-        ),
-      ],
-    ),
+Future<bool> showRouteDraftDialog(BuildContext context) {
+  return showVicaConfirm(
+    context,
+    icon: Icons.auto_awesome_outlined,
+    title: '자동 초안으로 다시 시작할까요?',
+    body: '지금 편집 중인 노드와 선이 지워집니다.\n'
+        '저장하기 전에는 로봇의 레일은 그대로입니다.',
+    confirmLabel: '초안 만들기',
   );
-  return go == true;
 }
 
 /// 팝업 D 본문(사용자 확정).

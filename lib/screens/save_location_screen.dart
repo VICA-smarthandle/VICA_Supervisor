@@ -656,25 +656,15 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     SupervisorProvider supervisor,
   ) async {
     final mapId = supervisor.selectedMap?.mapId;
-    final leave = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: Icons.shield_outlined,
-        title: '저장하지 않은 금지구역이 있습니다',
-        body: '편집을 취소하고 넘어갈까요?',
-        actions: [
-          VicaCancelButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            label: '계속 편집',
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('편집 취소'),
-          ),
-        ],
-      ),
+    final leave = await showVicaConfirm(
+      context,
+      icon: Icons.shield_outlined,
+      title: '저장하지 않은 금지구역이 있습니다',
+      body: '편집을 취소하고 넘어갈까요?',
+      cancelLabel: '계속 편집',
+      confirmLabel: '편집 취소',
     );
-    if (leave != true) {
+    if (!leave) {
       return false;
     }
     if (mapId != null) {
@@ -1467,30 +1457,20 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     LocationPoint target,
   ) async {
     if (target.waitSpot != null) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => VicaDialog(
-          icon: Icons.delete_outline,
-          iconColor: VicaColors.red,
-          title: '${target.name}${_objectParticle(target.name)} 지울까요?',
-          body: '이 장소의 대기 장소도 함께 지워집니다.\n지운 뒤에는 되돌릴 수 없습니다.',
-          rows: [
-            VicaDialogRow(label: '장소', value: target.name),
-            VicaDialogRow(label: '함께 지워짐', value: target.waitSpotName),
-          ],
-          actions: [
-            VicaCancelButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              style: FilledButton.styleFrom(backgroundColor: VicaColors.red),
-              child: const Text('둘 다 지우기'),
-            ),
-          ],
-        ),
+      final confirmed = await showVicaConfirm(
+        context,
+        icon: Icons.delete_outline,
+        iconColor: VicaColors.red,
+        title: '${target.name}${_objectParticle(target.name)} 지울까요?',
+        body: '이 장소의 대기 장소도 함께 지워집니다.\n지운 뒤에는 되돌릴 수 없습니다.',
+        rows: [
+          VicaDialogRow(label: '장소', value: target.name),
+          VicaDialogRow(label: '함께 지워짐', value: target.waitSpotName),
+        ],
+        confirmLabel: '둘 다 지우기',
+        danger: true,
       );
-      if (confirmed != true || !context.mounted) {
+      if (!confirmed || !context.mounted) {
         return;
       }
     }
@@ -1505,35 +1485,25 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     LocationPoint target,
   ) async {
     final spot = target.waitSpot!;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: Icons.near_me_outlined,
-        title: '대기 장소로 가보기',
-        body: '등록이 맞는지 확인하는 이동입니다.',
-        rows: [
-          VicaDialogRow(label: '가는 곳', value: target.waitSpotName),
-          VicaDialogRow(
-            label: '나가는 방향',
-            value: _directionLabel(_directionFromYawDeg(spot.yaw, settings)),
-          ),
-        ],
-        content: const _NoticeBox(
-          text: '로봇 주변이 비어 있는지 먼저 확인하세요. 안내 중에는 누를 수 없습니다.',
-          warning: true,
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.near_me_outlined,
+      title: '대기 장소로 가보기',
+      body: '등록이 맞는지 확인하는 이동입니다.',
+      rows: [
+        VicaDialogRow(label: '가는 곳', value: target.waitSpotName),
+        VicaDialogRow(
+          label: '나가는 방향',
+          value: _directionLabel(_directionFromYawDeg(spot.yaw, settings)),
         ),
-        actions: [
-          VicaCancelButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('이동 시작'),
-          ),
-        ],
+      ],
+      content: const _NoticeBox(
+        text: '로봇 주변이 비어 있는지 먼저 확인하세요. 안내 중에는 누를 수 없습니다.',
+        warning: true,
       ),
+      confirmLabel: '이동 시작',
     );
-    if (confirmed != true || !context.mounted) {
+    if (!confirmed || !context.mounted) {
       return;
     }
     final message = await supervisor.requestWaitSpot(settings, target);
@@ -1580,42 +1550,32 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   ) async {
     final spot = after.waitSpot!;
     final moved = _distance(before.x, before.y, after.x, after.y);
-    final repick = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: Icons.open_with,
-        title: '목적지를 ${moved.toStringAsFixed(1)} m 옮겼습니다',
-        body: '대기 장소는 옛 자리에 그대로 남아 있습니다.\n새 목적지에 맞게 다시 찍을까요?',
-        rows: [
-          VicaDialogRow(label: '장소', value: after.name),
-          VicaDialogRow(
-            label: '대기 장소까지',
-            value:
-                '${_distance(before.x, before.y, spot.x, spot.y).toStringAsFixed(1)} m'
-                ' → ${_distance(after.x, after.y, spot.x, spot.y).toStringAsFixed(1)} m',
-          ),
-          VicaDialogRow(
-            label: '안내 멘트 위치',
-            value: _waitSpotInDoorway(after)
-                ? '입구 앞 · 다시 찍어 주세요'
-                : spot.side == before.waitSpot?.side
-                    ? '${spot.placePhrase} (그대로)'
-                    : spot.placePhrase,
-          ),
-        ],
-        actions: [
-          VicaCancelButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            label: '그대로 두기',
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('다시 찍기'),
-          ),
-        ],
-      ),
+    final repick = await showVicaConfirm(
+      context,
+      icon: Icons.open_with,
+      title: '목적지를 ${moved.toStringAsFixed(1)} m 옮겼습니다',
+      body: '대기 장소는 옛 자리에 그대로 남아 있습니다.\n새 목적지에 맞게 다시 찍을까요?',
+      rows: [
+        VicaDialogRow(label: '장소', value: after.name),
+        VicaDialogRow(
+          label: '대기 장소까지',
+          value:
+              '${_distance(before.x, before.y, spot.x, spot.y).toStringAsFixed(1)} m'
+              ' → ${_distance(after.x, after.y, spot.x, spot.y).toStringAsFixed(1)} m',
+        ),
+        VicaDialogRow(
+          label: '안내 멘트 위치',
+          value: _waitSpotInDoorway(after)
+              ? '입구 앞 · 다시 찍어 주세요'
+              : spot.side == before.waitSpot?.side
+                  ? '${spot.placePhrase} (그대로)'
+                  : spot.placePhrase,
+        ),
+      ],
+      cancelLabel: '그대로 두기',
+      confirmLabel: '다시 찍기',
     );
-    if (repick == true && mounted) {
+    if (repick && mounted) {
       _startWaitPick(after, keep: true);
     }
   }
@@ -1957,26 +1917,16 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     SupervisorProvider supervisor,
   ) async {
     final settings = context.read<SettingsProvider>().settings;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: Icons.home_outlined,
-        title: '홈으로 가보기',
-        body: '로봇이 홈 위치로 이동합니다. '
-            '경로에 사람과 장애물이 없는지 확인하세요.\n\n'
-            '제대로 도착하면 이 홈은 "가 본 자리"로 기록됩니다.',
-        actions: [
-          VicaCancelButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('이동 시작'),
-          ),
-        ],
-      ),
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.home_outlined,
+      title: '홈으로 가보기',
+      body: '로봇이 홈 위치로 이동합니다. '
+          '경로에 사람과 장애물이 없는지 확인하세요.\n\n'
+          '제대로 도착하면 이 홈은 "가 본 자리"로 기록됩니다.',
+      confirmLabel: '이동 시작',
     );
-    if (confirmed != true || !context.mounted) {
+    if (!confirmed || !context.mounted) {
       return;
     }
     final message = await supervisor.returnHome(settings);
@@ -1991,27 +1941,17 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     String mapId,
   ) async {
     final settings = context.read<SettingsProvider>().settings;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: Icons.delete_outline,
-        iconColor: VicaColors.red,
-        title: '홈 지우기',
-        body: '홈을 지우면 안내가 끝난 뒤 로봇이 자동으로 돌아가지 않습니다. '
-            '안내 기능 자체는 그대로 동작합니다.',
-        actions: [
-          VicaCancelButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            style: FilledButton.styleFrom(backgroundColor: VicaColors.red),
-            child: const Text('삭제'),
-          ),
-        ],
-      ),
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.delete_outline,
+      iconColor: VicaColors.red,
+      title: '홈 지우기',
+      body: '홈을 지우면 안내가 끝난 뒤 로봇이 자동으로 돌아가지 않습니다. '
+          '안내 기능 자체는 그대로 동작합니다.',
+      confirmLabel: '삭제',
+      danger: true,
     );
-    if (confirmed != true || !context.mounted) {
+    if (!confirmed || !context.mounted) {
       return;
     }
     final message = await supervisor.deleteHome(settings, mapId);
