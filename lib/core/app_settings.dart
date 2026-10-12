@@ -298,6 +298,42 @@ class AppSettings {
     );
   }
 
+  /// 설정 화면에서 고칠 수 있는 값의 JSON 이름. 기기에 저장하고 되살리는 것은 이것뿐입니다
+  /// ([SettingsProvider]).
+  ///
+  /// 나머지(지도 관리·매핑·미션 명령 서비스 이름, 진단 토픽, 재연결 횟수 등)는 화면에 칸이
+  /// 없어 관리자가 고칠 수 없습니다. 그것까지 저장하면 한 번 저장한 기기에는 그 뒤 코드의
+  /// 기본값을 바꿔도 닿지 않았습니다(검토 35bc1d0 B7). 설정 화면에 칸을 새로 만들면 여기에도
+  /// 넣습니다.
+  static const editableJsonKeys = <String>{
+    // 네트워크 및 ROS
+    'rosBridgeUrl',
+    'mapHttpBaseUrl',
+    // 좌표 보정
+    'xOffset',
+    'yOffset',
+    'yawOffset',
+    'mapScale',
+    'flipMapY',
+    // 고급 설정
+    'autoRequestMapList',
+    'autoRequestLocationList',
+    'mapListRequestTopic',
+    'mapListTopic',
+    'locationListRequestTopic',
+    'locationListTopic',
+    'saveLocationTopic',
+    'deleteLocationRequestTopic',
+    'missionRequestService',
+    'missionDeliveryService',
+    'missionWaitSpotService',
+    'robotStatusTopic',
+    'emergencyActivateService',
+    'emergencyResetService',
+    'emergencyStateTopic',
+    'emergencyServiceTimeoutSeconds',
+  };
+
   Map<String, Object> toJson() {
     return {
       'rosBridgeUrl': rosBridgeUrl,
