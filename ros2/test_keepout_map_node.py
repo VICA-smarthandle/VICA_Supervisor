@@ -125,3 +125,38 @@ def test_apply_now_가_없으면_지도와_상관없이_저장만(tmp_path: Path
     assert response.accepted is True
     assert response.reason == ""
     assert node.applied_maps == []
+
+
+def _finish_drive(node: SimpleNamespace) -> list:
+    """주행이 끝났다는 /robot_status 를 한 번 넣고, 노드가 앱에 알린 상태를 돌려준다."""
+    sent = []
+    node._publish_state = lambda *args: sent.append(args)
+    msg = SimpleNamespace(data='{"status": "idle", "current_goal": ""}')
+    KeepoutMapNode._on_robot_status(node, msg)
+    return sent
+
+
+def test_주행_끝난_뒤_미뤄_둔_지금_지도는_물린다(tmp_path: Path) -> None:
+    root = make_map(tmp_path, "map_now")
+    node = _node(root, current="map_now", driving=True)
+    _save(node, "map_now")
+
+    sent = _finish_drive(node)
+
+    assert node.applied_maps == ["map_now"]
+    assert sent and sent[0][:2] == ("map_now", True)
+
+
+def test_미뤄_둔_사이_주행_지도가_바뀌면_옛_지도를_물리지_않는다(tmp_path: Path) -> None:
+    # 미션이 목적지를 쥔 채 죽어 미루기가 풀리지 않은 사이 CURRENT_MAP 을 바꿔 다시 띄운 경우(10-13 검토).
+    root = make_map(make_map(tmp_path, "map_a"), "map_b")
+    node = _node(root, current="map_a", driving=True)
+    _save(node, "map_a")
+    (root / "CURRENT_MAP").write_text("map_b\n", encoding="utf-8")
+
+    sent = _finish_drive(node)
+
+    assert node.applied_maps == []
+    assert sent == [("map_a", False, "not_current_map",
+                     "지금 주행 지도가 아니라 다음에 이 지도로 주행할 때 적용됩니다.")]
+    assert node._pending_apply == ""

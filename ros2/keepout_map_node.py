@@ -189,6 +189,14 @@ class KeepoutMapNode(Node):
             # 시도합니다.
             map_id = self._pending_apply
             self._pending_apply = ""
+            if map_id != self._current_map_id():
+                # 미뤄 둔 사이 주행 지도가 바뀌었습니다(미션이 목적지를 쥔 채 죽고 CURRENT_MAP 을
+                # 바꿔 다시 띄운 경우 등). 옛 지도 마스크를 새 지도에 물리지 않습니다.
+                self._publish_state(
+                    map_id, False, "not_current_map",
+                    "지금 주행 지도가 아니라 다음에 이 지도로 주행할 때 적용됩니다.",
+                )
+                return
             applied, reason, message = self._apply(map_id)
             self._publish_state(map_id, applied, reason, message)
 
