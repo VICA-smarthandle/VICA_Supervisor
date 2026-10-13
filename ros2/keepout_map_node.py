@@ -20,6 +20,10 @@
 planner가 "Starting point in lethal space"로 실패합니다 — devlog에 이미 기록된
 실패 모드입니다. 그때는 저장만 하고, 주행이 끝나는 순간 한 번 자동으로
 적용한 뒤 /vica/keepout/state로 알립니다.
+
+주행 지도(maps/CURRENT_MAP)가 아닌 지도도 저장만 합니다(2026-10-13). 마스크 서버는
+지금 달리는 지도의 마스크 하나만 들고 있어, 다른 지도 마스크를 물리면 지금 지도의
+금지구역이 빠집니다. 레일(route_graph_node)과 같은 규칙입니다.
 """
 
 import json
@@ -279,6 +283,19 @@ class KeepoutMapNode(Node):
             response.message = f"금지구역 {zone_count}개를 저장했습니다."
             return response
 
+        if map_id != self._current_map_id():
+            # 마스크 서버는 지금 달리는 지도의 마스크 하나만 듭니다. 다른 지도의 마스크를
+            # 물리면 지금 지도의 금지구역이 통째로 빠집니다(2026-10-13 실측: 0910 저장 →
+            # map_1002 주행 중 금지구역 4개 사라짐). 레일(route_graph_node)과 같은 규칙 —
+            # 저장만 하고, 다음에 그 지도로 Nav2 를 띄우면 launch 가 파일을 읽습니다.
+            # 미루기(_pending_apply)보다 먼저 봐야 주행이 끝난 뒤에도 안 물립니다.
+            response.reason = "not_current_map"
+            response.message = (
+                f"금지구역 {zone_count}개를 저장했습니다. 지금 주행 지도가 아니라 "
+                "다음에 이 지도로 주행할 때 적용됩니다."
+            )
+            return response
+
         if self._hold_apply:
             # 지금 반영하면 로봇이 금지구역 안에 갇힐 수 있습니다(일시정지 재개
             # 포함). 저장은 이미 끝났으므로 실패가 아닙니다 — 미뤘다는 사실만
@@ -368,6 +385,18 @@ class KeepoutMapNode(Node):
         detail = reasons.get(int(result.result), f"알 수 없는 실패({result.result}).")
         self.get_logger().error(f"금지구역 마스크 적용 실패: {detail}")
         return (False, "apply_failed", detail)
+
+    def _current_map_id(self) -> str:
+        """maps/CURRENT_MAP 의 지도 id. 없으면 빈 글자 — 어느 지도도 바로 물리지 않습니다.
+
+        글자 그대로 비교합니다(route_graph_node·map_list_node 와 같음). 파일에 한글 표시
+        이름을 적으면 지금 지도도 '다른 지도'로 보여 저장만 됩니다 — 그때는
+        scripts/vica_map_pick.py --set 으로 id 를 적습니다.
+        """
+        try:
+            return (self.maps_root / "CURRENT_MAP").read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
 
     @staticmethod
     def _now() -> str:
