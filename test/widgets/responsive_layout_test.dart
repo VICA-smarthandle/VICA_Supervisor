@@ -47,15 +47,14 @@ class _Supervisor extends SupervisorProvider {
 
   // 카드에 가장 긴 문구가 들어가는 상태(중복 실행 경고)로 배치를 확인합니다.
   void injectConflictingStack() => setStackStatusForTest(
-        StackStatus(
-          nodes: const [
+        const StackStatus(
+          nodes: [
             '/amcl',
             '/cartographer_node',
             '/ekf_filter_node',
             '/ekf_filter_node',
           ],
-          odomPublishers: const ['/ekf_filter_node', '/ekf_filter_node'],
-          checkedAt: DateTime(2026, 8, 21),
+          odomPublishers: ['/ekf_filter_node', '/ekf_filter_node'],
         ),
       );
 

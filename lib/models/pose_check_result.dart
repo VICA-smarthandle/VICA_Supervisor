@@ -34,7 +34,6 @@ class PoseCheckResult {
     required this.yaw,
     required this.usedBeams,
     required this.totalBeams,
-    required this.runnerUpScore,
     required this.margin,
     required this.movedM,
     required this.movedDeg,
@@ -50,7 +49,6 @@ class PoseCheckResult {
   final double yaw;
   final int usedBeams;
   final int totalBeams;
-  final double runnerUpScore;
   final double margin;
   final double movedM;
   final double movedDeg;
@@ -75,7 +73,6 @@ class PoseCheckResult {
       yaw: number('yaw'),
       usedBeams: (values['used_beams'] as num?)?.toInt() ?? 0,
       totalBeams: (values['total_beams'] as num?)?.toInt() ?? 0,
-      runnerUpScore: number('runner_up_score'),
       margin: number('margin'),
       movedM: number('moved_m'),
       movedDeg: number('moved_deg'),

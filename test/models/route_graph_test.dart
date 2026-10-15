@@ -119,4 +119,29 @@ void main() {
       expect(graph.edges, [const RouteEdge(1, 2)]);
     });
   });
+
+  // 새 장소가 레일에서 얼마나 떨어졌는지(레일 팝업 E). 선 위 아무 곳까지를 잽니다.
+  group('distanceTo', () {
+    const graph = RouteGraph(
+      nodes: {1: Offset(0, 0), 2: Offset(4, 0), 3: Offset(9, 9)},
+      // 3→3 은 길이 0 인 선입니다. 끝점(노드)까지 거리와 같아야 합니다.
+      edges: [RouteEdge(1, 2), RouteEdge(3, 3)],
+    );
+
+    test('선 한가운데 옆은 선까지 거리', () {
+      expect(graph.distanceTo(2, 1.5), closeTo(1.5, 1e-9));
+    });
+
+    test('선 끝 너머는 끝점까지 거리', () {
+      expect(graph.distanceTo(7, 4), closeTo(5, 1e-9));
+    });
+
+    test('길이 0 인 선은 그 노드까지 거리', () {
+      expect(graph.distanceTo(9, 12), closeTo(3, 1e-9));
+    });
+
+    test('노드가 없으면 null', () {
+      expect(const RouteGraph(nodes: {}, edges: []).distanceTo(0, 0), isNull);
+    });
+  });
 }

@@ -149,16 +149,6 @@ class RouteSketch {
   }
 }
 
-double distanceToSegment(Offset p, Offset a, Offset b) {
-  final ab = b - a;
-  final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
-  if (len2 == 0) {
-    return (p - a).distance;
-  }
-  final t = (((p - a).dx * ab.dx + (p - a).dy * ab.dy) / len2).clamp(0.0, 1.0);
-  return (a + ab * t - p).distance;
-}
-
 /// 로봇 검사가 돌려준 문제 하나. 위치(x, y)는 ROS 좌표입니다.
 class RouteIssue {
   const RouteIssue({

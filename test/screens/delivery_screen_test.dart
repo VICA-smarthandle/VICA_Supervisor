@@ -171,7 +171,7 @@ void main() {
           .copyWith(phase: DeliveryPhase.completed),
     );
     await tester.pump();
-    expect(find.textContaining('완료 · 홈 도착'), findsOneWidget);
+    expect(find.text('완료'), findsOneWidget);
     await tester.tap(find.text('배송 완료 · 지우기'));
     await tester.pump();
     expect(supervisor.delivery, isNull);

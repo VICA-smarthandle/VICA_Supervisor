@@ -99,7 +99,6 @@ class GoalEvent {
     this.locationId = '',
     required this.reason,
     required this.mapId,
-    required this.receivedAt,
     this.waitPlace = '',
     this.waitMinutes = -1,
     this.delivery = false,
@@ -122,7 +121,6 @@ class GoalEvent {
   final String reason;
 
   final String mapId;
-  final DateTime receivedAt;
 
   /// 대기 알림의 기다린 곳 — `spot`(대기 장소)·`destination`(목적지 앞). 그 밖은 빈 값.
   final String waitPlace;
@@ -135,7 +133,7 @@ class GoalEvent {
   final bool delivery;
 
   /// 로봇이 이벤트에 적은 시각(초 단위 문자열). 같은 도착을 화면끼리 맞추는 열쇠입니다 —
-  /// 받은 시각([receivedAt])은 기기마다 다릅니다.
+  /// 기기가 받은 시각은 기기마다 다릅니다.
   final String robotStamp;
 
   /// 관리자에게 팝업으로 알려야 하는가. 판정은 [GoalEventKind] 가 합니다.
@@ -163,7 +161,6 @@ class GoalEvent {
           '',
       reason: (json['reason'] as String?)?.trim() ?? '',
       mapId: (json['map_id'] as String?)?.trim() ?? '',
-      receivedAt: DateTime.now(),
       waitPlace: (json['wait_place'] as String?)?.trim() ?? '',
       waitMinutes: (json['wait_minutes'] as num?)?.toInt() ?? -1,
       delivery: json['delivery'] == true,

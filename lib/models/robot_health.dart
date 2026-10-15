@@ -5,6 +5,7 @@
 // activeFaults 배열로 재접속 후 화면을 복원합니다.
 import '../core/fault_severity.dart';
 import 'robot_fault.dart';
+import '../core/json_read.dart';
 
 class RobotHealth {
   const RobotHealth({
@@ -75,11 +76,12 @@ class RobotHealth {
         : const <RobotFault>[];
 
     return RobotHealth(
-      state: RobotHealthState.fromValue(_asInt(msg['state'])),
+      state: RobotHealthState.fromValue(jsonInt(msg['state'])),
       readiness: _readReadiness(msg),
-      activeFaultCount: _asInt(msg['active_fault_count']),
-      highestSeverity: FaultSeverity.fromValue(_asInt(msg['highest_severity'])),
-      primaryFaultCode: _asString(msg['primary_fault_code']),
+      activeFaultCount: jsonInt(msg['active_fault_count']),
+      highestSeverity:
+          FaultSeverity.fromValue(jsonInt(msg['highest_severity'])),
+      primaryFaultCode: jsonString(msg['primary_fault_code']),
       activeFaults: faults,
       receivedAt: DateTime.now(),
     );
@@ -106,27 +108,7 @@ class RobotHealth {
 
     return {
       for (final entry in fields.entries)
-        entry.key: ComponentReadiness.fromValue(_asInt(msg[entry.value])),
+        entry.key: ComponentReadiness.fromValue(jsonInt(msg[entry.value])),
     };
   }
-}
-
-String _asString(Object? value) {
-  if (value is String) {
-    return value;
-  }
-  return value?.toString() ?? '';
-}
-
-int _asInt(Object? value) {
-  if (value is int) {
-    return value;
-  }
-  if (value is num) {
-    return value.toInt();
-  }
-  if (value is String) {
-    return int.tryParse(value) ?? 0;
-  }
-  return 0;
 }

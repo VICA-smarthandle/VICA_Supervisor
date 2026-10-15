@@ -26,7 +26,6 @@ PoseCheckResult result({
       yaw: 0,
       usedBeams: 168,
       totalBeams: 721,
-      runnerUpScore: 58,
       margin: 24,
       movedM: 0.12,
       movedDeg: 8,

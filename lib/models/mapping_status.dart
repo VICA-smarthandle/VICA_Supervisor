@@ -3,6 +3,8 @@
 // 앱이 "지금 시작해도 되나 / 저장해도 되나 / 모드를 바꿔도 되나"를 이것으로 판정합니다.
 // 젯슨에서 프로세스를 실제로 소유한 노드가 보내는 값이라, 노드 목록을 훑어 추측하는
 // 것보다 정확합니다.
+import '../core/json_read.dart';
+
 enum MappingState {
   idle('idle', '대기'),
   starting('starting', '시작하는 중'),
@@ -118,7 +120,6 @@ class MappingStatus {
     required this.mappingRunning,
     required this.duplicated,
     required this.prerequisitesMissing,
-    required this.receivedAt,
     this.saveAlign,
   });
 
@@ -135,7 +136,6 @@ class MappingStatus {
   final bool mappingRunning;
   final List<String> duplicated;
   final List<String> prerequisitesMissing;
-  final DateTime receivedAt;
 
   /// 마지막 저장을 바르게 세웠는지. 저장 전·옛 노드면 null 입니다.
   final MapSaveAlign? saveAlign;
@@ -156,15 +156,6 @@ class MappingStatus {
 
   bool get canSave => state == MappingState.mapping;
 
-  bool get canStop => state != MappingState.idle;
-
-  static List<String> _stringList(Object? value) {
-    if (value is! List) {
-      return const [];
-    }
-    return value.whereType<String>().toList(growable: false);
-  }
-
   factory MappingStatus.fromJson(Map<String, Object?> json) {
     return MappingStatus(
       state: MappingState.fromValue(json['state'] as String? ?? ''),
@@ -173,9 +164,8 @@ class MappingStatus {
       mapName: json['map_name'] as String? ?? '',
       nav2Running: json['nav2_running'] == true,
       mappingRunning: json['mapping_running'] == true,
-      duplicated: _stringList(json['duplicated']),
-      prerequisitesMissing: _stringList(json['prerequisites_missing']),
-      receivedAt: DateTime.now(),
+      duplicated: jsonStringList(json['duplicated']),
+      prerequisitesMissing: jsonStringList(json['prerequisites_missing']),
       saveAlign: MapSaveAlign.fromJson(json['save_align']),
     );
   }

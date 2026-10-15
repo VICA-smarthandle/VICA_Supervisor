@@ -10,6 +10,7 @@ import '../widgets/initial_pose_card.dart';
 import '../widgets/drive_control_bar.dart';
 import '../widgets/drive_map_canvas.dart';
 import '../widgets/map_canvas.dart';
+import '../widgets/map_picker.dart';
 import '../widgets/vica_ui.dart';
 
 class MapLocationsScreen extends StatefulWidget {
@@ -26,12 +27,6 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
   bool _picking = false;
   Offset? _picked;
   PoseDirection? _direction = PoseDirection.right;
-
-  static const _compactDropdownDecoration = InputDecoration(
-    labelText: '지도 선택',
-    isDense: true,
-    contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-  );
 
   @override
   Widget build(BuildContext context) {
@@ -64,52 +59,27 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     return VicaPage(
       title: '원격 주행',
       children: [
-        VicaFieldWithAction(
-          actionWidth: 112,
-          field: DropdownButtonFormField<String>(
-            initialValue: map?.mapId,
-            decoration: _compactDropdownDecoration,
-            isExpanded: true,
-            itemHeight: null,
-            items: supervisor.maps
-                .map(
-                  (item) => DropdownMenuItem(
-                    value: item.mapId,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Text(item.displayName),
-                    ),
-                  ),
-                )
-                .toList(),
-            selectedItemBuilder: (context) => supervisor.maps
-                .map(
-                  (item) => Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      item.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                )
-                .toList(),
-            onChanged: (value) => supervisor.selectMap(settings, value),
-          ),
-          action: OutlinedButton.icon(
-            onPressed: map == null
-                ? null
-                // 장소·홈·금지구역을 함께 받습니다. 종전에는 장소만 받아서
-                // 이름과 동작이 어긋났습니다(2026-09-02).
-                : () => supervisor.refreshMapData(settings, map.mapId),
-            icon: const Icon(Icons.sync, size: 18),
-            label: const Text('동기화', maxLines: 1),
-          ),
+        MapPickerRow(
+          supervisor: supervisor,
+          settings: settings,
+          map: map,
+          label: '지도 선택',
+          onChanged: (value) {
+            // 초기 위치를 짚던 중이면 그 점과 점수는 이전 지도의 것입니다. 알리지 않고
+            // 지웁니다 — 남기면 새 지도의 같은 좌표에 점이 떠 엉뚱한 자리를 확정하게 됩니다.
+            if (value != supervisor.selectedMapId) {
+              setState(() => _picked = null);
+              supervisor.clearPoseCheck();
+            }
+            supervisor.selectMap(settings, value);
+          },
+          // 지도 설정 화면과 같은 버튼(2026-10-12 사용자 결정: '새로고침').
+          refreshIcon: Icons.refresh,
+          refreshLabel: const Text('새로고침'),
         ),
-        CurrentMapNotice(supervisor: supervisor, map: map),
         const SizedBox(height: 18),
         if (map == null)
-          const VicaCard(child: Text('지도 목록을 먼저 불러오세요.'))
+          const NoMapCard()
         else ...[
           // 홈·금지구역·로봇 위치는 주행 화면 공통(DriveMapCanvas). 이 화면은
           // 장소 전체를 보이고, 초기 위치 잡기의 짚은 점·자세·라이다 점만 얹습니다.
@@ -332,27 +302,17 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
       return;
     }
     final settings = context.read<SettingsProvider>().settings;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: Icons.gps_fixed,
-        title: '초기 위치 확정',
-        body: '로봇이 여기 있다고 알려 줍니다.\n'
-            '(${result.x.toStringAsFixed(2)}, ${result.y.toStringAsFixed(2)}) '
-            '${result.yawDegrees.round()}° · 일치도 ${result.score.round()}%\n\n'
-            '잘못 잡으면 로봇이 엉뚱한 곳으로 갑니다. 지도 위 화살표가 실제 로봇 위치와 같은지 확인하세요.',
-        actions: [
-          VicaCancelButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('확정'),
-          ),
-        ],
-      ),
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.gps_fixed,
+      title: '초기 위치 확정',
+      body: '로봇이 여기 있다고 알려 줍니다.\n'
+          '(${result.x.toStringAsFixed(2)}, ${result.y.toStringAsFixed(2)}) '
+          '${result.yawDegrees.round()}° · 일치도 ${result.score.round()}%\n\n'
+          '잘못 잡으면 로봇이 엉뚱한 곳으로 갑니다. 지도 위 화살표가 실제 로봇 위치와 같은지 확인하세요.',
+      confirmLabel: '확정',
     );
-    if (confirmed != true || !mounted) {
+    if (!confirmed || !mounted) {
       return;
     }
     final message = await supervisor.commitInitialPose(
@@ -393,6 +353,10 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
       );
       return;
     }
+    // 들어오기 전부터 남아 있던 채점 결과는 이번에 잡은 것이 아닙니다(지도 설정
+    // 홈 칸의 '여기가 맞는지 확인', 화면을 떠나기 전의 지난 회차). 남기면 짚은
+    // 점도 없는데 그 점수로 '확정'이 열립니다. 확정 뒤 라이다 점은 그대로 둡니다.
+    supervisor.discardPoseCheck(supervisor.poseCheck);
     setState(() => _picking = true);
   }
 
@@ -455,25 +419,15 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     SupervisorProvider supervisor,
   ) async {
     final settings = context.read<SettingsProvider>().settings;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: Icons.home_outlined,
-        title: '홈으로 복귀',
-        body: '로봇이 홈 위치로 이동합니다. '
-            '경로에 사람과 장애물이 없는지 확인하세요.',
-        actions: [
-          VicaCancelButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('복귀 시작'),
-          ),
-        ],
-      ),
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.home_outlined,
+      title: '홈으로 복귀',
+      body: '로봇이 홈 위치로 이동합니다. '
+          '경로에 사람과 장애물이 없는지 확인하세요.',
+      confirmLabel: '복귀 시작',
     );
-    if (confirmed != true || !context.mounted) {
+    if (!confirmed || !context.mounted) {
       return;
     }
     final message = await supervisor.returnHome(settings);
@@ -490,25 +444,15 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     LocationPoint location,
   ) async {
     final settings = context.read<SettingsProvider>().settings;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: Icons.navigation_outlined,
-        title: '원격 주행 요청',
-        body: '${location.name}(으)로 주행을 요청합니다. '
-            '로봇 주변에 사람과 장애물이 없는지 확인하세요.',
-        actions: [
-          VicaCancelButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('주행 요청'),
-          ),
-        ],
-      ),
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.navigation_outlined,
+      title: '원격 주행 요청',
+      body: '${location.name}(으)로 주행을 요청합니다. '
+          '로봇 주변에 사람과 장애물이 없는지 확인하세요.',
+      confirmLabel: '주행 요청',
     );
-    if (confirmed != true || !context.mounted) {
+    if (!confirmed || !context.mounted) {
       return;
     }
     final message = await supervisor.requestDestination(settings, location);

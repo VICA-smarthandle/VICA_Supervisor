@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:vica_supervisor/core/app_settings.dart';
 import 'package:vica_supervisor/models/location_point.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
@@ -14,7 +15,25 @@ import 'package:vica_supervisor/widgets/vica_ui.dart';
 import 'package:vica_supervisor/widgets/map_canvas.dart';
 import 'package:vica_supervisor/widgets/rail_card.dart';
 
+import '../ros/fake_ros_socket.dart';
+
 class _FakeSupervisor extends SupervisorProvider {
+  _FakeSupervisor({super.rosChannelConnector});
+
+  void injectRobot() => handleRobotStatusForTest({
+        'robot_id': 'vica_robot_01',
+        'robot_name': 'VICA 1호기',
+        'status': 'idle',
+        'x': 1.0,
+        'y': 2.0,
+        'yaw': 0.0,
+        'current_location': '로비',
+        'current_goal': '',
+        'error_reason': '',
+        'waiting_reason': '',
+        'map_id': 'vica_map_test',
+      });
+
   void injectMaps(Map<String, Object?> message) =>
       handleMapListForTest(message);
 
@@ -79,6 +98,22 @@ Map<String, Object?> mapListMsg() {
         'origin_y': -10.0,
         'width': 400,
         'height': 300,
+      },
+    ],
+  };
+}
+
+// 지도 바꾸기 시험용 두 지도.
+Map<String, Object?> twoMapsMsg() {
+  final first = (mapListMsg()['maps']! as List).first as Map<String, Object?>;
+  return {
+    'maps': [
+      first,
+      {
+        ...first,
+        'map_id': 'map_b',
+        'map_name': '두번째 지도',
+        'image_url': '/maps/map_b.png',
       },
     ],
   };
@@ -395,5 +430,231 @@ void main() {
     await tester.tap(find.text('레일'));
     await tester.pump();
     expect(find.byType(RailCard), findsOneWidget);
+  });
+
+  // ---- 지도 바꾸기 (검토 35bc1d0 B3) ----------------------------------------
+  //
+  // 종전에는 지도를 바꿔도 하던 장소 일이 그대로 남았습니다. A 지도에서 장소를
+  // 고치다 B 지도로 바꾸고 B 지도를 눌러 저장하면, B 의 좌표가 A 의 장소에
+  // 들어갔습니다(장소의 지도는 원본 것이 남습니다).
+
+  Future<void> chooseMap(WidgetTester tester, String name) async {
+    await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(name).last);
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('지도를 바꾸면 고치던 장소가 접히고, 새 지도를 눌러도 옛 장소를 고치지 않는다', (tester) async {
+    final supervisor = await pumpWithMap(tester);
+    supervisor.injectMaps(twoMapsMsg());
+    supervisor.injectLocations([_savedRestroom]);
+    await tester.pump();
+
+    await tester.tap(find.widgetWithText(OutlinedButton, editSaved));
+    await tester.pumpAndSettle();
+    expect(find.text('수정 중'), findsOneWidget);
+
+    await chooseMap(tester, '두번째 지도');
+    expect(supervisor.selectedMap?.mapId, 'map_b');
+
+    // 수정이 접혔습니다. 원래 자리 표시(회색 점선 원)도 없습니다.
+    expect(find.text('수정 중'), findsNothing);
+    expect(tester.widget<MapCanvas>(find.byType(MapCanvas)).ghostPoint, isNull);
+
+    // B 지도를 누르면 새 장소 찍기입니다. 옛 장소 수정이 되살아나지 않습니다.
+    tester.widget<MapCanvas>(find.byType(MapCanvas)).onTapMap!(
+      const Offset(4.0, 5.0),
+    );
+    await tester.pump();
+    expect(find.text('수정 중'), findsNothing);
+    expect(find.widgetWithText(FilledButton, enterInfo), findsOneWidget);
+    expect(tester.widget<MapCanvas>(find.byType(MapCanvas)).ghostPoint, isNull);
+  });
+
+  // 고른 지도가 목록에서 사라지면(다른 기기가 지움) 화면은 첫 지도를 대신 보입니다. 그 지도를
+  // 고르는 것은 "같은 지도" 가 아니라 새로 고르는 것입니다 — 장소·홈·금지구역을 받아야 합니다.
+  testWidgets('고른 지도가 지워져 대신 보이는 지도를 고르면 그 지도로 바뀐다', (tester) async {
+    final supervisor = await pumpWithMap(tester);
+    final onlyB = twoMapsMsg();
+    onlyB['maps'] = [(onlyB['maps']! as List).last];
+    supervisor.injectMaps(onlyB);
+    await tester.pump();
+    expect(supervisor.selectedMapId, 'vica_map_test', reason: '전제: 고른 값은 낡았다');
+    expect(supervisor.selectedMap?.mapId, 'map_b', reason: '전제: 화면은 첫 지도를 보인다');
+
+    await chooseMap(tester, '두번째 지도');
+    expect(supervisor.selectedMapId, 'map_b');
+  });
+
+  // 임시 저장한 장소는 지도를 바꾸면 가려졌다가, 새 지도를 누르는 순간 말없이 지워졌습니다.
+  // 바꾸기 전에 모드 바꾸기와 같은 꼴의 팝업으로 묻습니다(2026-10-12 사용자 결정).
+  testWidgets('임시 저장한 장소가 있으면 지도를 바꾸기 전에 묻는다', (tester) async {
+    final supervisor = await pumpWithMap(tester);
+    supervisor.injectMaps(twoMapsMsg());
+    supervisor.setDraftLocation(const LocationPoint(
+      locationId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      mapId: 'vica_map_test',
+      name: '새 장소',
+      x: 1,
+      y: 1,
+      yaw: 0,
+    ));
+    await tester.pump();
+    expect(find.text('임시 저장 장소 수정'), findsOneWidget);
+
+    // '남아서 저장' 이면 지도도 임시 저장 장소도 그대로입니다.
+    await chooseMap(tester, '두번째 지도');
+    expect(find.text('저장하지 않은 장소가 있습니다'), findsOneWidget);
+    expect(
+      find.text(
+          vicaKeepWords("'새 장소'을(를) 아직 ROS2에 저장하지 않았습니다. 지도를 바꾸면 사라집니다.")),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('남아서 저장'));
+    await tester.pumpAndSettle();
+    expect(supervisor.selectedMapId, 'vica_map_test');
+    expect(supervisor.draftLocation, isNotNull);
+    expect(find.text('임시 저장 장소 수정'), findsOneWidget);
+    final picker = tester.widget<DropdownButtonFormField<String>>(
+      find.byType(DropdownButtonFormField<String>).first,
+    );
+    expect(picker.initialValue, 'vica_map_test');
+
+    // '버리고 바꾸기' 면 임시 저장 장소를 지우고 바꿉니다.
+    await chooseMap(tester, '두번째 지도');
+    await tester.tap(find.text('버리고 바꾸기'));
+    await tester.pumpAndSettle();
+    expect(supervisor.selectedMapId, 'map_b');
+    expect(supervisor.draftLocation, isNull);
+    expect(find.text('임시 저장 장소 수정'), findsNothing);
+  });
+
+  testWidgets('저장하지 않은 금지구역이 있으면 지도를 바꾸기 전에 같은 팝업으로 묻는다', (tester) async {
+    final supervisor = await pumpWithMap(tester);
+    supervisor.injectMaps(twoMapsMsg());
+    await tester.pump();
+    supervisor.enterKeepoutEdit('vica_map_test');
+    await tester.pump();
+
+    // '계속 편집'이면 지도도 드롭다운도 그대로입니다.
+    await chooseMap(tester, '두번째 지도');
+    expect(find.text('저장하지 않은 금지구역이 있습니다'), findsOneWidget);
+    await tester.tap(find.text('계속 편집'));
+    await tester.pumpAndSettle();
+    expect(supervisor.selectedMap?.mapId, 'vica_map_test');
+    expect(supervisor.keepoutEditing, isTrue);
+    final picker = tester.widget<DropdownButtonFormField<String>>(
+      find.byType(DropdownButtonFormField<String>).first,
+    );
+    expect(picker.initialValue, 'vica_map_test');
+    expect(find.text('시험 지도'), findsOneWidget);
+    expect(find.text('두번째 지도'), findsNothing);
+
+    // '편집 취소'면 편집을 버리고 바꿉니다.
+    await chooseMap(tester, '두번째 지도');
+    await tester.tap(find.text('편집 취소'));
+    await tester.pumpAndSettle();
+    expect(supervisor.selectedMap?.mapId, 'map_b');
+    expect(supervisor.keepoutEditing, isFalse);
+  });
+
+  // ---- 홈 칸 '여기가 맞는지 확인' 결과 (검토 35bc1d0 B4) ---------------------
+  //
+  // 이 확인은 원격 주행의 초기 위치 채점을 빌려 씁니다(provider.poseCheck). 종전에는
+  // 홈을 저장할 때만 치워서, 칸을 접거나 화면을 떠나면 원격 주행 화면이 그 점수와
+  // 라이다 점을 보이고 초기 위치 '확정'을 열어 두었습니다.
+
+  const poseValues = <String, Object?>{
+    'ok': true,
+    'message': '잘 맞습니다',
+    'score': 88.0,
+    'x': 1.0,
+    'y': 2.0,
+    'yaw': 0.0,
+    'hit_x': [1.0, 2.0],
+    'hit_y': [3.0, 4.0],
+  };
+
+  Future<(_FakeSupervisor, FakeRosServer)> pumpConnected(
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1200, 2400);
+    addTearDown(() {
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetPhysicalSize();
+    });
+    final server = FakeRosServer();
+    final supervisor = _FakeSupervisor(rosChannelConnector: server.connect);
+    await supervisor.connect(const AppSettings());
+    supervisor.injectMaps(mapListMsg());
+    supervisor.injectRobot();
+    // 지도를 고르며 홈을 묻습니다. 답이 오기 전에는 홈 칸 버튼이 잠깁니다.
+    server.last.answer('/vica/home/get', {'exists': false});
+    await tester.pumpWidget(wrap(supervisor));
+    await tester.pump();
+    return (supervisor, server);
+  }
+
+  Future<void> startStandingCheck(WidgetTester tester) async {
+    await tester.tap(find.text('홈 위치'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('지금 로봇이 있는 위치로'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('여기가 맞는지 확인'));
+    await tester.pump();
+  }
+
+  // 지도를 고르며 나간 홈·금지구역 조회가 응답 없이 끝나기를(timeout) 기다립니다.
+  Future<void> drainServiceCalls(WidgetTester tester) =>
+      tester.pump(const Duration(seconds: 15));
+
+  testWidgets('홈 칸을 접으면 확인 결과를 원격 주행 쪽에 남기지 않는다', (tester) async {
+    final (supervisor, server) = await pumpConnected(tester);
+    await startStandingCheck(tester);
+    expect(server.last.answer('/vica/pose_check', poseValues), isTrue);
+    await tester.pump();
+    expect(supervisor.poseCheck, isNotNull);
+    expect(find.text('다시 확인'), findsOneWidget);
+
+    await tester.tap(find.text('홈 위치'));
+    await tester.pumpAndSettle();
+
+    expect(supervisor.poseCheck, isNull);
+    await drainServiceCalls(tester);
+  });
+
+  testWidgets('확인 결과를 둔 채 화면을 떠나도 원격 주행 쪽에 남기지 않는다', (tester) async {
+    final (supervisor, server) = await pumpConnected(tester);
+    await startStandingCheck(tester);
+    server.last.answer('/vica/pose_check', poseValues);
+    await tester.pump();
+    expect(supervisor.poseCheck, isNotNull);
+
+    // 셸이 다른 탭을 그리면 이 화면은 걷어집니다.
+    await tester.pumpWidget(
+      ChangeNotifierProvider<SupervisorProvider>.value(
+        value: supervisor,
+        child: const MaterialApp(home: Scaffold(body: SizedBox())),
+      ),
+    );
+    await tester.pump();
+
+    expect(supervisor.poseCheck, isNull);
+    await drainServiceCalls(tester);
+  });
+
+  testWidgets('확인을 기다리는 사이 칸을 접으면 늦게 온 결과도 남기지 않는다', (tester) async {
+    final (supervisor, server) = await pumpConnected(tester);
+    await startStandingCheck(tester);
+
+    await tester.tap(find.text('홈 위치'));
+    await tester.pumpAndSettle();
+    server.last.answer('/vica/pose_check', poseValues);
+    await tester.pump();
+
+    expect(supervisor.poseCheck, isNull);
+    await drainServiceCalls(tester);
   });
 }

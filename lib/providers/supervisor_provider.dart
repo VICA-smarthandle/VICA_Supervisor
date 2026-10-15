@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/app_settings.dart';
+import '../core/json_read.dart';
 import '../core/log_filter.dart';
 import '../models/delivery_job.dart';
 import '../models/goal_event.dart';
@@ -52,7 +53,6 @@ enum KeepoutSaveState {
 /// 레일 칸의 상태입니다(2026-09-30). 버튼 잠금과 문구가 이 값으로 정해집니다.
 enum RouteEditState {
   idle,
-  loading,
   drafting,
   editing,
   saving,
@@ -103,12 +103,18 @@ class SupervisorProvider extends ChangeNotifier {
     RouteGraphLoader? routeGraphLoader,
     RouteServiceCall? routeServiceCall,
     WallMaskLoader? wallMaskLoader,
+    RosChannelConnector? rosChannelConnector,
   })  : _deliveryNotifier = deliveryNotifier ?? createDeliveryNotifier(),
         _deliveryStore =
             deliveryJobStore ?? const SharedPreferencesDeliveryJobStore(),
         _routeGraphLoader = routeGraphLoader ?? const RouteGraphLoader(),
         _routeServiceCall = routeServiceCall,
-        _wallMaskLoader = wallMaskLoader ?? MapWallMask.load;
+        _wallMaskLoader = wallMaskLoader ?? MapWallMask.load,
+        _rosChannelConnector = rosChannelConnector;
+
+  /// rosbridge 소켓을 여는 함수. null 이면 실제 WebSocket 을 엽니다. 시험은 가짜
+  /// 채널을 끼워 끊김·재연결을 젯슨 없이 재현합니다.
+  final RosChannelConnector? _rosChannelConnector;
 
   static const _nav2UnavailableReason = 'Nav2/AMCL 미실행';
   static const _nav2UnavailableMessage =
@@ -149,6 +155,9 @@ class SupervisorProvider extends ChangeNotifier {
   // 지도 목록 응답을 처리할 때도 자동 요청 설정이 필요해 연결에 쓴 설정을 보관합니다.
   AppSettings? _lastSettings;
   RosBridgeClient? _client;
+  // 일부러 닫는 중인 옛 연결. 그 연결이 내는 '연결 해제'는 지금처럼 화면에 반영하되
+  // 재연결은 잡지 않습니다.
+  RosBridgeClient? _closingClient;
   RosConnectionState _connectionState = RosConnectionState.disconnected;
   String _connectionDetail = '';
   List<VicaMap> _maps = const [];
@@ -160,6 +169,10 @@ class SupervisorProvider extends ChangeNotifier {
   LocationPoint? _draftLocation;
   int _reconnectAttempts = 0;
   Timer? _reconnectTimer;
+  // 다시 붙은 연결이 이만큼 버티면 재시도 횟수를 처음부터 센다. 붙자마자 끊는 서버에
+  // 3초마다 끝없이 다시 붙지 않게 한다(그때는 종전처럼 상한에서 멈춘다).
+  static const _reconnectStableAfter = Duration(seconds: 10);
+  Timer? _reconnectStableTimer;
   EmergencyStopState _emergencyStopState = EmergencyStopState.inactive;
   String _emergencyStopMessage = '';
   List<String> _emergencyStopSources = const [];
@@ -238,7 +251,6 @@ class SupervisorProvider extends ChangeNotifier {
   bool get emergencyOverlayVisible =>
       _emergencyStopState != EmergencyStopState.inactive;
   List<VicaMap> get maps => _maps;
-  String? get selectedMapId => _selectedMapId;
   String? get selectedLocationId => _selectedLocationId;
   LocationPoint? get draftLocation => _draftLocation;
   List<SupervisorLog> get logs => List.unmodifiable(_logs);
@@ -251,6 +263,10 @@ class SupervisorProvider extends ChangeNotifier {
   List<RobotStatus> get robots => _robotsById.values.toList(growable: false);
   RobotStatus? get primaryRobot =>
       _robotsById.isEmpty ? null : _robotsById.values.first;
+
+  /// 실제로 고른 지도 id. [selectedMap] 은 고른 지도가 목록에 없으면 첫 지도로 대신하므로,
+  /// "이미 고른 지도인가" 는 이 값으로 판정합니다([selectMap] 과 같은 기준).
+  String? get selectedMapId => _selectedMapId;
 
   VicaMap? get selectedMap {
     for (final map in _maps) {
@@ -272,22 +288,81 @@ class SupervisorProvider extends ChangeNotifier {
   Future<void> connect(AppSettings settings) async {
     _lastSettings = settings;
     _reconnectTimer?.cancel();
+    _reconnectStableTimer?.cancel();
     _reconnectAttempts = 0;
     _resetNav2NotificationState();
     final oldClient = _client;
     _client = null;
-    await oldClient?.close();
-    _client = RosBridgeClient(onState: (state, detail) {
-      _setConnectionState(state, detail);
-      if (state == RosConnectionState.disconnected ||
-          state == RosConnectionState.failed) {
-        _scheduleReconnect(settings);
-      }
-    });
-    await _client!.connect(settings.rosBridgeUrl);
+    await _closeClient(oldClient);
+    late final RosBridgeClient client;
+    client = RosBridgeClient(
+      onState: (state, detail) =>
+          _handleClientState(client, settings, state, detail),
+      connector: _rosChannelConnector,
+    );
+    _client = client;
+    await client.connect(settings.rosBridgeUrl);
+    if (!identical(_client, client)) {
+      // 연결을 기다리는 사이 connect 가 또 불려 새 연결로 바뀌었습니다. 이 연결은
+      // 아무도 닫지 않으므로 여기서 닫습니다 — 남겨 두면 토픽을 두 번씩 받습니다.
+      await client.close();
+      return;
+    }
     if (_connectionState == RosConnectionState.connected) {
       _subscribeRequiredTopics(settings);
       _requestSyncAfterConnect(settings);
+    }
+  }
+
+  // 연결 하나가 낸 상태 소식을 받습니다.
+  //
+  // 이미 바뀐 옛 연결의 소식은 버립니다. 그 연결이 뒤늦게 '실패'를 내면 지금 연결이
+  // 멀쩡한데 화면이 실패로 바뀌고, 새 연결에 옛 주소로 재연결을 거는 일이 생깁니다.
+  // 일부러 닫는 연결의 '연결 해제'만은 지금처럼 화면에 반영합니다.
+  void _handleClientState(
+    RosBridgeClient client,
+    AppSettings settings,
+    RosConnectionState state,
+    String detail,
+  ) {
+    if (_disposed) {
+      return;
+    }
+    final current = identical(client, _client);
+    if (!current && !identical(client, _closingClient)) {
+      return;
+    }
+    _setConnectionState(state, detail);
+    if (!current) {
+      return;
+    }
+    if (state == RosConnectionState.connected) {
+      // 다시 붙어 버티면 재시도 횟수를 처음부터 셉니다. 안 그러면 끊김이 몇 번 쌓인
+      // 뒤로는 자동 재연결이 아무 말 없이 멈춥니다.
+      _reconnectStableTimer?.cancel();
+      _reconnectStableTimer =
+          Timer(_reconnectStableAfter, () => _reconnectAttempts = 0);
+    } else if (state == RosConnectionState.disconnected ||
+        state == RosConnectionState.failed) {
+      _reconnectStableTimer?.cancel();
+      _reconnectStableTimer = null;
+      _scheduleReconnect(settings);
+    }
+  }
+
+  // 연결을 일부러 닫습니다. 닫는 동안 그 연결이 내는 소식은 [_handleClientState] 가
+  // 화면에만 반영합니다.
+  Future<void> _closeClient(RosBridgeClient? client) async {
+    if (client == null) {
+      return;
+    }
+    _closingClient = client;
+    try {
+      await client.close();
+    } finally {
+      if (identical(_closingClient, client)) {
+        _closingClient = null;
+      }
     }
   }
 
@@ -306,10 +381,12 @@ class SupervisorProvider extends ChangeNotifier {
   Future<void> disconnect() async {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
+    _reconnectStableTimer?.cancel();
+    _reconnectStableTimer = null;
     _reconnectAttempts = 0;
     final client = _client;
     _client = null;
-    await client?.close();
+    await _closeClient(client);
     _clearRobotRuntimeState();
     notifyListeners();
   }
@@ -349,17 +426,27 @@ class SupervisorProvider extends ChangeNotifier {
     _robotsById.clear();
   }
 
-  // 무한 재시도를 피하기 위해 설정된 횟수까지만 재연결합니다.
+  // 무한 재시도를 피하기 위해 설정된 횟수까지만 재연결합니다. 횟수는 연달아
+  // 실패한 횟수입니다 — 다시 붙으면 [_handleClientState] 가 0 으로 되돌립니다.
   void _scheduleReconnect(AppSettings settings) {
+    // 연결 실패 한 번이 '실패'와 '연결 해제' 두 소식으로 옵니다. 이미 잡아 둔
+    // 재시도가 있으면 같은 실패이므로 다시 세지 않습니다.
+    if (_reconnectTimer?.isActive ?? false) {
+      return;
+    }
     if (_client == null ||
         _reconnectAttempts >= settings.maxReconnectAttempts) {
       return;
     }
-    _reconnectTimer?.cancel();
     _reconnectAttempts += 1;
     _reconnectTimer = Timer(const Duration(seconds: 3), () async {
-      await _client?.connect(settings.rosBridgeUrl);
-      if (_connectionState == RosConnectionState.connected) {
+      final client = _client;
+      if (client == null) {
+        return;
+      }
+      await client.connect(settings.rosBridgeUrl);
+      if (identical(_client, client) &&
+          _connectionState == RosConnectionState.connected) {
         _subscribeRequiredTopics(settings);
         _requestSyncAfterConnect(settings);
       }
@@ -572,7 +659,7 @@ class SupervisorProvider extends ChangeNotifier {
   ///   - **앱을 껐다 켜면 홈과 금지구역이 사라져 보였다.** 젯슨에는 파일로
   ///     남아 있는데 앱이 물어보질 않았다. 첫 연결에서는 지도가 아직 안
   ///     정해져 건너뛰고, 지도가 정해지는 순간에는 장소만 요청했다.
-  ///   - 화면의 '동기화'·'새로고침' 버튼이 이름과 달리 장소만 갱신했다.
+  ///   - 화면의 '새로고침'(옛 '동기화') 버튼이 이름과 달리 장소만 갱신했다.
   ///     홈은 앱 전체에 수동 갱신 경로가 아예 없어, 지도를 바꿨다 돌아오는
   ///     것이 유일한 방법이었다.
   ///
@@ -817,30 +904,20 @@ class SupervisorProvider extends ChangeNotifier {
     required String service,
     Map<String, String> gateMessages = const {},
   }) async {
-    final client = _client;
-    if (client == null || _connectionState != RosConnectionState.connected) {
-      return (false, 'ROS Bridge에 연결되지 않았습니다.');
-    }
-    try {
-      final response = await client.callService(
-        service: service,
-        type: 'vica_interfaces/srv/RequestDestination',
-        args: {
-          'request_id': _uuid.v4(),
-          'map_id': location.mapId,
-          'destination_id': location.locationId,
-        },
-      );
-      final message = response.message.isEmpty
+    final reply = await _callService(
+      service: service,
+      type: 'vica_interfaces/srv/RequestDestination',
+      args: {
+        'request_id': _uuid.v4(),
+        'map_id': location.mapId,
+        'destination_id': location.locationId,
+      },
+      describe: (response) => response.message.isEmpty
           ? (response.accepted ? '주행 요청을 수락했습니다.' : '주행 요청이 거부되었습니다.')
-          : _localizeGateReason(response.message, gateMessages);
-      _addLog(LogFilter.coordinateTransfer, message);
-      return (response.accepted, message);
-    } catch (error) {
-      final message = 'Mission Manager 목적지 요청 실패: $error';
-      _addLog(LogFilter.coordinateTransfer, message);
-      return (false, message);
-    }
+          : _localizeGateReason(response.message, gateMessages),
+      failurePrefix: 'Mission Manager 목적지 요청 실패',
+    );
+    return (reply.accepted, reply.message);
   }
 
   // 진행 중인 주행 제어. 요청만 보내고 허용 여부는 Mission Manager가 판정합니다.
@@ -893,15 +970,15 @@ class SupervisorProvider extends ChangeNotifier {
           type: 'rosapi_msgs/srv/Publishers',
           args: const {'topic': '/odom'},
         );
-        odomPublishers = _asStringList(publishersResponse.values['publishers']);
+        odomPublishers =
+            jsonStringList(publishersResponse.values['publishers']);
       } catch (_) {
         odomPublishers = const [];
       }
 
       _stackStatus = StackStatus(
-        nodes: _asStringList(nodesResponse.values['nodes']),
+        nodes: jsonStringList(nodesResponse.values['nodes']),
         odomPublishers: odomPublishers,
-        checkedAt: DateTime.now(),
       );
       _stackStatusError = '';
     } catch (error) {
@@ -913,18 +990,6 @@ class SupervisorProvider extends ChangeNotifier {
     }
   }
 
-  static List<String> _asStringList(Object? value) {
-    if (value is! List) {
-      return const [];
-    }
-    return value.whereType<String>().toList(growable: false);
-  }
-
-  /// 저장된 지도를 지웁니다. 되돌릴 수 없습니다.
-  ///
-  /// "지도 한 장은 사람이 로봇을 끌고 다닌 시간"이라(vica_map_save.sh 주석) 실제
-  /// 검사는 노드가 합니다 — 이름 규칙, 지금 쓰는 지도인지, 파일이 있는지.
-  /// 앱은 확인을 받고 결과를 보여줄 뿐입니다.
   /// 지도의 표시 이름(한글 가능)을 바꿉니다. 파일·URL·장소는 map_id 로 묶여
   /// 있어 그대로이고, 노드가 목록을 다시 보내면 드롭다운이 새 이름을 보입니다.
   Future<String> renameMap(
@@ -932,61 +997,48 @@ class SupervisorProvider extends ChangeNotifier {
     String mapId,
     String displayName,
   ) async {
-    final client = _client;
-    if (client == null || _connectionState != RosConnectionState.connected) {
-      return 'ROS Bridge에 연결되지 않았습니다.';
-    }
-    try {
-      final response = await client.callService(
-        service: settings.renameMapService,
-        type: 'vica_interfaces/srv/RenameMap',
-        args: {'map_id': mapId, 'display_name': displayName},
-      );
-      final message = response.message.isEmpty
+    final reply = await _callService(
+      service: settings.renameMapService,
+      type: 'vica_interfaces/srv/RenameMap',
+      args: {'map_id': mapId, 'display_name': displayName},
+      describe: (response) => response.message.isEmpty
           ? (response.accepted ? '이름을 바꿨습니다.' : '이름 바꾸기가 거부되었습니다.')
-          : response.message;
-      _addLog(LogFilter.coordinateTransfer, message);
-      return message;
-    } catch (error) {
-      final message = '이름 바꾸기 요청 실패: $error';
-      _addLog(LogFilter.coordinateTransfer, message);
-      return message;
-    }
+          : response.message,
+      failurePrefix: '이름 바꾸기 요청 실패',
+    );
+    return reply.message;
   }
 
+  /// 저장된 지도를 지웁니다. 되돌릴 수 없습니다.
+  ///
+  /// "지도 한 장은 사람이 로봇을 끌고 다닌 시간"이라(vica_map_save.sh 주석) 실제
+  /// 검사는 노드가 합니다 — 이름 규칙, 지금 쓰는 지도인지, 파일이 있는지.
+  /// 앱은 확인을 받고 결과를 보여줄 뿐입니다.
   Future<String> deleteMap(
     AppSettings settings,
     String mapId, {
     required bool deleteDestinations,
   }) async {
-    final client = _client;
-    if (client == null || _connectionState != RosConnectionState.connected) {
-      return 'ROS Bridge에 연결되지 않았습니다.';
-    }
-    try {
-      final response = await client.callService(
-        service: settings.deleteMapService,
-        type: 'vica_interfaces/srv/DeleteMap',
-        args: {
-          'map_id': mapId,
-          'delete_destinations': deleteDestinations,
-        },
-      );
-      final message = response.message.isEmpty
+    final reply = await _callService(
+      service: settings.deleteMapService,
+      type: 'vica_interfaces/srv/DeleteMap',
+      args: {
+        'map_id': mapId,
+        'delete_destinations': deleteDestinations,
+      },
+      describe: (response) => response.message.isEmpty
           ? (response.accepted ? '지도가 삭제되었습니다.' : '삭제가 거부되었습니다.')
-          : response.message;
-      _addLog(LogFilter.coordinateTransfer, message);
-      if (response.accepted && _selectedMapId == mapId) {
-        // 지운 지도를 계속 고른 채로 두면 없는 지도의 장소를 보여주게 됩니다.
-        _selectedMapId = null;
-        _selectedLocationId = null;
-      }
-      return message;
-    } catch (error) {
-      final message = '지도 삭제 요청 실패: $error';
-      _addLog(LogFilter.coordinateTransfer, message);
-      return message;
-    }
+          : response.message,
+      failurePrefix: '지도 삭제 요청 실패',
+      onAccepted: (_) {
+        if (_selectedMapId == mapId) {
+          // 지운 지도를 계속 고른 채로 두면 없는 지도의 장소를 보여주게 됩니다.
+          _selectedMapId = null;
+          _selectedLocationId = null;
+        }
+      },
+    );
+    return reply.message;
   }
 
   // ---- 홈 위치 ------------------------------------------------------------
@@ -1060,31 +1112,26 @@ class SupervisorProvider extends ChangeNotifier {
     double score = 0,
     String label = '',
   }) async {
-    final client = _client;
-    if (client == null || _connectionState != RosConnectionState.connected) {
-      return 'ROS Bridge에 연결되지 않았습니다.';
-    }
-    _homeBusy = true;
-    notifyListeners();
-    try {
-      final response = await client.callService(
-        service: settings.homeSaveService,
-        type: 'vica_interfaces/srv/SaveHome',
-        args: {
-          'map_id': mapId,
-          'x': x,
-          'y': y,
-          'yaw': yawDeg,
-          'source': source.wire,
-          'score': score,
-          'label': label,
-        },
-      );
-      final message = response.message.isEmpty
+    final reply = await _callService(
+      service: settings.homeSaveService,
+      type: 'vica_interfaces/srv/SaveHome',
+      args: {
+        'map_id': mapId,
+        'x': x,
+        'y': y,
+        'yaw': yawDeg,
+        'source': source.wire,
+        'score': score,
+        'label': label,
+      },
+      // 문구가 비었을 때의 기본 문구가 '삭제'로 되어 있습니다(deleteHome 에서 옮겨 온 듯).
+      // 로봇은 늘 "홈을 저장했습니다. …"를 실어 보내 화면에 거의 안 나옵니다. 저장용
+      // 앱 문구가 따로 없어 바꾸지 않았습니다 — 사용자 결정 대기(검토 35bc1d0 D3).
+      describe: (response) => response.message.isEmpty
           ? (response.accepted ? '홈 위치가 삭제되었습니다.' : '홈 위치 삭제가 거부되었습니다.')
-          : response.message;
-      _addLog(LogFilter.coordinateTransfer, message);
-      if (response.accepted) {
+          : response.message,
+      failurePrefix: '홈 저장 실패',
+      onAccepted: (_) {
         _homeMapId = mapId;
         _home = HomePosition(
           x: x,
@@ -1096,47 +1143,31 @@ class SupervisorProvider extends ChangeNotifier {
           visitedOk: false,
           savedAt: DateTime.now().toIso8601String(),
         );
-      }
-      return message;
-    } catch (error) {
-      final message = '홈 저장 실패: $error';
-      _addLog(LogFilter.coordinateTransfer, message);
-      return message;
-    } finally {
-      _homeBusy = false;
-      notifyListeners();
-    }
+      },
+      busy: _setHomeBusy,
+    );
+    return reply.message;
   }
 
   Future<String> deleteHome(AppSettings settings, String mapId) async {
-    final client = _client;
-    if (client == null || _connectionState != RosConnectionState.connected) {
-      return 'ROS Bridge에 연결되지 않았습니다.';
-    }
-    _homeBusy = true;
-    notifyListeners();
-    try {
-      final response = await client.callService(
-        service: settings.homeDeleteService,
-        type: 'vica_interfaces/srv/DeleteHome',
-        args: {'map_id': mapId},
-      );
-      final message = response.message.isEmpty
+    final reply = await _callService(
+      service: settings.homeDeleteService,
+      type: 'vica_interfaces/srv/DeleteHome',
+      args: {'map_id': mapId},
+      describe: (response) => response.message.isEmpty
           ? (response.accepted ? '홈 위치가 삭제되었습니다.' : '홈 위치 삭제가 거부되었습니다.')
-          : response.message;
-      _addLog(LogFilter.coordinateTransfer, message);
-      if (response.accepted) {
-        _home = null;
-      }
-      return message;
-    } catch (error) {
-      final message = '홈 삭제 실패: $error';
-      _addLog(LogFilter.coordinateTransfer, message);
-      return message;
-    } finally {
-      _homeBusy = false;
-      notifyListeners();
-    }
+          : response.message,
+      failurePrefix: '홈 삭제 실패',
+      onAccepted: (_) => _home = null,
+      busy: _setHomeBusy,
+    );
+    return reply.message;
+  }
+
+  // 홈 저장·삭제를 기다리는 동안 홈 칸 버튼을 잠급니다.
+  void _setHomeBusy(bool busy) {
+    _homeBusy = busy;
+    notifyListeners();
   }
 
   /// 로봇을 홈으로 보냅니다. **관리자만 부를 수 있는 경로입니다.**
@@ -1156,26 +1187,16 @@ class SupervisorProvider extends ChangeNotifier {
   /// 홈 복귀 서비스 호출. 관리자 버튼과 배송 자동 복귀가 같은 문으로 나갑니다.
   /// 배송은 수락됐을 때만 '복귀 중'으로 옮겨야 해서 수락 여부를 함께 돌려줍니다.
   Future<(bool, String)> _callReturnHome(AppSettings settings) async {
-    final client = _client;
-    if (client == null || _connectionState != RosConnectionState.connected) {
-      return (false, 'ROS Bridge에 연결되지 않았습니다.');
-    }
-    try {
-      final response = await client.callService(
-        service: settings.missionReturnHomeService,
-        type: 'vica_interfaces/srv/MissionCommand',
-        args: {'request_id': _uuid.v4()},
-      );
-      final message = response.message.isEmpty
+    final reply = await _callService(
+      service: settings.missionReturnHomeService,
+      type: 'vica_interfaces/srv/MissionCommand',
+      args: {'request_id': _uuid.v4()},
+      describe: (response) => response.message.isEmpty
           ? (response.accepted ? '홈으로 복귀합니다.' : '홈 복귀 요청이 거부되었습니다.')
-          : _localizeGateReason(response.message);
-      _addLog(LogFilter.coordinateTransfer, message);
-      return (response.accepted, message);
-    } catch (error) {
-      final message = '홈 복귀 요청 실패: $error';
-      _addLog(LogFilter.coordinateTransfer, message);
-      return (false, message);
-    }
+          : _localizeGateReason(response.message),
+      failurePrefix: '홈 복귀 요청 실패',
+    );
+    return (reply.accepted, reply.message);
   }
 
   // ---- 물류 배송 -----------------------------------------------------------
@@ -1951,6 +1972,20 @@ class SupervisorProvider extends ChangeNotifier {
     // 확정 뒤 남겨 둔 점도 함께 지웁니다. 새로 잡기 시작했는데 지난 회차의
     // 점이 지도에 남아 있으면 방금 확인한 것으로 오해합니다.
     _committedScanHits = const [];
+    notifyListeners();
+  }
+
+  /// [result] 가 지금 남아 있는 채점 결과이면 그것만 지웁니다.
+  ///
+  /// 지도 설정의 홈 칸('여기가 맞는지 확인')도 이 채점을 빌려 씁니다. 그 칸을 접거나
+  /// 화면을 떠나며 결과를 남기면, 원격 주행 화면이 그 점수와 라이다 점을 보이고
+  /// 초기 위치 '확정'을 열어 둡니다. 확정 뒤 라이다 점([committedScanHits])은
+  /// 건드리지 않습니다 — 그쪽은 원격 주행 화면의 일입니다.
+  void discardPoseCheck(PoseCheckResult? result) {
+    if (_disposed || result == null || !identical(_poseCheck, result)) {
+      return;
+    }
+    _poseCheck = null;
     notifyListeners();
   }
 
@@ -2832,25 +2867,16 @@ class SupervisorProvider extends ChangeNotifier {
   }
 
   Future<String> _callMappingTrigger(String service, String fallback) async {
-    final client = _client;
-    if (client == null || _connectionState != RosConnectionState.connected) {
-      return 'ROS Bridge에 연결되지 않았습니다.';
-    }
-    try {
-      final response = await client.callService(
-        service: service,
-        type: 'std_srvs/srv/Trigger',
-        // 시작은 launch 를 띄우는 일이라 응답이 조금 늦을 수 있습니다.
-        timeout: const Duration(seconds: 15),
-      );
-      final message = response.message.isEmpty ? fallback : response.message;
-      _addLog(LogFilter.coordinateTransfer, message);
-      return message;
-    } catch (error) {
-      final message = '매핑 요청 실패: $error';
-      _addLog(LogFilter.coordinateTransfer, message);
-      return message;
-    }
+    final reply = await _callService(
+      service: service,
+      type: 'std_srvs/srv/Trigger',
+      // 시작은 launch 를 띄우는 일이라 응답이 조금 늦을 수 있습니다.
+      timeout: const Duration(seconds: 15),
+      describe: (response) =>
+          response.message.isEmpty ? fallback : response.message,
+      failurePrefix: '매핑 요청 실패',
+    );
+    return reply.message;
   }
 
   /// 지도를 저장합니다. 이름은 사람이, 날짜는 로봇이 붙입니다.
@@ -3015,25 +3041,66 @@ class SupervisorProvider extends ChangeNotifier {
     String service,
     String defaultSuccessMessage,
   ) async {
+    final reply = await _callService(
+      service: service,
+      type: 'vica_interfaces/srv/MissionCommand',
+      args: {'request_id': _uuid.v4()},
+      // 수락이면 앱 문구를 씁니다. 미션은 수락에도 'pause 요청을 처리했습니다.'처럼
+      // 명령 이름을 그대로 실어 보내, 관리자가 읽을 말이 아닙니다
+      // (mission_manager_node._handle_mission_command). 거부 사유만 옮깁니다.
+      describe: (response) => response.accepted
+          ? defaultSuccessMessage
+          : response.message.isEmpty
+              ? '요청이 거부되었습니다.'
+              : _localizeGateReason(response.message),
+      failurePrefix: 'Mission Manager 요청 실패',
+    );
+    return reply.message;
+  }
+
+  /// 미션·지도·홈 서비스 한 번 부르기의 공통 틀입니다.
+  ///
+  /// 연결을 확인하고(없으면 부르지 않고 'ROS Bridge에 연결되지 않았습니다.'), 부르고,
+  /// [describe] 가 응답으로 화면 문구를 고르고, 그 문구를 '좌표 전송' 알림에 남깁니다.
+  /// 호출이 실패하면(시간 초과·서비스 없음·연결 끊김) '[failurePrefix]: 오류' 입니다.
+  /// 자리마다 기본 문구와 거부 사유를 읽는 법이 달라 [describe] 로 받습니다.
+  ///
+  /// [onAccepted] 는 수락됐을 때 기록 뒤에 한 번 불립니다(상태 바꾸기). [busy] 는 부르기
+  /// 직전에 true, 끝나면(실패 포함) false 로 불립니다 — 연결이 없으면 부르지 않습니다.
+  Future<({bool accepted, String message})> _callService({
+    required String service,
+    required String type,
+    Map<String, Object?> args = const {},
+    Duration timeout = RosBridgeClient.defaultServiceTimeout,
+    required String Function(RosServiceResponse response) describe,
+    required String failurePrefix,
+    void Function(RosServiceResponse response)? onAccepted,
+    void Function(bool calling)? busy,
+  }) async {
     final client = _client;
     if (client == null || _connectionState != RosConnectionState.connected) {
-      return 'ROS Bridge에 연결되지 않았습니다.';
+      return (accepted: false, message: 'ROS Bridge에 연결되지 않았습니다.');
     }
+    busy?.call(true);
     try {
       final response = await client.callService(
         service: service,
-        type: 'vica_interfaces/srv/MissionCommand',
-        args: {'request_id': _uuid.v4()},
+        type: type,
+        args: args,
+        timeout: timeout,
       );
-      final message = response.message.isEmpty
-          ? (response.accepted ? defaultSuccessMessage : '요청이 거부되었습니다.')
-          : _localizeGateReason(response.message);
+      final message = describe(response);
       _addLog(LogFilter.coordinateTransfer, message);
-      return message;
+      if (response.accepted) {
+        onAccepted?.call(response);
+      }
+      return (accepted: response.accepted, message: message);
     } catch (error) {
-      final message = 'Mission Manager 요청 실패: $error';
+      final message = '$failurePrefix: $error';
       _addLog(LogFilter.coordinateTransfer, message);
-      return message;
+      return (accepted: false, message: message);
+    } finally {
+      busy?.call(false);
     }
   }
 
@@ -3260,7 +3327,7 @@ class SupervisorProvider extends ChangeNotifier {
   }
 
   void _handleRobotEvent(Map<String, Object?> message) {
-    final event = RobotEvent.fromRosMsg(message, id: _uuid.v4());
+    final event = RobotEvent.fromRosMsg(message);
 
     if (event.belongsInHistory) {
       _healthEvents.insert(0, event);
@@ -3308,14 +3375,6 @@ class SupervisorProvider extends ChangeNotifier {
   @visibleForTesting
   void handleMapPreviewForTest(Map<String, Object?> message) =>
       _handleMapPreview(message);
-
-  /// 젯슨 없이 초기 위치 화면의 표시 규칙만 검증하기 위한 주입 지점입니다.
-  @visibleForTesting
-  void setPoseCheckForTest(PoseCheckResult? result) {
-    _poseCheck = result;
-    _poseChecking = false;
-    notifyListeners();
-  }
 
   /// rosapi 를 띄우지 않고 모드 선택 화면의 표시 규칙만 검증하기 위한 주입 지점입니다.
   @visibleForTesting
@@ -3411,7 +3470,6 @@ class SupervisorProvider extends ChangeNotifier {
     _logs.insert(
       0,
       SupervisorLog(
-        id: _uuid.v4(),
         filter: filter,
         message: message,
         createdAt: DateTime.now(),
@@ -3428,6 +3486,7 @@ class SupervisorProvider extends ChangeNotifier {
     _routePreviewTimer?.cancel();
     _teleopTimer?.cancel();
     _reconnectTimer?.cancel();
+    _reconnectStableTimer?.cancel();
     _deliveryReturnTimer?.cancel();
     unawaited(_client?.close());
     super.dispose();

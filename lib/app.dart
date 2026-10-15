@@ -18,6 +18,8 @@ import 'providers/settings_provider.dart';
 import 'providers/supervisor_provider.dart';
 import 'providers/ui_preferences_provider.dart';
 import 'ros/ros_bridge_client.dart';
+import 'widgets/confirm_logout.dart';
+import 'widgets/delivery_notice_dialog.dart';
 import 'widgets/goal_alert_dialog.dart';
 import 'widgets/route_dialogs.dart';
 import 'widgets/vica_ui.dart';
@@ -292,7 +294,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
         // 폰 전용 '더보기' 목록. 사이드바가 있는 넓은 창에서는 쓰이지 않습니다.
         _MoreScreen(
           onSelect: (title) => setState(() => _index = _titles.indexOf(title)),
-          onLogout: _confirmLogout,
+          onLogout: () => confirmLogout(context),
         ),
       ];
 
@@ -372,6 +374,22 @@ class _SupervisorShellState extends State<SupervisorShell> {
         showDialog<void>(
           context: context,
           builder: (_) => GoalAlertDialog(event: alert),
+        );
+      });
+    }
+
+    // 도착 문자 결과 팝업도 같은 이유로 셸이 띄웁니다. 물류 배송 화면 안에서
+    // 띄우면 다른 화면을 보고 있을 때 문자 결과가 와도 아무것도 뜨지 않았습니다.
+    final deliveryNotice = supervisor.pendingDeliveryNotice;
+    if (deliveryNotice != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        supervisor.consumeDeliveryNotice();
+        showDialog<void>(
+          context: context,
+          builder: (_) => DeliveryNoticeDialog(notice: deliveryNotice),
         );
       });
     }
@@ -681,7 +699,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
     );
 
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: expanded ? 12 : 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: expanded
           ? destination
           : Tooltip(message: item.label, child: destination),
@@ -769,7 +787,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
       ),
     );
     final logoutButton = IconButton(
-      onPressed: _confirmLogout,
+      onPressed: () => confirmLogout(context),
       icon: const Icon(Icons.logout, size: 18),
       color: onDark,
       tooltip: '로그아웃',
@@ -876,29 +894,19 @@ class _SupervisorShellState extends State<SupervisorShell> {
     //    것인지 아는 유일한 주체입니다.
     final draft = supervisor.draftLocation;
     if (draft != null) {
-      final leave = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => VicaDialog(
-          icon: Icons.place_outlined,
-          iconColor: VicaColors.warning,
-          title: '저장하지 않은 장소가 있습니다',
-          body: "'${draft.name}'을(를) 아직 ROS2에 저장하지 않았습니다. "
-              '모드를 바꾸면 사라집니다.',
-          actions: [
-            VicaCancelButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              label: '남아서 저장',
-            ),
-            FilledButton.icon(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              style: FilledButton.styleFrom(backgroundColor: VicaColors.red),
-              icon: const Icon(Icons.delete_outline, size: 18),
-              label: const Text('버리고 나가기'),
-            ),
-          ],
-        ),
+      final leave = await showVicaConfirm(
+        context,
+        icon: Icons.place_outlined,
+        iconColor: VicaColors.warning,
+        title: '저장하지 않은 장소가 있습니다',
+        body: "'${draft.name}'을(를) 아직 ROS2에 저장하지 않았습니다. "
+            '모드를 바꾸면 사라집니다.',
+        cancelLabel: '남아서 저장',
+        confirmLabel: '버리고 나가기',
+        confirmIcon: Icons.delete_outline,
+        danger: true,
       );
-      if (leave != true || !context.mounted) {
+      if (!leave || !context.mounted) {
         return;
       }
       supervisor.setDraftLocation(null);
@@ -927,51 +935,13 @@ class _SupervisorShellState extends State<SupervisorShell> {
     required String title,
     required String body,
   }) {
-    return showDialog<void>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: icon,
-        title: title,
-        body: body,
-        actions: [
-          FilledButton.icon(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            icon: const Icon(Icons.check, size: 18),
-            label: const Text('확인'),
-          ),
-        ],
-      ),
+    return showVicaNotice(
+      context,
+      icon: icon,
+      title: title,
+      body: body,
+      okIcon: Icons.check,
     );
-  }
-
-  Future<void> _confirmLogout() async {
-    final shouldLogout = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: Icons.logout,
-        title: '로그아웃',
-        body: '로그아웃하면 다음 실행 시 로그인 화면이 표시됩니다.',
-        actions: [
-          VicaCancelButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-          ),
-          FilledButton.icon(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            icon: const Icon(Icons.logout, size: 18),
-            label: const Text('로그아웃'),
-          ),
-        ],
-      ),
-    );
-    if (shouldLogout != true || !mounted) {
-      return;
-    }
-
-    await context.read<SupervisorProvider>().disconnect();
-    if (!mounted) {
-      return;
-    }
-    await context.read<AuthProvider>().logout();
   }
 
   /// 사이드바(전부)와 하단 탭(앞 네 개)이 같은 목록을 씁니다. 순서는 _titles 와
@@ -1141,7 +1111,8 @@ class _LiveChip extends StatelessWidget {
     final (label, color) = switch (state) {
       RosConnectionState.connected => ('실시간 수신 중', VicaColors.green),
       RosConnectionState.connecting => ('연결 중', VicaColors.primary),
-      RosConnectionState.failed => ('연결 실패', VicaColors.red),
+      // 연결 칸(RosConnectionTile)과 같은 회색(2026-10-12 사용자 결정).
+      RosConnectionState.failed => ('연결 실패', VicaColors.muted),
       RosConnectionState.disconnected => ('연결 안 됨', VicaColors.muted),
     };
     return VicaStatusChip(label: label, color: color);

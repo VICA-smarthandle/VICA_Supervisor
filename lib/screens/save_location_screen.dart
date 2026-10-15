@@ -19,9 +19,9 @@ import '../providers/supervisor_provider.dart';
 import '../ros/ros_bridge_client.dart';
 import '../widgets/home_position_card.dart';
 import '../widgets/initial_pose_card.dart' show PoseDirection;
-import '../widgets/drive_map_canvas.dart';
 import '../widgets/keepout_card.dart';
 import '../widgets/map_canvas.dart';
+import '../widgets/map_picker.dart';
 import '../models/route_graph.dart' show kRailHandoffMeters;
 import '../widgets/rail_card.dart';
 import '../widgets/rail_far_place_dialog.dart';
@@ -45,12 +45,6 @@ class SaveLocationScreen extends StatefulWidget {
 }
 
 class _SaveLocationScreenState extends State<SaveLocationScreen> {
-  static const _compactDropdownDecoration = InputDecoration(
-    labelText: '불러온 지도',
-    isDense: true,
-    contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-  );
-
   final _uuid = const Uuid();
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
@@ -63,6 +57,10 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
 
   Offset? _pickedRos;
   String? _deleteTargetId;
+
+  // 지도 드롭다운을 다시 만들 때 올립니다. 지도 바꾸기를 팝업에서 물렀을 때
+  // 드롭다운이 고른 값을 버리고 지금 지도로 돌아가게 합니다.
+  int _mapPickerResets = 0;
 
   // 지금 펼쳐 둔 칸입니다. 처음에는 아무 칸도 열려 있지 않습니다 — 다른 칸과
   // 똑같이 눌러야 열립니다(2026-09-30 사용자 결정). 종전에는 장소 저장이 열린
@@ -77,6 +75,9 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   Offset? _homePicked;
   PoseDirection? _homeDirection;
   PoseCheckResult? _homeStanding;
+  // [_homeStanding] 을 받아 온 provider. dispose 에서는 context 로 찾을 수 없어
+  // 그 결과를 치우려고 붙잡아 둡니다.
+  SupervisorProvider? _homeStandingFrom;
   bool _homeSending = false;
   // 임시 저장 장소를 수정하는 중이면 그 id를 들고 있습니다. 새로 저장할 때 id가
   // 바뀌면 같은 장소가 둘로 늘어나므로, 수정 중에는 기존 id를 그대로 씁니다.
@@ -120,6 +121,16 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
 
   @override
   void dispose() {
+    // 홈 칸의 '여기가 맞는지 확인' 결과는 provider 에 있어 화면을 떠나도 남습니다.
+    // 남기면 원격 주행 화면이 그 점수·라이다 점을 보이고 '확정'을 열어 둡니다.
+    // 화면을 걷어 내는 중에는 provider 를 알릴 수 없어 이 프레임 뒤로 미룹니다.
+    final standing = _homeStanding;
+    final standingFrom = _homeStandingFrom;
+    if (standing != null && standingFrom != null) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => standingFrom.discardPoseCheck(standing),
+      );
+    }
     _nameController.dispose();
     _aliasesController.dispose();
     _buildingController.dispose();
@@ -137,7 +148,11 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     final map = supervisor.selectedMap;
     final locations = supervisor.locationsFor(map?.mapId);
     final deleteTarget = _selectedLocation(locations);
-    final draft = supervisor.draftLocation;
+    // 임시 저장 장소는 그 장소를 만든 지도에서만 보입니다. 다른 지도에서 보이면
+    // '임시 저장 장소 수정'이 그 좌표를 지금 지도의 장소로 다시 저장합니다.
+    final draftAny = supervisor.draftLocation;
+    final draft =
+        draftAny != null && draftAny.mapId == map?.mapId ? draftAny : null;
     // 지도를 누르면 임시 저장 장소를 버리므로(사용자 결정 2026-08-21) 초록 점과
     // 주황 점이 동시에 뜨는 상태는 없습니다. draft 가 있으면 그쪽이 우선입니다.
     final pickedLocation =
@@ -223,51 +238,20 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     return VicaPage(
       title: '지도 설정',
       children: [
-        VicaFieldWithAction(
-          field: DropdownButtonFormField<String>(
-            initialValue: map?.mapId,
-            decoration: _compactDropdownDecoration,
-            isExpanded: true,
-            itemHeight: null,
-            items: supervisor.maps
-                .map(
-                  (item) => DropdownMenuItem(
-                    value: item.mapId,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Text(item.displayName),
-                    ),
-                  ),
-                )
-                .toList(),
-            selectedItemBuilder: (context) => supervisor.maps
-                .map(
-                  (item) => Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      item.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                )
-                .toList(),
-            onChanged: (value) => supervisor.selectMap(settings, value),
-          ),
-          action: OutlinedButton.icon(
-            onPressed: map == null
-                ? null
-                // 장소·홈·금지구역을 함께 받습니다. 홈은 이 버튼 말고는
-                // 수동 갱신 경로가 아예 없었습니다(2026-09-02).
-                : () => supervisor.refreshMapData(settings, map.mapId),
-            icon: const Icon(Icons.refresh, size: 18),
-            label: const Text('새로고침'),
-          ),
+        MapPickerRow(
+          supervisor: supervisor,
+          settings: settings,
+          map: map,
+          label: '지도 선택',
+          dropdownKey: ValueKey('map-picker-$_mapPickerResets'),
+          onChanged: (value) =>
+              _changeMap(context, supervisor, settings, value),
+          refreshIcon: Icons.refresh,
+          refreshLabel: const Text('새로고침'),
         ),
-        CurrentMapNotice(supervisor: supervisor, map: map),
         const SizedBox(height: 18),
         if (map == null)
-          const VicaCard(child: Text('지도 목록을 먼저 불러오세요.'))
+          const NoMapCard()
         else ...[
           ResponsiveMapFrame(
             map: map,
@@ -424,26 +408,21 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               canSendRobot: _canSendRobot(supervisor),
               blockedReason: _blockedReason(supervisor),
               onStartPicking: () => setState(() {
+                _dropHomeStanding(supervisor);
                 _homeMode = HomeCardMode.picking;
                 _homePicked = null;
                 _homeDirection = null;
-                _homeStanding = null;
               }),
               onStartStanding: () => setState(() {
+                _dropHomeStanding(supervisor);
                 _homeMode = HomeCardMode.standing;
                 _homePicked = null;
                 _homeDirection = null;
-                _homeStanding = null;
               }),
               onDirection: (value) => setState(() => _homeDirection = value),
               onCheckStanding: () => _checkStandingHome(context, supervisor),
               onSave: () => _saveHome(context, supervisor, map.mapId, settings),
-              onCancel: () => setState(() {
-                _homeMode = HomeCardMode.idle;
-                _homePicked = null;
-                _homeDirection = null;
-                _homeStanding = null;
-              }),
+              onCancel: () => setState(() => _foldHomeWork(supervisor)),
               onGoHome: () => _goHome(context, supervisor),
               onDelete: () =>
                   _confirmDeleteHome(context, supervisor, map.mapId),
@@ -555,30 +534,8 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     if (_panel == _SettingsPanel.keepout &&
         target != _SettingsPanel.keepout &&
         supervisor.keepoutEditing) {
-      final mapId = supervisor.selectedMap?.mapId;
-      final leave = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => VicaDialog(
-          icon: Icons.shield_outlined,
-          title: '저장하지 않은 금지구역이 있습니다',
-          body: '편집을 취소하고 넘어갈까요?',
-          actions: [
-            VicaCancelButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              label: '계속 편집',
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('편집 취소'),
-            ),
-          ],
-        ),
-      );
-      if (leave != true) {
+      if (!await _leaveKeepoutEdit(context, supervisor)) {
         return;
-      }
-      if (mapId != null) {
-        supervisor.cancelKeepoutEdit(mapId);
       }
     }
 
@@ -586,16 +543,9 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     if (_panel == _SettingsPanel.rail &&
         target != _SettingsPanel.rail &&
         supervisor.routeEditing) {
-      if (supervisor.routeDirty) {
-        if (!context.mounted) {
-          return;
-        }
-        final leave = await showRouteLeaveDialog(context);
-        if (!leave) {
-          return;
-        }
+      if (!context.mounted || !await _leaveRailEdit(context, supervisor)) {
+        return;
       }
-      supervisor.cancelRouteEdit();
     }
     if (target == _SettingsPanel.rail && context.mounted) {
       final settings = context.read<SettingsProvider>().settings;
@@ -608,21 +558,144 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     setState(() {
       _panel = target;
       if (target != _SettingsPanel.location) {
-        // 하던 장소 일(찍기·수정·대기 장소 찍기)을 모두 접습니다. 수정 중인 원본과
-        // 입력이 남으면 돌아와 지도를 눌렀을 때 옛 수정이 되살아나 새 자리가 기존
-        // 장소를 덮어씁니다(10-07 검토).
-        _pickedRos = null;
-        _editingSaved = null;
-        _resetLocationInput();
-        _clearWaitPick();
+        _foldLocationWork();
       }
       if (target != _SettingsPanel.home) {
-        _homeMode = HomeCardMode.idle;
-        _homePicked = null;
-        _homeDirection = null;
-        _homeStanding = null;
+        _foldHomeWork(supervisor);
       }
     });
+  }
+
+  /// 지도를 바꿉니다. 칸을 바꿀 때([_openPanel])와 같은 정리를 합니다.
+  ///
+  /// 정리하지 않으면 A 지도에서 고치던 장소가 B 지도로 넘어와, B 지도를 눌러
+  /// 저장하면 B 의 좌표가 A 의 장소에 들어갔습니다(장소의 지도는 원본 것이
+  /// 남습니다 — core/location_edit.dart). 홈·대기 장소 찍기도 같습니다.
+  /// 저장하지 않은 금지구역·레일 편집은 칸을 바꿀 때와 같은 팝업으로 먼저 묻고,
+  /// 물리면 지도를 바꾸지 않습니다.
+  Future<void> _changeMap(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    AppSettings settings,
+    String? mapId,
+  ) async {
+    // 화면에 보이는 대체 지도(selectedMap)가 아니라 실제로 고른 값과 비교합니다. 고른 지도가
+    // 지워져 첫 지도가 대신 보일 때 그 지도를 고르면 장소·홈·금지구역을 받아야 합니다.
+    if (mapId == supervisor.selectedMapId) {
+      return;
+    }
+    // 임시 저장한 장소는 만든 지도의 것입니다. 지도를 바꾸면 화면에서 가려지고, 새 지도를
+    // 누르는 순간 말없이 지워졌습니다 — 바꾸기 전에 묻습니다(2026-10-12 사용자 결정).
+    // 모드를 바꿀 때 묻는 팝업과 같은 꼴입니다. 다른 물음까지 통과한 뒤에 지웁니다.
+    var leave = true;
+    final draft = supervisor.draftLocation;
+    if (draft != null) {
+      leave = await showVicaConfirm(
+        context,
+        icon: Icons.place_outlined,
+        iconColor: VicaColors.warning,
+        title: '저장하지 않은 장소가 있습니다',
+        body: "'${draft.name}'을(를) 아직 ROS2에 저장하지 않았습니다. "
+            '지도를 바꾸면 사라집니다.',
+        cancelLabel: '남아서 저장',
+        confirmLabel: '버리고 바꾸기',
+        confirmIcon: Icons.delete_outline,
+        danger: true,
+      );
+      if (!context.mounted) {
+        return;
+      }
+    }
+    if (leave && supervisor.keepoutEditing) {
+      leave = await _leaveKeepoutEdit(context, supervisor);
+    }
+    if (leave && supervisor.routeEditing) {
+      leave = context.mounted && await _leaveRailEdit(context, supervisor);
+    }
+    if (!mounted) {
+      return;
+    }
+    if (!leave) {
+      // 드롭다운은 이미 새 지도를 보이고 있습니다. 다시 만들어 지금 지도로 되돌립니다.
+      setState(() => _mapPickerResets += 1);
+      return;
+    }
+    if (draft != null) {
+      supervisor.setDraftLocation(null);
+    }
+    setState(() {
+      _foldLocationWork();
+      _foldHomeWork(supervisor);
+      // 고른 장소도 지도마다 다릅니다.
+      _deleteTargetId = null;
+    });
+    supervisor.selectMap(settings, mapId);
+    // 레일 칸을 펼친 채로 바꿨으면 새 지도의 레일 정보를 받습니다(칸을 열 때와 같이).
+    if (_panel == _SettingsPanel.rail && mapId != null) {
+      supervisor.requestRouteInfo(settings, mapId);
+    }
+  }
+
+  /// 저장하지 않은 금지구역 편집을 두고 나가도 되는지 묻습니다. 나가면 편집을
+  /// 시작 시점으로 되돌립니다.
+  Future<bool> _leaveKeepoutEdit(
+    BuildContext context,
+    SupervisorProvider supervisor,
+  ) async {
+    final mapId = supervisor.selectedMap?.mapId;
+    final leave = await showVicaConfirm(
+      context,
+      icon: Icons.shield_outlined,
+      title: '저장하지 않은 금지구역이 있습니다',
+      body: '편집을 취소하고 넘어갈까요?',
+      cancelLabel: '계속 편집',
+      confirmLabel: '편집 취소',
+    );
+    if (!leave) {
+      return false;
+    }
+    if (mapId != null) {
+      supervisor.cancelKeepoutEdit(mapId);
+    }
+    return true;
+  }
+
+  /// 레일 편집을 닫습니다. 바뀐 것이 있으면 먼저 묻습니다(팝업 A).
+  Future<bool> _leaveRailEdit(
+    BuildContext context,
+    SupervisorProvider supervisor,
+  ) async {
+    if (supervisor.routeDirty && !await showRouteLeaveDialog(context)) {
+      return false;
+    }
+    supervisor.cancelRouteEdit();
+    return true;
+  }
+
+  // 하던 장소 일(찍기·수정·대기 장소 찍기)을 모두 접습니다. 수정 중인 원본과
+  // 입력이 남으면 돌아와 지도를 눌렀을 때 옛 수정이 되살아나 새 자리가 기존
+  // 장소를 덮어씁니다(10-07 검토). setState 안에서 부릅니다.
+  void _foldLocationWork() {
+    _pickedRos = null;
+    _editingSaved = null;
+    _resetLocationInput();
+    _clearWaitPick();
+  }
+
+  // 하던 홈 일(찍기·서 있는 자리 확인)을 접습니다. setState 안에서 부릅니다.
+  void _foldHomeWork(SupervisorProvider supervisor) {
+    _dropHomeStanding(supervisor);
+    _homeMode = HomeCardMode.idle;
+    _homePicked = null;
+    _homeDirection = null;
+  }
+
+  // '여기가 맞는지 확인' 결과를 버립니다. 그 결과는 원격 주행의 초기 위치 채점과
+  // 같은 자리(provider.poseCheck)에 있어, 남기면 원격 주행 화면이 그 점수와 라이다
+  // 점을 보이고 '확정'을 열어 둡니다. 다른 화면의 결과는 건드리지 않습니다.
+  void _dropHomeStanding(SupervisorProvider supervisor) {
+    supervisor.discardPoseCheck(_homeStanding);
+    _homeStanding = null;
   }
 
   // ------------------------------------------------------------------
@@ -1371,30 +1444,20 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     LocationPoint target,
   ) async {
     if (target.waitSpot != null) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => VicaDialog(
-          icon: Icons.delete_outline,
-          iconColor: VicaColors.red,
-          title: '${target.name}${_objectParticle(target.name)} 지울까요?',
-          body: '이 장소의 대기 장소도 함께 지워집니다.\n지운 뒤에는 되돌릴 수 없습니다.',
-          rows: [
-            VicaDialogRow(label: '장소', value: target.name),
-            VicaDialogRow(label: '함께 지워짐', value: target.waitSpotName),
-          ],
-          actions: [
-            VicaCancelButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              style: FilledButton.styleFrom(backgroundColor: VicaColors.red),
-              child: const Text('둘 다 지우기'),
-            ),
-          ],
-        ),
+      final confirmed = await showVicaConfirm(
+        context,
+        icon: Icons.delete_outline,
+        iconColor: VicaColors.red,
+        title: '${target.name}${_objectParticle(target.name)} 지울까요?',
+        body: '이 장소의 대기 장소도 함께 지워집니다.\n지운 뒤에는 되돌릴 수 없습니다.',
+        rows: [
+          VicaDialogRow(label: '장소', value: target.name),
+          VicaDialogRow(label: '함께 지워짐', value: target.waitSpotName),
+        ],
+        confirmLabel: '둘 다 지우기',
+        danger: true,
       );
-      if (confirmed != true || !context.mounted) {
+      if (!confirmed || !context.mounted) {
         return;
       }
     }
@@ -1409,35 +1472,25 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     LocationPoint target,
   ) async {
     final spot = target.waitSpot!;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: Icons.near_me_outlined,
-        title: '대기 장소로 가보기',
-        body: '등록이 맞는지 확인하는 이동입니다.',
-        rows: [
-          VicaDialogRow(label: '가는 곳', value: target.waitSpotName),
-          VicaDialogRow(
-            label: '나가는 방향',
-            value: _directionLabel(_directionFromYawDeg(spot.yaw, settings)),
-          ),
-        ],
-        content: const _NoticeBox(
-          text: '로봇 주변이 비어 있는지 먼저 확인하세요. 안내 중에는 누를 수 없습니다.',
-          warning: true,
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.near_me_outlined,
+      title: '대기 장소로 가보기',
+      body: '등록이 맞는지 확인하는 이동입니다.',
+      rows: [
+        VicaDialogRow(label: '가는 곳', value: target.waitSpotName),
+        VicaDialogRow(
+          label: '나가는 방향',
+          value: _directionLabel(_directionFromYawDeg(spot.yaw, settings)),
         ),
-        actions: [
-          VicaCancelButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('이동 시작'),
-          ),
-        ],
+      ],
+      content: const _NoticeBox(
+        text: '로봇 주변이 비어 있는지 먼저 확인하세요. 안내 중에는 누를 수 없습니다.',
+        warning: true,
       ),
+      confirmLabel: '이동 시작',
     );
-    if (confirmed != true || !context.mounted) {
+    if (!confirmed || !context.mounted) {
       return;
     }
     final message = await supervisor.requestWaitSpot(settings, target);
@@ -1484,42 +1537,32 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   ) async {
     final spot = after.waitSpot!;
     final moved = _distance(before.x, before.y, after.x, after.y);
-    final repick = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: Icons.open_with,
-        title: '목적지를 ${moved.toStringAsFixed(1)} m 옮겼습니다',
-        body: '대기 장소는 옛 자리에 그대로 남아 있습니다.\n새 목적지에 맞게 다시 찍을까요?',
-        rows: [
-          VicaDialogRow(label: '장소', value: after.name),
-          VicaDialogRow(
-            label: '대기 장소까지',
-            value:
-                '${_distance(before.x, before.y, spot.x, spot.y).toStringAsFixed(1)} m'
-                ' → ${_distance(after.x, after.y, spot.x, spot.y).toStringAsFixed(1)} m',
-          ),
-          VicaDialogRow(
-            label: '안내 멘트 위치',
-            value: _waitSpotInDoorway(after)
-                ? '입구 앞 · 다시 찍어 주세요'
-                : spot.side == before.waitSpot?.side
-                    ? '${spot.placePhrase} (그대로)'
-                    : spot.placePhrase,
-          ),
-        ],
-        actions: [
-          VicaCancelButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            label: '그대로 두기',
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('다시 찍기'),
-          ),
-        ],
-      ),
+    final repick = await showVicaConfirm(
+      context,
+      icon: Icons.open_with,
+      title: '목적지를 ${moved.toStringAsFixed(1)} m 옮겼습니다',
+      body: '대기 장소는 옛 자리에 그대로 남아 있습니다.\n새 목적지에 맞게 다시 찍을까요?',
+      rows: [
+        VicaDialogRow(label: '장소', value: after.name),
+        VicaDialogRow(
+          label: '대기 장소까지',
+          value:
+              '${_distance(before.x, before.y, spot.x, spot.y).toStringAsFixed(1)} m'
+              ' → ${_distance(after.x, after.y, spot.x, spot.y).toStringAsFixed(1)} m',
+        ),
+        VicaDialogRow(
+          label: '안내 멘트 위치',
+          value: _waitSpotInDoorway(after)
+              ? '입구 앞 · 다시 찍어 주세요'
+              : spot.side == before.waitSpot?.side
+                  ? '${spot.placePhrase} (그대로)'
+                  : spot.placePhrase,
+        ),
+      ],
+      cancelLabel: '그대로 두기',
+      confirmLabel: '다시 찍기',
     );
-    if (repick == true && mounted) {
+    if (repick && mounted) {
       _startWaitPick(after, keep: true);
     }
   }
@@ -1727,11 +1770,19 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       y: robot.y,
       yawHint: robot.yaw * math.pi / 180.0,
     );
-    if (!mounted) {
+    final result = supervisor.poseCheck;
+    if (!mounted || _homeMode != HomeCardMode.standing) {
+      // 기다리는 사이 홈 칸을 접었거나 화면을 떠났습니다. 이 결과를 보일 곳이
+      // 없으니 남기지 않습니다(원격 주행 화면에 새어 나갑니다).
+      supervisor.discardPoseCheck(result);
+      if (mounted) {
+        setState(() => _homeSending = false);
+      }
       return;
     }
     setState(() {
-      _homeStanding = supervisor.poseCheck;
+      _homeStanding = result;
+      _homeStandingFrom = supervisor;
       _homeSending = false;
     });
     if (supervisor.poseCheck == null) {
@@ -1853,26 +1904,16 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     SupervisorProvider supervisor,
   ) async {
     final settings = context.read<SettingsProvider>().settings;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: Icons.home_outlined,
-        title: '홈으로 가보기',
-        body: '로봇이 홈 위치로 이동합니다. '
-            '경로에 사람과 장애물이 없는지 확인하세요.\n\n'
-            '제대로 도착하면 이 홈은 "가 본 자리"로 기록됩니다.',
-        actions: [
-          VicaCancelButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('이동 시작'),
-          ),
-        ],
-      ),
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.home_outlined,
+      title: '홈으로 가보기',
+      body: '로봇이 홈 위치로 이동합니다. '
+          '경로에 사람과 장애물이 없는지 확인하세요.\n\n'
+          '제대로 도착하면 이 홈은 "가 본 자리"로 기록됩니다.',
+      confirmLabel: '이동 시작',
     );
-    if (confirmed != true || !context.mounted) {
+    if (!confirmed || !context.mounted) {
       return;
     }
     final message = await supervisor.returnHome(settings);
@@ -1887,27 +1928,17 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     String mapId,
   ) async {
     final settings = context.read<SettingsProvider>().settings;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => VicaDialog(
-        icon: Icons.delete_outline,
-        iconColor: VicaColors.red,
-        title: '홈 지우기',
-        body: '홈을 지우면 안내가 끝난 뒤 로봇이 자동으로 돌아가지 않습니다. '
-            '안내 기능 자체는 그대로 동작합니다.',
-        actions: [
-          VicaCancelButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            style: FilledButton.styleFrom(backgroundColor: VicaColors.red),
-            child: const Text('삭제'),
-          ),
-        ],
-      ),
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.delete_outline,
+      iconColor: VicaColors.red,
+      title: '홈 지우기',
+      body: '홈을 지우면 안내가 끝난 뒤 로봇이 자동으로 돌아가지 않습니다. '
+          '안내 기능 자체는 그대로 동작합니다.',
+      confirmLabel: '삭제',
+      danger: true,
     );
-    if (confirmed != true || !context.mounted) {
+    if (!confirmed || !context.mounted) {
       return;
     }
     final message = await supervisor.deleteHome(settings, mapId);
