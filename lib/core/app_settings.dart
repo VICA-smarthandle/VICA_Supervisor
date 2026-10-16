@@ -23,6 +23,7 @@ class AppSettings {
     this.missionCancelService = '/vica/mission/cancel_destination',
     this.missionPauseService = '/vica/mission/pause_navigation',
     this.missionResumeService = '/vica/mission/resume_navigation',
+    this.missionHelpAckService = '/vica/mission/help_ack',
     this.deleteMapService = '/delete_map',
     this.renameMapService = '/rename_map',
     this.mappingStatusTopic = '/vica/mapping_status',
@@ -148,6 +149,8 @@ class AppSettings {
   final String missionCancelService;
   final String missionPauseService;
   final String missionResumeService;
+  // 관리자 호출(도움 요청) 팝업의 "확인". request_id 에 그 요청의 help_id 를 실어 보냅니다.
+  final String missionHelpAckService;
   final String robotStatusTopic;
   final String emergencyActivateService;
   final String emergencyResetService;
@@ -203,6 +206,7 @@ class AppSettings {
     String? missionCancelService,
     String? missionPauseService,
     String? missionResumeService,
+    String? missionHelpAckService,
     String? robotStatusTopic,
     String? emergencyActivateService,
     String? emergencyResetService,
@@ -265,6 +269,8 @@ class AppSettings {
       missionCancelService: missionCancelService ?? this.missionCancelService,
       missionPauseService: missionPauseService ?? this.missionPauseService,
       missionResumeService: missionResumeService ?? this.missionResumeService,
+      missionHelpAckService:
+          missionHelpAckService ?? this.missionHelpAckService,
       robotStatusTopic: robotStatusTopic ?? this.robotStatusTopic,
       emergencyActivateService:
           emergencyActivateService ?? this.emergencyActivateService,
@@ -348,6 +354,7 @@ class AppSettings {
       'missionCancelService': missionCancelService,
       'missionPauseService': missionPauseService,
       'missionResumeService': missionResumeService,
+      'missionHelpAckService': missionHelpAckService,
       'robotStatusTopic': robotStatusTopic,
       'emergencyActivateService': emergencyActivateService,
       'emergencyResetService': emergencyResetService,
@@ -411,6 +418,8 @@ class AppSettings {
           defaults.missionPauseService,
       missionResumeService: json['missionResumeService'] as String? ??
           defaults.missionResumeService,
+      missionHelpAckService: json['missionHelpAckService'] as String? ??
+          defaults.missionHelpAckService,
       robotStatusTopic:
           json['robotStatusTopic'] as String? ?? defaults.robotStatusTopic,
       emergencyActivateService: json['emergencyActivateService'] as String? ??

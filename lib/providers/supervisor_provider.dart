@@ -1793,6 +1793,93 @@ class SupervisorProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- 관리자 호출(도움 요청, 2026-10-15 설계) ---------------------------------
+  //
+  // 미션은 관리자가 확인할 때까지 10초마다 같은 help_id 로 help_requested 를 다시 보냅니다
+  // (앱을 껐다 켜도 다음 재전송 때 뜨게). 주행 알림처럼 이벤트마다 팝업을 띄우면 10초마다
+  // 쌓이므로 help_id 하나에 팝업 하나만 띄우고, 같은 id 가 다시 오면 위치만 갱신합니다.
+  // 확인(help_acknowledged)이나 취소(help_canceled)가 같은 id 로 오면 팝업을 닫습니다 —
+  // 다른 화면에서 누른 확인도 이 이벤트로 닫힙니다.
+
+  GoalEvent? _activeHelp;
+  String? _helpPopupShownFor;
+
+  /// 지금 걸려 있는 도움 요청(마지막으로 받은 위치 포함). 없으면 null.
+  GoalEvent? get activeHelp => _activeHelp;
+
+  /// 아직 띄우지 않은 도움 팝업이 있는가. 셸이 띄운 뒤 [markHelpPopupShown] 을 부릅니다.
+  bool get helpPopupPending =>
+      _activeHelp != null && _activeHelp!.helpId != _helpPopupShownFor;
+
+  void markHelpPopupShown() {
+    _helpPopupShownFor = _activeHelp?.helpId;
+  }
+
+  void _applyHelpEvent(GoalEvent event) {
+    if (event.helpId.isEmpty) {
+      return;
+    }
+    switch (event.kind) {
+      case GoalEventKind.helpRequested:
+        final isNew = _activeHelp?.helpId != event.helpId;
+        _activeHelp = event;
+        if (isNew) {
+          final where = event.place.isEmpty ? '' : ' (${event.place})';
+          _addLog(LogFilter.emergencyStop, '도움 요청$where');
+        }
+      case GoalEventKind.helpAcknowledged:
+      case GoalEventKind.helpCanceled:
+        if (_activeHelp?.helpId == event.helpId) {
+          _activeHelp = null;
+          _addLog(
+            LogFilter.coordinateTransfer,
+            event.kind == GoalEventKind.helpAcknowledged
+                ? '도움 요청을 관리자가 확인했습니다.'
+                : '도움 요청이 끝났습니다.',
+          );
+        }
+      default:
+        break;
+    }
+  }
+
+  /// 도움 팝업의 "확인". 미션이 받으면 로봇이 "관리자가 오고있습니다…"를 말하고
+  /// help_acknowledged 를 냅니다 — 그 이벤트가 다른 화면의 팝업도 닫습니다.
+  /// 받았거나 이미 끝난 요청이면 이 화면의 팝업 상태도 바로 지웁니다.
+  Future<String> acknowledgeHelp(AppSettings settings) async {
+    final help = _activeHelp;
+    if (help == null) {
+      return '이미 끝난 도움 요청입니다.';
+    }
+    var alreadyEnded = false;
+    final reply = await _callService(
+      service: settings.missionHelpAckService,
+      type: 'vica_interfaces/srv/MissionCommand',
+      // 미션은 request_id 를 확인할 help_id 로 읽습니다(새 uuid 를 만들면 안 됩니다).
+      args: {'request_id': help.helpId},
+      describe: (response) {
+        if (response.accepted) {
+          return '관리자 확인을 로봇에 보냈습니다.';
+        }
+        switch (response.message) {
+          case 'no_active_help':
+            alreadyEnded = true;
+            return '이미 끝난 도움 요청입니다.';
+          case 'id_mismatch':
+            return '로봇에 다른 도움 요청이 걸려 있습니다.';
+          default:
+            return response.message.isEmpty ? '요청이 거부되었습니다.' : response.message;
+        }
+      },
+      failurePrefix: '도움 요청 확인 실패',
+    );
+    if ((reply.accepted || alreadyEnded) && _activeHelp?.helpId == help.helpId) {
+      _activeHelp = null;
+      notifyListeners();
+    }
+    return reply.message;
+  }
+
   // ---- 알림이 저절로 풀리는 경우 (2026-09-30) ---------------------------------
   //
   // Nav2 가 실패해도 미션 매니저는 같은 목적지로 3초 뒤 다시 출발합니다
@@ -1858,6 +1945,13 @@ class SupervisorProvider extends ChangeNotifier {
 
   void _handleGoalEvent(Map<String, Object?> message) {
     final event = GoalEvent.fromJson(message, id: _uuid.v4());
+
+    // 도움 요청은 주행 사건이 아닙니다 — 일시정지 표시·주행 알림 팝업과 따로 다룹니다.
+    if (event.isHelp) {
+      _applyHelpEvent(event);
+      notifyListeners();
+      return;
+    }
 
     // 일시정지 표시를 여기서 켜고 끕니다. 새 goal 이 나가거나 주행이 어떤
     // 식으로든 끝나면 일시정지가 아닙니다 — 재개·취소·도착·실패가 모두

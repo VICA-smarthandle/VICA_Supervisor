@@ -41,6 +41,18 @@ enum GoalEventKind {
   /// 대기 시간이 끝났다 — 로봇은 "대기 시간이 종료되어…"를 말하고 홈으로 갑니다.
   waitExpired('wait_expired'),
 
+  // 관리자 호출(도움 요청, 2026-10-15 설계). 주행 결과가 아니라 사용자의 요청이라
+  // [needsPopup] 의 주행 알림 팝업 줄에 넣지 않습니다 — 도움 요청은 help_id 하나에
+  // 팝업 하나만 띄우는 전용 상태(SupervisorProvider.activeHelp)가 맡습니다.
+  /// 사용자가 도움을 청했다. 관리자가 확인할 때까지 10초마다 같은 help_id 로 다시 옵니다.
+  helpRequested('help_requested'),
+
+  /// 관리자가(어느 화면에서든) 확인했다 — 떠 있는 도움 팝업을 닫습니다.
+  helpAcknowledged('help_acknowledged'),
+
+  /// 사용자가 취소했거나 로봇이 다시 출발했다 — 떠 있는 도움 팝업을 닫습니다.
+  helpCanceled('help_canceled'),
+
   unknown('');
 
   const GoalEventKind(this.wire);
@@ -103,6 +115,10 @@ class GoalEvent {
     this.waitMinutes = -1,
     this.delivery = false,
     this.robotStamp = '',
+    this.helpId = '',
+    this.place = '',
+    this.robotX,
+    this.robotY,
   });
 
   /// 앱이 붙이는 고유값입니다. 같은 실패가 두 번 와도 팝업을 각각 띄우기 위해
@@ -136,6 +152,22 @@ class GoalEvent {
   /// 기기가 받은 시각은 기기마다 다릅니다.
   final String robotStamp;
 
+  /// 도움 요청 하나의 식별자(uuid4). 재전송·확인·취소가 모두 이 값을 씁니다. 그 밖은 빈 값.
+  final String helpId;
+
+  /// 도움 요청 때 로봇이 있는 곳의 문장("407호 앞", "407호와 화장실 사이"). 모르면 빈 값.
+  final String place;
+
+  /// 도움 요청 때 로봇의 지도 좌표(m, AMCL). 모르면 null. 기존 x·y 는 목적지 좌표 칸이라 따로 둡니다.
+  final double? robotX;
+  final double? robotY;
+
+  /// 도움 요청 사건인가(요청·확인·취소).
+  bool get isHelp =>
+      kind == GoalEventKind.helpRequested ||
+      kind == GoalEventKind.helpAcknowledged ||
+      kind == GoalEventKind.helpCanceled;
+
   /// 관리자에게 팝업으로 알려야 하는가. 판정은 [GoalEventKind] 가 합니다.
   bool get needsPopup => kind.needsPopup;
 
@@ -165,6 +197,10 @@ class GoalEvent {
       waitMinutes: (json['wait_minutes'] as num?)?.toInt() ?? -1,
       delivery: json['delivery'] == true,
       robotStamp: (json['timestamp'] as String?)?.trim() ?? '',
+      helpId: (json['help_id'] as String?)?.trim() ?? '',
+      place: (json['place'] as String?)?.trim() ?? '',
+      robotX: (json['robot_x'] as num?)?.toDouble(),
+      robotY: (json['robot_y'] as num?)?.toDouble(),
     );
   }
 
