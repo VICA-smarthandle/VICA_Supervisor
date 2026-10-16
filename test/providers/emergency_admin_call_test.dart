@@ -85,6 +85,33 @@ void main() {
       expect(provider.emergencyCalledAdmin, isFalse);
     });
 
+    test('넘어짐으로 걸려도 붙인다(2026-10-15)', () {
+      provider.handleEmergencyStopStateForTest(
+        estopState(active: true, sources: ['tipped']),
+      );
+      expect(provider.emergencyCalledAdmin, isTrue);
+      expect(provider.emergencyTipped, isTrue);
+    });
+
+    test('통신으로 서 있다가 넘어지면 그때부터 넘어짐 문구다', () {
+      provider.handleEmergencyStopStateForTest(
+        estopState(active: true, sources: ['motor_can_stale']),
+      );
+      expect(provider.emergencyCalledAdmin, isFalse);
+      provider.handleEmergencyStopStateForTest(
+        estopState(active: true, sources: ['motor_can_stale', 'tipped']),
+      );
+      expect(provider.emergencyCalledAdmin, isTrue);
+      expect(provider.emergencyTipped, isTrue);
+    });
+
+    test('물리 버튼만이면 넘어짐이 아니다', () {
+      provider.handleEmergencyStopStateForTest(
+        estopState(active: true, sources: ['physical_f1']),
+      );
+      expect(provider.emergencyTipped, isFalse);
+    });
+
     test('해제되면 문구도 사라진다', () {
       provider.handleEmergencyStopStateForTest(
         estopState(active: true, sources: ['physical_f1']),
@@ -93,6 +120,36 @@ void main() {
         estopState(active: false, sources: const []),
       );
       expect(provider.emergencyCalledAdmin, isFalse);
+    });
+  });
+
+  group('팝업 본문은 노드를 따른다(2026-10-15)', () {
+    test('떠 있는 동안 노드 문장이 바뀌면 본문도 바뀐다', () {
+      // 첫 방송이 원인보다 먼저 와 옛 문장이 실렸거나, 원인이 나중에 넘어짐으로
+      // 바뀐 경우입니다. 예전에는 처음 뜬 본문이 해제될 때까지 그대로였습니다.
+      provider.handleEmergencyStopStateForTest(estopState(
+        active: true,
+        sources: ['physical_f1'],
+        message: '통신이 복구되어 비상정지를 자동 해제했습니다 (원인: motor_can_waiting)',
+      ));
+      provider.handleEmergencyStopStateForTest(estopState(
+        active: true,
+        sources: ['physical_f1'],
+        message: '비상정지 버튼이 눌렸습니다.',
+      ));
+      expect(provider.emergencyStopMessage, '비상정지 버튼이 눌렸습니다.');
+    });
+
+    test('빈 문장이 오면 지금 본문을 지우지 않는다', () {
+      provider.handleEmergencyStopStateForTest(estopState(
+        active: true,
+        sources: ['tipped'],
+        message: '넘어짐이 감지되어 비상정지되었습니다.',
+      ));
+      provider.handleEmergencyStopStateForTest(
+        estopState(active: true, sources: ['tipped'], message: ''),
+      );
+      expect(provider.emergencyStopMessage, '넘어짐이 감지되어 비상정지되었습니다.');
     });
   });
 

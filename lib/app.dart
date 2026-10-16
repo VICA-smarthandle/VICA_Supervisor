@@ -1368,11 +1368,10 @@ class _EmergencyStopOverlay extends StatelessWidget {
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
-                      // 물리 버튼이나 음성으로 걸린 비상정지에만 붙입니다.
-                      // 그때 로봇이 이용자에게 "관리자를 부르겠다"고 말하므로,
-                      // 관리자 화면도 같은 사실을 알아야 현장으로 갑니다.
-                      // 관리자가 앱에서 직접 누른 경우에는 붙지 않습니다 —
-                      // 부른 사람과 받는 사람이 같습니다.
+                      // 물리 버튼·음성·넘어짐으로 걸린 비상정지에만 붙입니다.
+                      // 관리자가 현장으로 가야 하는 경우입니다. 관리자가 앱에서
+                      // 직접 누른 경우에는 붙지 않습니다 — 부른 사람과 받는
+                      // 사람이 같습니다.
                       if (supervisor.emergencyCalledAdmin) ...[
                         const SizedBox(height: 14),
                         Container(
@@ -1399,8 +1398,15 @@ class _EmergencyStopOverlay extends StatelessWidget {
                                   // 문장은 마침표에서 나누고, 그 안은 어절 단위로
                                   // 폭에 맞춰 접힙니다(넓은 창은 한 줄).
                                   vicaKeepWords(vicaBreakAtSentences(
-                                    '주행 중 비상정지로 비카가 관리자를 호출했습니다. '
-                                    '확인이 필요합니다.',
+                                    supervisor.emergencyTipped
+                                        // 넘어짐(2026-10-15 승인 문구) — 세운 뒤
+                                        // 해제해야 풀립니다.
+                                        ? '비카가 넘어져 관리자를 호출했습니다. '
+                                            '비카를 세운 뒤 해제해 주세요.'
+                                        // '주행 중'은 뺐습니다 — 서 있을 때 걸려도
+                                        // 이 칸이 떴습니다(어긋남 2).
+                                        : '비상정지로 비카가 관리자를 호출했습니다. '
+                                            '확인이 필요합니다.',
                                   )),
                                   style: const TextStyle(
                                     fontSize: 13,

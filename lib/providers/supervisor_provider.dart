@@ -230,12 +230,11 @@ class SupervisorProvider extends ChangeNotifier {
   EmergencyStopState get emergencyStopState => _emergencyStopState;
   String get emergencyStopMessage => _emergencyStopMessage;
 
-  /// 이번 비상정지가 **사람의 현장 조작**으로 걸렸는가.
+  /// 이번 비상정지가 **현장에서** 걸려 관리자가 와야 하는가.
   ///
-  /// 물리 버튼(`physical_f1`)이나 음성(`voice`)이면 참입니다. 그때만 로봇이
-  /// 이용자에게 관리자를 부른다고 안내하므로, 화면도 같은 사실을 알려야
-  /// 합니다. 관리자가 앱에서 직접 누른 경우(`app`)는 부르는 사람과 받는 사람이
-  /// 같으니 그 문구가 필요 없습니다.
+  /// 물리 버튼(`physical_f1`)·음성(`voice`)·몸통 넘어짐(`tipped`, 2026-10-15)이면
+  /// 참입니다. 관리자가 앱에서 직접 누른 경우(`app`)는 부르는 사람과 받는
+  /// 사람이 같으니 그 문구가 필요 없습니다.
   ///
   /// 통신 원인(`motor_can`·`*_stale`)만으로 걸린 래치도 참이 아닙니다. 그쪽은
   /// 정지 중이면 자동 복구를 밟는 별개 경로입니다(CLAUDE.md).
@@ -243,10 +242,19 @@ class SupervisorProvider extends ChangeNotifier {
     if (_emergencyStopState != EmergencyStopState.active) {
       return false;
     }
-    return _emergencyStopSources.any(
-      (source) => source == 'physical_f1' || source == 'voice',
-    );
+    return emergencyTipped ||
+        _emergencyStopSources.any(
+          (source) => source == 'physical_f1' || source == 'voice',
+        );
   }
+
+  /// 이번 비상정지 원인에 몸통 넘어짐이 있는가(2026-10-15).
+  ///
+  /// 세운 뒤에는 원인 목록에서 빠지지만, 노드가 래치가 걸려 있는 동안 마지막
+  /// 원인을 그대로 실어 보내므로 해제 전까지 참입니다. 앱은 '넘어져 있음'과
+  /// '세운 뒤'를 가리지 않습니다 — 관리자가 할 일(세우고 해제)이 같습니다.
+  bool get emergencyTipped =>
+      _emergencyStopSources.any((source) => source == 'tipped');
 
   bool get emergencyOverlayVisible =>
       _emergencyStopState != EmergencyStopState.inactive;
@@ -3406,6 +3414,7 @@ class SupervisorProvider extends ChangeNotifier {
     // 이 필드를 안 보내는 옛 노드와도 붙습니다. 그때는 빈 목록이 되고, 화면은
     // 원인을 모르는 것으로 보아 관리자 호출 문구를 붙이지 않습니다.
     final rawSources = message['sources'];
+    final wasTipped = emergencyTipped;
     _emergencyStopSources = rawSources is List
         ? rawSources.map((value) => value.toString()).toList()
         : const [];
@@ -3423,6 +3432,15 @@ class SupervisorProvider extends ChangeNotifier {
           EmergencyStopState.active,
           stateMessage.isEmpty ? '비상정지가 활성화되어 있습니다.' : stateMessage,
         );
+      } else if (stateMessage.isNotEmpty) {
+        // 떠 있는 동안에도 본문은 노드를 따릅니다(2026-10-15). 원인이 나중에 바뀌거나
+        // (통신으로 서 있다가 넘어짐), 첫 방송이 원인보다 먼저 와 옛 문장이 실렸을 때
+        // 1초 뒤 방송으로 바로잡힙니다. 같은 문장이면 아무것도 바뀌지 않습니다.
+        _setEmergencyStopState(EmergencyStopState.active, stateMessage);
+      }
+      // 원인(넘어짐 여부)만 바뀌어도 관리자 호출 칸을 다시 그립니다.
+      if (wasTipped != emergencyTipped) {
+        notifyListeners();
       }
       return;
     }
