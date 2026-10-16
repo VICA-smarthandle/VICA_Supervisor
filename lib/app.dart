@@ -21,6 +21,7 @@ import 'ros/ros_bridge_client.dart';
 import 'widgets/confirm_logout.dart';
 import 'widgets/delivery_notice_dialog.dart';
 import 'widgets/goal_alert_dialog.dart';
+import 'widgets/help_alert_dialog.dart';
 import 'widgets/route_dialogs.dart';
 import 'widgets/vica_ui.dart';
 import 'screens/current_location_screen.dart';
@@ -375,6 +376,37 @@ class _SupervisorShellState extends State<SupervisorShell> {
           context: context,
           builder: (_) => GoalAlertDialog(event: alert),
         );
+      });
+    }
+
+    // 도움 요청 팝업(관리자 호출, 2026-10-16)도 같은 이유로 셸이 띄웁니다. help_id 하나에 한 번만
+    // 띄웁니다 — 미션은 관리자가 확인할 때까지 10초마다 같은 요청을 다시 보내고, 열린 팝업은
+    // provider 를 보고 위치 칸만 바꿉니다. 띄웠다는 표시는 build 안에서 바로 남깁니다(알림을
+    // 부르지 않는 값이라 안전합니다) — 한 프레임 안에 build 가 두 번 돌아도 팝업은 하나입니다.
+    if (supervisor.helpPopupPending) {
+      final helpId = supervisor.activeHelp!.helpId;
+      supervisor.markHelpPopupShown();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => HelpAlertDialog(helpId: helpId),
+        );
+      });
+    }
+    // 관리자가 확인한 뒤 사용자가 직접 취소했을 때의 한 줄 알림(2026-10-16 사용자 결정).
+    final helpNotice = supervisor.pendingHelpNotice;
+    if (helpNotice != null) {
+      supervisor.consumeHelpNotice();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(helpNotice)));
       });
     }
 

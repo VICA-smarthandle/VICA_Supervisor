@@ -114,6 +114,39 @@ void main() {
     }
   });
 
+  group('관리자 확인 뒤 사용자가 취소 (10-16 사용자 결정)', () {
+    test('확인한 요청의 취소가 오면 한 줄 알림을 남긴다', () {
+      final provider = SupervisorProvider();
+      provider.handleGoalEventForTest(_event('help_requested', _idA));
+      provider.handleGoalEventForTest(_event('help_acknowledged', _idA));
+      expect(provider.pendingHelpNotice, isNull);
+      provider.handleGoalEventForTest(_event('help_canceled', _idA));
+      expect(provider.pendingHelpNotice, '사용자가 도움 요청을 취소했습니다.');
+      expect(provider.logs.first.message, '사용자가 도움 요청을 취소했습니다.');
+      provider.consumeHelpNotice();
+      expect(provider.pendingHelpNotice, isNull);
+      provider.dispose();
+    });
+
+    test('확인 전의 취소는 팝업만 닫는다', () {
+      final provider = SupervisorProvider();
+      provider.handleGoalEventForTest(_event('help_requested', _idA));
+      provider.handleGoalEventForTest(_event('help_canceled', _idA));
+      expect(provider.pendingHelpNotice, isNull);
+      provider.dispose();
+    });
+
+    test('요청 시각은 처음 받은 때 그대로다(재전송마다 바뀌지 않는다)', () {
+      final provider = SupervisorProvider();
+      provider.handleGoalEventForTest(_event('help_requested', _idA));
+      final later = _event('help_requested', _idA)
+        ..['timestamp'] = '2026-10-16T14:03:41';
+      provider.handleGoalEventForTest(later);
+      expect(provider.helpRequestedAt, '14:03:21');
+      provider.dispose();
+    });
+  });
+
   group('확인 버튼', () {
     late FakeRosServer server;
     setUp(() => server = FakeRosServer());

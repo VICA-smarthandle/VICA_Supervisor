@@ -1803,9 +1803,25 @@ class SupervisorProvider extends ChangeNotifier {
 
   GoalEvent? _activeHelp;
   String? _helpPopupShownFor;
+  String _helpRequestedAt = '';
+
+  /// 관리자가 확인한 도움 요청의 id. 확인 뒤 사용자가 직접 취소하면 미션이 같은 id 로
+  /// help_canceled 를 보냅니다 — 오던 관리자가 알도록 한 줄로 알립니다(2026-10-16 사용자 결정).
+  String? _acknowledgedHelpId;
+  String? _pendingHelpNotice;
 
   /// 지금 걸려 있는 도움 요청(마지막으로 받은 위치 포함). 없으면 null.
   GoalEvent? get activeHelp => _activeHelp;
+
+  /// 도움 요청을 처음 받은 시각(로봇 시계, 'HH:MM:SS'). 재전송마다 바뀌지 않습니다.
+  String get helpRequestedAt => _helpRequestedAt;
+
+  /// 아직 띄우지 않은 한 줄 알림(사용자가 확인된 도움 요청을 취소함). 셸이 띄우고 비웁니다.
+  String? get pendingHelpNotice => _pendingHelpNotice;
+
+  void consumeHelpNotice() {
+    _pendingHelpNotice = null;
+  }
 
   /// 아직 띄우지 않은 도움 팝업이 있는가. 셸이 띄운 뒤 [markHelpPopupShown] 을 부릅니다.
   bool get helpPopupPending =>
@@ -1824,19 +1840,28 @@ class SupervisorProvider extends ChangeNotifier {
         final isNew = _activeHelp?.helpId != event.helpId;
         _activeHelp = event;
         if (isNew) {
+          final stamp = event.robotStamp;
+          _helpRequestedAt =
+              stamp.contains('T') ? stamp.substring(stamp.indexOf('T') + 1) : stamp;
           final where = event.place.isEmpty ? '' : ' (${event.place})';
           _addLog(LogFilter.emergencyStop, '도움 요청$where');
         }
       case GoalEventKind.helpAcknowledged:
+        if (_activeHelp?.helpId == event.helpId) {
+          _activeHelp = null;
+          _acknowledgedHelpId = event.helpId;
+          _addLog(LogFilter.coordinateTransfer, '도움 요청을 관리자가 확인했습니다.');
+        }
       case GoalEventKind.helpCanceled:
         if (_activeHelp?.helpId == event.helpId) {
           _activeHelp = null;
-          _addLog(
-            LogFilter.coordinateTransfer,
-            event.kind == GoalEventKind.helpAcknowledged
-                ? '도움 요청을 관리자가 확인했습니다.'
-                : '도움 요청이 끝났습니다.',
-          );
+          _addLog(LogFilter.coordinateTransfer, '도움 요청이 끝났습니다.');
+        } else if (_acknowledgedHelpId == event.helpId) {
+          // 확인 뒤의 취소는 사용자가 직접 한 것뿐입니다(미션은 그 밖의 끝에는 알리지 않습니다).
+          _acknowledgedHelpId = null;
+          const notice = '사용자가 도움 요청을 취소했습니다.';
+          _pendingHelpNotice = notice;
+          _addLog(LogFilter.emergencyStop, notice);
         }
       default:
         break;
@@ -1873,6 +1898,9 @@ class SupervisorProvider extends ChangeNotifier {
       },
       failurePrefix: '도움 요청 확인 실패',
     );
+    if (reply.accepted) {
+      _acknowledgedHelpId = help.helpId;
+    }
     if ((reply.accepted || alreadyEnded) && _activeHelp?.helpId == help.helpId) {
       _activeHelp = null;
       notifyListeners();
