@@ -12,9 +12,35 @@ class AppSettings {
     this.saveLocationTopic = '/save_location',
     this.deleteLocationRequestTopic = '/delete_location_request',
     this.missionRequestService = '/vica/mission/request_destination',
+    this.missionDeliveryService = '/vica/mission/request_delivery',
+    this.missionWaitSpotService = '/vica/mission/request_wait_spot',
     this.missionCancelService = '/vica/mission/cancel_destination',
     this.missionPauseService = '/vica/mission/pause_navigation',
     this.missionResumeService = '/vica/mission/resume_navigation',
+    this.missionHelpAckService = '/vica/mission/help_ack',
+    this.deleteMapService = '/delete_map',
+    this.renameMapService = '/rename_map',
+    this.mappingStatusTopic = '/vica/mapping_status',
+    this.mapPreviewTopic = '/vica/map_preview',
+    this.mappingStartService = '/vica/mapping/start',
+    this.mappingStopService = '/vica/mapping/stop',
+    this.mappingSaveService = '/vica/mapping/save',
+    this.poseCheckService = '/vica/pose_check',
+    this.poseCommitService = '/vica/pose_commit',
+    this.homeGetService = '/vica/home/get',
+    this.homeSaveService = '/vica/home/save',
+    this.homeDeleteService = '/vica/home/delete',
+    this.keepoutGetService = '/vica/keepout/get',
+    this.keepoutSaveService = '/vica/keepout/save',
+    this.keepoutStateTopic = '/vica/keepout/state',
+    this.routeDraftService = '/vica/route/draft',
+    this.routeSaveService = '/vica/route/save',
+    this.routeGetService = '/vica/route/get',
+    this.routeStateTopic = '/vica/route/state',
+    this.routeSavedTopic = '/vica/route/saved',
+    this.deliverySmsResultTopic = '/vica/delivery/sms_result',
+    this.missionReturnHomeService = '/vica/mission/return_home',
+    this.goalEventTopic = '/vica_goal_event',
     this.robotStatusTopic = '/robot_status',
     this.emergencyActivateService = '/app_estop_activate',
     this.emergencyResetService = '/app_estop_reset',
@@ -23,14 +49,12 @@ class AppSettings {
     this.robotEventsTopic = '/robot/events',
     this.robotHealthTimeoutSeconds = 5,
     this.emergencyServiceTimeoutSeconds = 8,
-    this.maxLogs = 200,
     this.maxReconnectAttempts = 5,
     this.autoRequestMapList = true,
     this.autoRequestLocationList = true,
     this.xOffset = 0,
     this.yOffset = 0,
     this.yawOffset = 0,
-    this.savedYawOffsetDegrees = 0,
     this.mapScale = 1,
     this.flipMapY = true,
   });
@@ -43,10 +67,48 @@ class AppSettings {
   final String locationListTopic;
   final String saveLocationTopic;
   final String deleteLocationRequestTopic;
+  final String deleteMapService;
+  final String renameMapService;
+
+  final String mappingStatusTopic;
+  final String mapPreviewTopic;
+  final String mappingStartService;
+  final String mappingStopService;
+  final String mappingSaveService;
+
+  final String poseCheckService;
+  final String poseCommitService;
+
+  final String homeGetService;
+  final String homeSaveService;
+  final String homeDeleteService;
+
+  final String keepoutGetService;
+  final String keepoutSaveService;
+  final String keepoutStateTopic;
+
+  final String routeDraftService;
+  final String routeSaveService;
+  final String routeGetService;
+  final String routeStateTopic;
+
+  /// 어느 기기에서든 레일을 저장하면 오는 알림(2026-10-08). 받으면 레일 그림을 다시 받습니다.
+  final String routeSavedTopic;
+
+  /// 관리자 유심 폰이 다른 화면(웹 등)에서 보낸 배송의 도착 문자를 대신 보내고 그 결과를
+  final String deliverySmsResultTopic;
+
+  final String missionReturnHomeService;
+
+  final String goalEventTopic;
+
   final String missionRequestService;
+  final String missionDeliveryService;
+  final String missionWaitSpotService;
   final String missionCancelService;
   final String missionPauseService;
   final String missionResumeService;
+  final String missionHelpAckService;
   final String robotStatusTopic;
   final String emergencyActivateService;
   final String emergencyResetService;
@@ -55,14 +117,12 @@ class AppSettings {
   final String robotEventsTopic;
   final int robotHealthTimeoutSeconds;
   final int emergencyServiceTimeoutSeconds;
-  final int maxLogs;
   final int maxReconnectAttempts;
   final bool autoRequestMapList;
   final bool autoRequestLocationList;
   final double xOffset;
   final double yOffset;
   final double yawOffset;
-  final double savedYawOffsetDegrees;
   final double mapScale;
   final bool flipMapY;
 
@@ -75,10 +135,36 @@ class AppSettings {
     String? locationListTopic,
     String? saveLocationTopic,
     String? deleteLocationRequestTopic,
+    String? deleteMapService,
+    String? renameMapService,
+    String? mappingStatusTopic,
+    String? mapPreviewTopic,
+    String? mappingStartService,
+    String? mappingStopService,
+    String? mappingSaveService,
+    String? poseCheckService,
+    String? poseCommitService,
+    String? homeGetService,
+    String? homeSaveService,
+    String? homeDeleteService,
+    String? keepoutGetService,
+    String? keepoutSaveService,
+    String? keepoutStateTopic,
+    String? routeDraftService,
+    String? routeSaveService,
+    String? routeGetService,
+    String? routeStateTopic,
+    String? routeSavedTopic,
+    String? deliverySmsResultTopic,
+    String? missionReturnHomeService,
+    String? goalEventTopic,
     String? missionRequestService,
+    String? missionDeliveryService,
+    String? missionWaitSpotService,
     String? missionCancelService,
     String? missionPauseService,
     String? missionResumeService,
+    String? missionHelpAckService,
     String? robotStatusTopic,
     String? emergencyActivateService,
     String? emergencyResetService,
@@ -87,14 +173,12 @@ class AppSettings {
     String? robotEventsTopic,
     int? robotHealthTimeoutSeconds,
     int? emergencyServiceTimeoutSeconds,
-    int? maxLogs,
     int? maxReconnectAttempts,
     bool? autoRequestMapList,
     bool? autoRequestLocationList,
     double? xOffset,
     double? yOffset,
     double? yawOffset,
-    double? savedYawOffsetDegrees,
     double? mapScale,
     bool? flipMapY,
   }) {
@@ -109,11 +193,42 @@ class AppSettings {
       saveLocationTopic: saveLocationTopic ?? this.saveLocationTopic,
       deleteLocationRequestTopic:
           deleteLocationRequestTopic ?? this.deleteLocationRequestTopic,
+      deleteMapService: deleteMapService ?? this.deleteMapService,
+      renameMapService: renameMapService ?? this.renameMapService,
+      mappingStatusTopic: mappingStatusTopic ?? this.mappingStatusTopic,
+      mapPreviewTopic: mapPreviewTopic ?? this.mapPreviewTopic,
+      mappingStartService: mappingStartService ?? this.mappingStartService,
+      mappingStopService: mappingStopService ?? this.mappingStopService,
+      mappingSaveService: mappingSaveService ?? this.mappingSaveService,
+      poseCheckService: poseCheckService ?? this.poseCheckService,
+      poseCommitService: poseCommitService ?? this.poseCommitService,
+      homeGetService: homeGetService ?? this.homeGetService,
+      homeSaveService: homeSaveService ?? this.homeSaveService,
+      homeDeleteService: homeDeleteService ?? this.homeDeleteService,
+      keepoutGetService: keepoutGetService ?? this.keepoutGetService,
+      keepoutSaveService: keepoutSaveService ?? this.keepoutSaveService,
+      keepoutStateTopic: keepoutStateTopic ?? this.keepoutStateTopic,
+      routeDraftService: routeDraftService ?? this.routeDraftService,
+      routeSaveService: routeSaveService ?? this.routeSaveService,
+      routeGetService: routeGetService ?? this.routeGetService,
+      routeStateTopic: routeStateTopic ?? this.routeStateTopic,
+      routeSavedTopic: routeSavedTopic ?? this.routeSavedTopic,
+      deliverySmsResultTopic:
+          deliverySmsResultTopic ?? this.deliverySmsResultTopic,
+      missionReturnHomeService:
+          missionReturnHomeService ?? this.missionReturnHomeService,
+      goalEventTopic: goalEventTopic ?? this.goalEventTopic,
       missionRequestService:
           missionRequestService ?? this.missionRequestService,
+      missionDeliveryService:
+          missionDeliveryService ?? this.missionDeliveryService,
+      missionWaitSpotService:
+          missionWaitSpotService ?? this.missionWaitSpotService,
       missionCancelService: missionCancelService ?? this.missionCancelService,
       missionPauseService: missionPauseService ?? this.missionPauseService,
       missionResumeService: missionResumeService ?? this.missionResumeService,
+      missionHelpAckService:
+          missionHelpAckService ?? this.missionHelpAckService,
       robotStatusTopic: robotStatusTopic ?? this.robotStatusTopic,
       emergencyActivateService:
           emergencyActivateService ?? this.emergencyActivateService,
@@ -126,7 +241,6 @@ class AppSettings {
           robotHealthTimeoutSeconds ?? this.robotHealthTimeoutSeconds,
       emergencyServiceTimeoutSeconds:
           emergencyServiceTimeoutSeconds ?? this.emergencyServiceTimeoutSeconds,
-      maxLogs: maxLogs ?? this.maxLogs,
       maxReconnectAttempts: maxReconnectAttempts ?? this.maxReconnectAttempts,
       autoRequestMapList: autoRequestMapList ?? this.autoRequestMapList,
       autoRequestLocationList:
@@ -134,12 +248,37 @@ class AppSettings {
       xOffset: xOffset ?? this.xOffset,
       yOffset: yOffset ?? this.yOffset,
       yawOffset: yawOffset ?? this.yawOffset,
-      savedYawOffsetDegrees:
-          savedYawOffsetDegrees ?? this.savedYawOffsetDegrees,
       mapScale: mapScale ?? this.mapScale,
       flipMapY: flipMapY ?? this.flipMapY,
     );
   }
+
+  /// 설정 화면에서 고칠 수 있는 값의 JSON 이름. 기기에 저장하고 되살리는 것은 이것뿐입니다
+  static const editableJsonKeys = <String>{
+    'rosBridgeUrl',
+    'mapHttpBaseUrl',
+    'xOffset',
+    'yOffset',
+    'yawOffset',
+    'mapScale',
+    'flipMapY',
+    'autoRequestMapList',
+    'autoRequestLocationList',
+    'mapListRequestTopic',
+    'mapListTopic',
+    'locationListRequestTopic',
+    'locationListTopic',
+    'saveLocationTopic',
+    'deleteLocationRequestTopic',
+    'missionRequestService',
+    'missionDeliveryService',
+    'missionWaitSpotService',
+    'robotStatusTopic',
+    'emergencyActivateService',
+    'emergencyResetService',
+    'emergencyStateTopic',
+    'emergencyServiceTimeoutSeconds',
+  };
 
   Map<String, Object> toJson() {
     return {
@@ -151,10 +290,20 @@ class AppSettings {
       'locationListTopic': locationListTopic,
       'saveLocationTopic': saveLocationTopic,
       'deleteLocationRequestTopic': deleteLocationRequestTopic,
+      'deleteMapService': deleteMapService,
+      'renameMapService': renameMapService,
+      'mappingStatusTopic': mappingStatusTopic,
+      'mapPreviewTopic': mapPreviewTopic,
+      'mappingStartService': mappingStartService,
+      'mappingStopService': mappingStopService,
+      'mappingSaveService': mappingSaveService,
       'missionRequestService': missionRequestService,
+      'missionDeliveryService': missionDeliveryService,
+      'missionWaitSpotService': missionWaitSpotService,
       'missionCancelService': missionCancelService,
       'missionPauseService': missionPauseService,
       'missionResumeService': missionResumeService,
+      'missionHelpAckService': missionHelpAckService,
       'robotStatusTopic': robotStatusTopic,
       'emergencyActivateService': emergencyActivateService,
       'emergencyResetService': emergencyResetService,
@@ -163,14 +312,12 @@ class AppSettings {
       'robotEventsTopic': robotEventsTopic,
       'robotHealthTimeoutSeconds': robotHealthTimeoutSeconds,
       'emergencyServiceTimeoutSeconds': emergencyServiceTimeoutSeconds,
-      'maxLogs': maxLogs,
       'maxReconnectAttempts': maxReconnectAttempts,
       'autoRequestMapList': autoRequestMapList,
       'autoRequestLocationList': autoRequestLocationList,
       'xOffset': xOffset,
       'yOffset': yOffset,
       'yawOffset': yawOffset,
-      'savedYawOffsetDegrees': savedYawOffsetDegrees,
       'mapScale': mapScale,
       'flipMapY': flipMapY,
     };
@@ -194,14 +341,34 @@ class AppSettings {
       deleteLocationRequestTopic:
           json['deleteLocationRequestTopic'] as String? ??
               defaults.deleteLocationRequestTopic,
+      deleteMapService:
+          json['deleteMapService'] as String? ?? defaults.deleteMapService,
+      renameMapService:
+          json['renameMapService'] as String? ?? defaults.renameMapService,
+      mappingStatusTopic:
+          json['mappingStatusTopic'] as String? ?? defaults.mappingStatusTopic,
+      mapPreviewTopic:
+          json['mapPreviewTopic'] as String? ?? defaults.mapPreviewTopic,
+      mappingStartService: json['mappingStartService'] as String? ??
+          defaults.mappingStartService,
+      mappingStopService:
+          json['mappingStopService'] as String? ?? defaults.mappingStopService,
+      mappingSaveService:
+          json['mappingSaveService'] as String? ?? defaults.mappingSaveService,
       missionRequestService: json['missionRequestService'] as String? ??
           defaults.missionRequestService,
+      missionDeliveryService: json['missionDeliveryService'] as String? ??
+          defaults.missionDeliveryService,
+      missionWaitSpotService: json['missionWaitSpotService'] as String? ??
+          defaults.missionWaitSpotService,
       missionCancelService: json['missionCancelService'] as String? ??
           defaults.missionCancelService,
       missionPauseService: json['missionPauseService'] as String? ??
           defaults.missionPauseService,
       missionResumeService: json['missionResumeService'] as String? ??
           defaults.missionResumeService,
+      missionHelpAckService: json['missionHelpAckService'] as String? ??
+          defaults.missionHelpAckService,
       robotStatusTopic:
           json['robotStatusTopic'] as String? ?? defaults.robotStatusTopic,
       emergencyActivateService: json['emergencyActivateService'] as String? ??
@@ -220,7 +387,6 @@ class AppSettings {
       emergencyServiceTimeoutSeconds:
           (json['emergencyServiceTimeoutSeconds'] as num?)?.toInt() ??
               defaults.emergencyServiceTimeoutSeconds,
-      maxLogs: json['maxLogs'] as int? ?? defaults.maxLogs,
       maxReconnectAttempts:
           json['maxReconnectAttempts'] as int? ?? defaults.maxReconnectAttempts,
       autoRequestMapList:
@@ -230,9 +396,6 @@ class AppSettings {
       xOffset: (json['xOffset'] as num?)?.toDouble() ?? defaults.xOffset,
       yOffset: (json['yOffset'] as num?)?.toDouble() ?? defaults.yOffset,
       yawOffset: (json['yawOffset'] as num?)?.toDouble() ?? defaults.yawOffset,
-      savedYawOffsetDegrees:
-          (json['savedYawOffsetDegrees'] as num?)?.toDouble() ??
-              defaults.savedYawOffsetDegrees,
       mapScale: (json['mapScale'] as num?)?.toDouble() ?? defaults.mapScale,
       flipMapY: json['flipMapY'] as bool? ?? defaults.flipMapY,
     );

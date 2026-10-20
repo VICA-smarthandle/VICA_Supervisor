@@ -38,9 +38,9 @@ enum FaultSeverity {
       case FaultSeverity.ok:
         return VicaColors.green;
       case FaultSeverity.warn:
-        return const Color(0xFFE0A800);
+        return VicaColors.warning;
       case FaultSeverity.degraded:
-        return const Color(0xFFE07B39);
+        return VicaColors.degraded;
       case FaultSeverity.stop:
       case FaultSeverity.fault:
         return VicaColors.red;
@@ -127,7 +127,7 @@ enum RobotHealthState {
       case RobotHealthState.ready:
         return VicaColors.green;
       case RobotHealthState.degraded:
-        return const Color(0xFFE07B39);
+        return VicaColors.degraded;
       case RobotHealthState.stopped:
       case RobotHealthState.estopped:
       case RobotHealthState.fault:
@@ -144,9 +144,9 @@ String componentLabel(String component) {
     'localization': '위치 추정',
     'navigation': '자율 주행',
     'lidar': 'LiDAR',
-    'perception': '3D 인식',
-    'guidance': '안내 장치',
-    'voice': '음성',
+    'perception': '카메라 인식',
+    'guidance': '핸들 및 초음파',
+    'voice': '음성 (노드 실행만 확인)',
     'app': '앱 연결',
     'computer': '컴퓨터',
     'monitor': '상태 감시',

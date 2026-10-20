@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/screens/system_diagnostics_screen.dart';
+import 'package:vica_supervisor/widgets/vica_ui.dart';
 import 'package:vica_supervisor/widgets/health_banner.dart';
 
 Map<String, Object?> faultMsg({
@@ -80,7 +81,8 @@ void main() {
           .pumpWidget(wrap(const SystemDiagnosticsScreen(), supervisor));
       await tester.pump();
 
-      expect(find.textContaining('아직 로봇 상태를 받지 못했습니다'), findsOneWidget);
+      expect(find.textContaining(vicaKeepWords('아직 로봇 상태를 받지 못했습니다')),
+          findsOneWidget);
     });
 
     testWidgets('활성 결함의 컴포넌트·등급·조치를 모두 보여준다', (tester) async {
@@ -92,8 +94,8 @@ void main() {
       expect(find.text('LiDAR'), findsWidgets);
       expect(find.text('주행 불가'), findsWidgets);
       expect(find.text('LIDAR_SCAN_STALE'), findsOneWidget);
-      expect(find.textContaining('2.1초'), findsOneWidget);
-      expect(find.textContaining('USB 연결'), findsOneWidget);
+      expect(find.textContaining(vicaKeepWords('2.1초')), findsOneWidget);
+      expect(find.textContaining(vicaKeepWords('USB 연결')), findsOneWidget);
     });
 
     testWidgets('발생 횟수와 지속 시간을 보여준다', (tester) async {
@@ -124,7 +126,7 @@ void main() {
 
       expect(find.text('관측 불가'), findsWidgets);
       expect(
-        find.textContaining('상태를 확인할 수단이 없다는'),
+        find.textContaining(vicaKeepWords('상태를 확인할 수단이 없다는')),
         findsOneWidget,
       );
     });
@@ -136,7 +138,7 @@ void main() {
           .pumpWidget(wrap(const SystemDiagnosticsScreen(), supervisor));
       await tester.pump();
 
-      expect(find.text('안내 장치'), findsOneWidget);
+      expect(find.text('핸들 및 초음파'), findsOneWidget);
     });
 
     testWidgets('결함이 없으면 없다고 알린다', (tester) async {
@@ -169,6 +171,35 @@ void main() {
       expect(find.textContaining('· 해소'), findsWidgets);
       expect(find.textContaining('지속 중'), findsNothing);
     });
+
+    testWidgets('같은 결함의 같은 전이가 연달아 오면 한 줄로 접는다', (tester) async {
+      final supervisor = _FakeSupervisor()..injectHealth(healthMsg());
+      for (var i = 0; i < 4; i++) {
+        supervisor.injectEvent({'fault': faultMsg(), 'transition': 0});
+      }
+      await tester
+          .pumpWidget(wrap(const SystemDiagnosticsScreen(), supervisor));
+      await tester.pump();
+
+      expect(find.textContaining('· 발생  ×4회'), findsOneWidget);
+      expect(find.textContaining('처음 '), findsOneWidget);
+    });
+
+    testWidgets('다른 결함이 사이에 끼면 따로 접는다', (tester) async {
+      final supervisor = _FakeSupervisor()..injectHealth(healthMsg());
+      supervisor.injectEvent({'fault': faultMsg(), 'transition': 0});
+      supervisor.injectEvent({
+        'fault': faultMsg(component: 'motor', faultCode: 'MOTOR_CAN_TIMEOUT'),
+        'transition': 0,
+      });
+      supervisor.injectEvent({'fault': faultMsg(), 'transition': 0});
+      await tester
+          .pumpWidget(wrap(const SystemDiagnosticsScreen(), supervisor));
+      await tester.pump();
+
+      expect(find.textContaining('×'), findsNothing);
+      expect(find.textContaining('· 발생'), findsNWidgets(3));
+    });
   });
 
   group('HealthBanner', () {
@@ -198,7 +229,7 @@ void main() {
 
       expect(find.textContaining('주행 불가'), findsOneWidget);
       expect(find.textContaining('LiDAR'), findsOneWidget);
-      expect(find.textContaining('2.1초'), findsOneWidget);
+      expect(find.textContaining(vicaKeepWords('2.1초')), findsOneWidget);
     });
 
     testWidgets('다른 결함 수를 함께 알린다', (tester) async {

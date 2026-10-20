@@ -17,12 +17,6 @@ class CurrentLocationScreen extends StatefulWidget {
 }
 
 class _CurrentLocationScreenState extends State<CurrentLocationScreen> {
-  static const _compactDropdownDecoration = InputDecoration(
-    labelText: '연결된 로봇',
-    isDense: true,
-    contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-  );
-
   String? _selectedRobotId;
 
   @override
@@ -44,7 +38,7 @@ class _CurrentLocationScreenState extends State<CurrentLocationScreen> {
         VicaCard(
           child: DropdownButtonFormField<String>(
             initialValue: robot?.robotId,
-            decoration: _compactDropdownDecoration,
+            decoration: vicaCompactDropdownDecoration('연결된 로봇'),
             isExpanded: true,
             items: robots
                 .map(
@@ -67,7 +61,7 @@ class _CurrentLocationScreenState extends State<CurrentLocationScreen> {
           map: map,
           child: map == null
               ? const ColoredBox(
-                  color: VicaColors.softBlue,
+                  color: VicaColors.accentTint,
                   child: Center(child: Text('현재 map_id와 일치하는 지도가 없습니다.')),
                 )
               : MapCanvas(
@@ -79,7 +73,7 @@ class _CurrentLocationScreenState extends State<CurrentLocationScreen> {
         ),
         const SizedBox(height: 16),
         if (robot == null)
-          const VicaCard(child: Text('로봇 상태를 아직 수신하지 않았습니다.'))
+          const VicaCard(child: Text('아직 로봇 상태를 수신하지 않았습니다.'))
         else
           VicaCard(
             child: Column(

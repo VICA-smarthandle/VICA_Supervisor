@@ -98,8 +98,8 @@ class _Banner extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        detail,
-                        maxLines: 2,
+                        vicaKeepWords(vicaBreakAtSentences(detail)),
+                        maxLines: 3,
                         overflow: TextOverflow.ellipsis,
                       ),
                       if (extraCount > 0) ...[

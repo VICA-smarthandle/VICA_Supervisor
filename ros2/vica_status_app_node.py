@@ -11,14 +11,14 @@ from typing import Any
 import rclpy
 import yaml
 from diagnostic_msgs.msg import DiagnosticArray
+from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry
 from rcl_interfaces.msg import ParameterType
 from rcl_interfaces.srv import GetParameters
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
-from rclpy.time import Time
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
-from tf2_ros import Buffer, TransformException, TransformListener
 
 
 ERROR_SOURCE_DIAGNOSTICS = "diagnostics"
@@ -42,7 +42,7 @@ class VicaStatusAppNode(Node):
             "destination_storage_root",
             str(Path.home() / "vica_data" / "destinations"),
         )
-        self.declare_parameter("publish_period_sec", 0.1)
+        self.declare_parameter("publish_period_sec", 0.5)
         self.declare_parameter("nav2_data_timeout_sec", 3.0)
         self.declare_parameter("odom_timeout_sec", 3.0)
         self.declare_parameter("diagnostics_timeout_sec", 5.0)
@@ -77,8 +77,8 @@ class VicaStatusAppNode(Node):
         self.latest_odom: Odometry | None = None
         self.last_odom_time: float | None = None
 
-        self.tf_pose: tuple[float, float, float] | None = None
-        self.last_tf_time: float | None = None
+        self.map_pose: tuple[float, float, float] | None = None
+        self.last_map_pose_time: float | None = None
 
         self._diagnostics_by_key: dict[str, tuple[float, int, str]] = {}
 
@@ -99,8 +99,14 @@ class VicaStatusAppNode(Node):
         self._loc_cache_map_id = ""
         self._loc_cache_time = 0.0
 
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
+        amcl_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.create_subscription(
+            PoseWithCovarianceStamped, "/amcl_pose", self.handle_amcl_pose, amcl_qos
+        )
 
         map_server_node = str(self.get_parameter("map_server_node").value).rstrip("/")
         self.map_param_client = self.create_client(
@@ -117,6 +123,8 @@ class VicaStatusAppNode(Node):
             String, "/vica_goal_event", self.handle_goal_event, 10
         )
 
+        self._setup_paused_source()
+
         self._setup_health_source()
 
         period = float(self.get_parameter("publish_period_sec").value)
@@ -129,7 +137,7 @@ class VicaStatusAppNode(Node):
             self.map_poll_timer = self.create_timer(poll_period, self._poll_map_yaml)
 
         self.get_logger().info(
-            f"vica_status_app_node ready: TF {self.map_frame}->{self.base_frame}, "
+            f"vica_status_app_node ready: pose=/amcl_pose ({self.map_frame} 기준), "
             f"publish {1.0 / period:.0f}Hz, map auto-detect via {map_server_node}, "
             f"error_source={self.error_source}"
         )
@@ -177,6 +185,10 @@ class VicaStatusAppNode(Node):
             "goal_rejected",
             "goal_canceled",
             "emergency_stopped",
+            "return_home_succeeded",
+            "return_home_failed",
+            "return_home_canceled",
+            "state_idle",
         }:
             self.current_goal = ""
             self.navigation_active = False
@@ -210,26 +222,20 @@ class VicaStatusAppNode(Node):
                 self.detected_map_yaml = value.string_value
                 self.get_logger().info(f"map yaml 감지: {self.detected_map_yaml}")
 
-    def _update_tf_pose(self) -> None:
-        """map->base_frame TF를 조회해 현재 pose를 갱신합니다."""
-        try:
-            transform = self.tf_buffer.lookup_transform(
-                self.map_frame, self.base_frame, Time()
-            )
-        except TransformException:
-            return
-        translation = transform.transform.translation
-        rotation = transform.transform.rotation
+    def handle_amcl_pose(self, msg: PoseWithCovarianceStamped) -> None:
+        """AMCL이 알려주는 map 기준 pose를 저장합니다. 이동 중에만 옵니다."""
+        pose = msg.pose.pose
         yaw = self._quaternion_to_yaw_degrees(
-            rotation.x, rotation.y, rotation.z, rotation.w
+            pose.orientation.x,
+            pose.orientation.y,
+            pose.orientation.z,
+            pose.orientation.w,
         )
-        self.tf_pose = (float(translation.x), float(translation.y), yaw)
-        self.last_tf_time = time.monotonic()
+        self.map_pose = (float(pose.position.x), float(pose.position.y), yaw)
+        self.last_map_pose_time = time.monotonic()
 
     def publish_status(self) -> None:
         """최신 정보를 앱용 /robot_status JSON으로 발행합니다(타이머 주기 실행)."""
-        self._update_tf_pose()
-
         map_id = self._current_map_id()
         x, y, yaw, linear_x, angular_z = self._read_pose_values()
         nav2_pose_available = self._nav2_pose_available()
@@ -282,8 +288,8 @@ class VicaStatusAppNode(Node):
             linear_x = float(twist.linear.x)
             angular_z = float(twist.angular.z)
 
-        if self._nav2_pose_available() and self.tf_pose is not None:
-            x, y, yaw = self.tf_pose
+        if self._nav2_pose_available() and self.map_pose is not None:
+            x, y, yaw = self.map_pose
             return x, y, yaw, linear_x, angular_z
 
         if not odom_fresh or self.latest_odom is None:
@@ -305,11 +311,25 @@ class VicaStatusAppNode(Node):
         )
 
     def _nav2_pose_available(self) -> bool:
-        """map->base TF가 최근에 확보됐는지로 Nav2 위치 추정 활성 여부를 판단합니다."""
-        if self.tf_pose is None or self.last_tf_time is None:
+        """AMCL pose를 확보했는지로 Nav2 위치 추정 활성 여부를 판단합니다."""
+        if self.map_pose is None or self.last_map_pose_time is None:
             return False
+        if not self._robot_moving():
+            return True
         timeout_sec = float(self.get_parameter("nav2_data_timeout_sec").value)
-        return (time.monotonic() - self.last_tf_time) <= timeout_sec
+        return (time.monotonic() - self.last_map_pose_time) <= timeout_sec
+
+    def _robot_moving(self) -> bool:
+        """odom 속도로 '지금 움직이는 중'을 판단합니다(_status와 같은 임계값)."""
+        if not self._odom_fresh() or self.latest_odom is None:
+            return False
+        twist = self.latest_odom.twist.twist
+        linear = abs(float(twist.linear.x))
+        angular = abs(float(twist.angular.z))
+        return (
+            linear >= float(self.get_parameter("moving_linear_threshold").value)
+            or angular >= float(self.get_parameter("moving_angular_threshold").value)
+        )
 
     def _odom_fresh(self) -> bool:
         """/odom이 만료 시간 안에 갱신되고 있는지 확인합니다."""
@@ -390,6 +410,26 @@ class VicaStatusAppNode(Node):
         if not matched:
             return ""
         return self._diagnostics_by_key[matched[0]][2]
+
+    def _setup_paused_source(self) -> None:
+        """/vica/robot_state의 is_paused를 일시정지 판정의 정본으로 삼습니다."""
+        try:
+            from vica_interfaces.msg import RobotState
+        except ImportError as exc:
+            self.get_logger().warn(
+                f"vica_interfaces/RobotState import 실패: {exc}. "
+                "일시정지 표시는 goal 이벤트에만 의존합니다."
+            )
+            return
+
+        self.create_subscription(
+            RobotState, "/vica/robot_state", self.handle_robot_state, 10
+        )
+        self.get_logger().info("/vica/robot_state 구독: is_paused 정본")
+
+    def handle_robot_state(self, msg) -> None:
+        """Mission Manager가 1 Hz로 알려주는 일시정지 여부를 반영합니다."""
+        self.navigation_paused = bool(msg.is_paused)
 
     def _setup_health_source(self) -> None:
         """error_source가 health일 때만 /robot/health를 구독합니다."""

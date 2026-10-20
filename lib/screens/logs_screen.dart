@@ -22,37 +22,40 @@ class _LogsScreenState extends State<LogsScreen> {
         ? supervisor.logs
         : supervisor.logs.where((log) => log.filter == _filter).toList();
     return VicaPage(
-      title: '알림 및 로그',
       children: [
         Row(
           children: [
             Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: LogFilter.values.map((filter) {
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        selected: _filter == filter,
-                        avatar: _filter == filter
-                            ? const Icon(Icons.check, size: 18)
-                            : null,
-                        label: Text(filter.label),
-                        onSelected: (_) => setState(() => _filter = filter),
-                      ),
-                    );
-                  }).toList(),
-                ),
+              child: Text(
+                '알림 및 로그',
+                style: Theme.of(context).textTheme.headlineSmall,
               ),
             ),
-            const SizedBox(width: 8),
             IconButton.outlined(
               onPressed: () => supervisor.clearLogs(_filter),
               icon: const Icon(Icons.delete_sweep),
               tooltip: _filter == LogFilter.all ? '전체 삭제' : '필터 로그 삭제',
             ),
           ],
+        ),
+        const SizedBox(height: 16),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: LogFilter.values.map((filter) {
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  selected: _filter == filter,
+                  avatar: _filter == filter
+                      ? const Icon(Icons.check, size: 18)
+                      : null,
+                  label: Text(filter.label),
+                  onSelected: (_) => setState(() => _filter = filter),
+                ),
+              );
+            }).toList(),
+          ),
         ),
         const SizedBox(height: 18),
         if (logs.isEmpty)

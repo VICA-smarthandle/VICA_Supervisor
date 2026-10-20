@@ -1,6 +1,10 @@
 <!-- 이 파일은 Android 앱 표시 이름을 VICA_Supervisor로 지정하는 최소 매니페스트입니다. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 물류 배송 도착 문자. 관리자 폰의 유심으로 직접 보낸다(SmsManager).
+         기본 문자앱이 될 필요는 없다 — 보내기만 하고 문자함에는 기록하지 않는다.
+         실행 중 권한 팝업은 처음 보낼 때 한 번 뜬다. -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
 
     <application
         android:label="VICA_Supervisor"

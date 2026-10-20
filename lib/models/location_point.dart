@@ -1,3 +1,61 @@
+/// 목적지에 딸린 대기 장소(2026-10-07). 사용자가 "기다려 줘"라고 하면 로봇이
+class WaitSpot {
+  const WaitSpot({
+    required this.x,
+    required this.y,
+    required this.yaw,
+    required this.side,
+  });
+
+  final double x;
+  final double y;
+
+  /// 나가는 방향(도). 로봇은 이쪽을 보고 서서 다음 출발 때 돌지 않습니다.
+  final double yaw;
+
+  /// 입구를 바라볼 때 대기 장소가 어느 쪽인가 — `right`·`left`·`across`.
+  final String side;
+
+  static const sides = ['right', 'left', 'across'];
+
+  /// 멘트·화면에 쓰는 말. 로봇의 mission_logic.WAIT_PLACE_PHRASES 와 같습니다.
+  String get placePhrase => waitPlacePhrase(side);
+
+  static WaitSpot? fromJson(Object? raw) {
+    if (raw is! Map) {
+      return null;
+    }
+    final x = (raw['x'] as num?)?.toDouble();
+    final y = (raw['y'] as num?)?.toDouble();
+    final side = (raw['side'] as String?)?.trim().toLowerCase() ?? '';
+    if (x == null || y == null || !sides.contains(side)) {
+      return null;
+    }
+    return WaitSpot(
+      x: x,
+      y: y,
+      yaw: (raw['yaw'] as num?)?.toDouble() ?? 0,
+      side: side,
+    );
+  }
+
+  Map<String, Object> toJson() => {'x': x, 'y': y, 'yaw': yaw, 'side': side};
+}
+
+/// 대기 장소 방향 말. 로봇의 mission_logic.WAIT_PLACE_PHRASES 와 글자까지 같아야
+String waitPlacePhrase(String side) {
+  switch (side) {
+    case 'right':
+      return '입구 오른쪽';
+    case 'left':
+      return '입구 왼쪽';
+    case 'across':
+      return '입구 맞은편';
+    default:
+      return '';
+  }
+}
+
 class LocationPoint {
   const LocationPoint({
     required this.locationId,
@@ -18,6 +76,9 @@ class LocationPoint {
     this.frameId = 'map',
     this.confirmPrompt = '',
     this.arrivalMessage = '',
+    this.contactPhone = '',
+    this.doorYaw,
+    this.waitSpot,
   });
 
   final String locationId;
@@ -38,6 +99,21 @@ class LocationPoint {
   final double yaw;
   final String confirmPrompt;
   final String arrivalMessage;
+
+  /// 물류 배송 도착 문자를 받을 휴대폰 번호. 숫자만('01012345678') 들어 있고
+  final String contactPhone;
+
+  /// 입구 방향(도, 지도 기준). 도착 멘트 "화장실은 오른쪽에 있습니다"의 계산과
+  final double? doorYaw;
+
+  /// 대기 장소. 지정하지 않았으면 null — 로봇은 목적지에서 그대로 기다립니다.
+  final WaitSpot? waitSpot;
+
+  /// 목록에 보이는 대기 장소 이름("화장실 입구-대기"). 로봇의 goal 이름과 같습니다.
+  String get waitSpotName => '$name-대기';
+
+  /// 배송 문자를 보낼 수 있는 장소인가.
+  bool get canReceiveDelivery => contactPhone.isNotEmpty;
 
   factory LocationPoint.fromJson(
       Map<String, Object?> json, String fallbackMapId) {
@@ -76,10 +152,45 @@ class LocationPoint {
       yaw: (pose['yaw'] as num?)?.toDouble() ??
           (json['yaw'] as num?)?.toDouble() ??
           0,
-      confirmPrompt: json['confirm_prompt'] as String? ??
-          (name.isEmpty ? '' : '$name로 안내해드릴까요?'),
-      arrivalMessage: json['arrival_message'] as String? ??
-          (name.isEmpty ? '' : '$name 앞에 도착했습니다.'),
+      confirmPrompt: json['confirm_prompt'] as String? ?? '',
+      arrivalMessage: json['arrival_message'] as String? ?? '',
+      contactPhone: (json['contact_phone'] as String?)?.trim() ?? '',
+      doorYaw: (json['door_yaw'] as num?)?.toDouble(),
+      waitSpot: WaitSpot.fromJson(json['wait_spot']),
+    );
+  }
+
+  /// 칸 몇 개만 바꾼 사본. 대기 장소를 빼려면 [clearWaitSpot] 을 씁니다 —
+  LocationPoint copyWith({
+    double? x,
+    double? y,
+    double? yaw,
+    double? doorYaw,
+    WaitSpot? waitSpot,
+    bool clearWaitSpot = false,
+  }) {
+    return LocationPoint(
+      locationId: locationId,
+      mapId: mapId,
+      name: name,
+      x: x ?? this.x,
+      y: y ?? this.y,
+      yaw: yaw ?? this.yaw,
+      aliases: aliases,
+      category1: category1,
+      category2: category2,
+      building: building,
+      floor: floor,
+      owner: owner,
+      authorization: authorization,
+      isApproachable: isApproachable,
+      unavailableReason: unavailableReason,
+      frameId: frameId,
+      confirmPrompt: confirmPrompt,
+      arrivalMessage: arrivalMessage,
+      contactPhone: contactPhone,
+      doorYaw: doorYaw ?? this.doorYaw,
+      waitSpot: clearWaitSpot ? null : (waitSpot ?? this.waitSpot),
     );
   }
 
@@ -104,6 +215,9 @@ class LocationPoint {
       },
       'confirm_prompt': confirmPrompt,
       'arrival_message': arrivalMessage,
+      'contact_phone': contactPhone,
+      if (doorYaw != null) 'door_yaw': doorYaw!,
+      if (waitSpot != null) 'wait_spot': waitSpot!.toJson(),
     };
   }
 }

@@ -1,0 +1,240 @@
+"""route_graph_build.py 시험입니다. ROS도 로봇도 필요 없습니다."""
+from __future__ import annotations
+
+import json
+import math
+import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
+from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import route_graph_build as rb  # noqa: E402
+
+RES = 0.05
+
+
+def _write_map(root: Path, name: str, free_rects, size=(20.0, 12.0)) -> None:
+    """size(m) 크기의 벽 지도에 free_rects[(x0,y0,x1,y1)] 를 빈 곳으로 판다. origin (0,0)."""
+    w, h = int(size[0] / RES), int(size[1] / RES)
+    img = np.zeros((h, w), dtype=np.uint8)
+    for x0, y0, x1, y1 in free_rects:
+        c0, c1 = int(x0 / RES), int(x1 / RES)
+        r0, r1 = h - int(y1 / RES), h - int(y0 / RES)
+        img[r0:r1, c0:c1] = 254
+    Image.fromarray(img).save(root / f"{name}.pgm")
+    (root / f"{name}.yaml").write_text(
+        f"image: {name}.pgm\nresolution: {RES}\norigin: [0.0, 0.0, 0.0]\n"
+        "negate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.196\nmode: trinary\n",
+        encoding="utf-8")
+
+
+@pytest.fixture()
+def t_map(tmp_path: Path):
+    """가로 복도(y 4~8, x 1~19) + 가운데서 아래로 곁복도(x 8~12, y 0.5~4). 폭 4 m."""
+    _write_map(tmp_path, "t", [(1, 4, 19, 8), (8, 0.5, 12, 4.01)])
+    return rb.MapGrid(tmp_path, "t"), tmp_path
+
+
+def _sk(nodes, edges):
+    return {"nodes": [{"id": i, "x": x, "y": y} for i, (x, y) in nodes.items()],
+            "edges": [list(e) for e in edges]}
+
+
+def _codes(items):
+    return sorted({i["code"] for i in items})
+
+
+def test_sketch_needs_two_nodes_and_one_line():
+    with pytest.raises(rb.RouteError) as err:
+        rb.parse_sketch(_sk({1: (2, 6)}, []))
+    assert err.value.reason == "bad_sketch"
+
+
+def test_sketch_rejects_line_to_missing_node():
+    with pytest.raises(rb.RouteError):
+        rb.parse_sketch(_sk({1: (2, 6), 2: (5, 6)}, [(1, 9)]))
+
+
+def test_straight_line_is_split_to_one_metre_and_both_ways(t_map):
+    grid, _ = t_map
+    r = rb.process_sketch(grid, _sk({1: (3, 6), 2: (17, 6)}, [(1, 2)]))
+    assert r["errors"] == []
+    g = r["graph"]
+    assert all(math.dist(g.nodes[a], g.nodes[b]) <= rb.MAX_EDGE_M + 1e-9 for a, b in g.edges())
+    doc = rb.graph_geojson(g)
+    pairs = {(f["properties"]["startid"], f["properties"]["endid"])
+             for f in doc["features"] if "startid" in f["properties"]}
+    assert all((b, a) in pairs for a, b in pairs), "양방향 엣지 쌍이어야 한다"
+
+
+def test_corner_is_rounded(t_map):
+    grid, _ = t_map
+    r = rb.process_sketch(grid, _sk({1: (3, 6), 2: (10, 6), 3: (10, 1.5)}, [(1, 2), (2, 3)]))
+    assert "sharp_corner" not in _codes(r["errors"])
+    g = r["graph"]
+    for b, nb in g.adj.items():
+        if len(nb) == 2:
+            a, c = sorted(nb)
+            assert rb._turn_deg(g.nodes[a], g.nodes[b], g.nodes[c]) < rb.SHARP_MIN_DEG
+
+
+def _tangent(g, B, P) -> float:
+    """다듬은 레일에서 꼭짓점 B 와 B→P 선 위 가장 가까운 노드(호의 접점) 사이 거리. 90° 면 = R."""
+    best = math.inf
+    bx, by = P[0] - B[0], P[1] - B[1]
+    L = math.hypot(bx, by)
+    for x, y in g.nodes.values():
+        dx, dy = x - B[0], y - B[1]
+        along = (dx * bx + dy * by) / L
+        if 1e-6 < along <= L + 1e-9 and abs(dx * by - dy * bx) / L < 1e-6:
+            best = min(best, along)
+    return best
+
+
+def _cap(tmp_path, width, reverse=False):
+    """빈 방에 ∩ 레일(다리 4.9 m, 짧은 변 width). reverse 면 꼭짓점을 반대 끝부터 찍은 스케치."""
+    _write_map(tmp_path, "room", [(1, 1, 19, 11)])
+    pts = [(6.0, 7.9), (6.0, 3.0), (6.0 + width, 3.0), (6.0 + width, 7.9)]
+    order = pts[::-1] if reverse else pts
+    nodes = {i + 1: p for i, p in enumerate(order)}
+    return pts, rb.process_sketch(rb.MapGrid(tmp_path, "room"), _sk(nodes, [(1, 2), (2, 3), (3, 4)]))
+
+
+@pytest.mark.parametrize("width, want", [(2.24, 1.0), (2.44, 1.0), (1.2, 0.54)])
+def test_two_corners_sharing_a_short_edge_get_the_same_radius(tmp_path, width, want):
+    pts, r = _cap(tmp_path, width)
+    g = r["graph"]
+    t2 = _tangent(g, pts[1], pts[2])
+    t3 = _tangent(g, pts[2], pts[1])
+    assert t2 == pytest.approx(want, abs=1e-6) and t3 == pytest.approx(want, abs=1e-6)
+    assert _tangent(g, pts[1], pts[0]) == pytest.approx(want, abs=1e-6)
+    assert width - t2 - t3 >= 0.1 * width - 1e-6
+    assert r["errors"] == [] and "sharp_corner" not in _codes(r["warnings"])
+
+
+def test_corner_radius_does_not_depend_on_the_drawing_order(tmp_path):
+    pts, a = _cap(tmp_path, 2.24)
+    _, b = _cap(tmp_path, 2.24, reverse=True)
+    shape = lambda r: sorted((round(x, 3), round(y, 3)) for x, y in r["graph"].nodes.values())  # noqa: E731
+    assert shape(a) == shape(b)
+
+
+@pytest.mark.parametrize("short, want", [(8.0, 1.0), (1.5, 0.675)])
+def test_lone_corner_keeps_the_old_radius(tmp_path, short, want):
+    _write_map(tmp_path, "room", [(1, 1, 19, 11)])
+    B, A, C = (10.0, 2.0), (10.0, 2.0 + short), (2.0, 2.0)
+    r = rb.process_sketch(rb.MapGrid(tmp_path, "room"), _sk({1: A, 2: B, 3: C}, [(1, 2), (2, 3)]))
+    assert _tangent(r["graph"], B, C) == pytest.approx(want, abs=1e-6)
+
+
+def test_t_junction_becomes_y_with_penalty_and_no_detour(t_map):
+    grid, _ = t_map
+    sk = _sk({1: (3, 6), 2: (10, 6), 3: (17, 6), 4: (10, 1.5)}, [(1, 2), (2, 3), (2, 4)])
+    r = rb.process_sketch(grid, sk)
+    assert r["errors"] == [], r["errors"]
+    g = r["graph"]
+    assert r["summary"]["penalty_edge_count"] > 0
+    assert set(g.penalty.values()) == {rb.JUNCTION_PENALTY}
+    assert rb.junction_detours(g) == []
+
+
+def test_without_penalty_the_same_junction_detours(t_map):
+    """벌점이 막고 있는 것이 실제로 있는지 — 벌점을 지우면 V자가 생겨야 한다."""
+    grid, _ = t_map
+    sk = _sk({1: (3, 6), 2: (10, 6), 3: (17, 6), 4: (10, 1.5)}, [(1, 2), (2, 3), (2, 4)])
+    g = rb.process_sketch(grid, sk)["graph"]
+    g.penalty.clear()
+    assert rb.junction_detours(g), "벌점 없이도 V자가 없다면 이 시험은 아무것도 지키지 않는다"
+
+
+def test_crossing_lines_get_a_shared_node(t_map):
+    grid, _ = t_map
+    sk = _sk({1: (3, 6), 2: (17, 6), 3: (10, 1.5), 4: (10, 7.2)}, [(1, 2), (3, 4)])
+    r = rb.process_sketch(grid, sk)
+    g = r["graph"]
+    assert any(len(nb) == 4 for nb in g.adj.values()), "교점에 이웃 4개 노드가 있어야 한다"
+    assert "junction_sharp" in _codes(r["warnings"]), "X자는 Y로 못 만들어 경고"
+
+
+def test_line_through_wall_is_rejected(t_map):
+    grid, _ = t_map
+    r = rb.process_sketch(grid, _sk({1: (3, 6), 2: (3, 1)}, [(1, 2)]))
+    assert "crosses_wall" in _codes(r["errors"])
+
+
+def test_line_near_wall_is_a_warning_with_value(t_map):
+    """벽 0.70 m 안은 알림이고 저장은 막지 않는다(2026-10-01 사용자 결정 — 좁은 곳이 많다)."""
+    grid, _ = t_map
+    r = rb.process_sketch(grid, _sk({1: (3, 4.4), 2: (17, 4.4)}, [(1, 2)]))
+    assert r["errors"] == []
+    near = [e for e in r["warnings"] if e["code"] == "too_close_to_wall"]
+    assert near and all(e["value"] < rb.MIN_WALL_CLEAR_M for e in near)
+    assert len(near) <= 16, "가까운 곳끼리는 묶어서 번호가 수십 개 찍히지 않는다"
+
+
+def test_only_wall_crossing_blocks_saving():
+    """2026-10-01 사용자: 벽을 가로지르지만 않으면 통과."""
+    assert rb.BLOCKING_CODES == {"crosses_wall"}
+
+
+def test_disconnected_parts_are_a_warning(t_map):
+    grid, _ = t_map
+    r = rb.process_sketch(grid, _sk({1: (3, 6), 2: (6, 6), 3: (12, 6), 4: (17, 6)}, [(1, 2), (3, 4)]))
+    assert r["errors"] == []
+    assert "disconnected" in _codes(r["warnings"])
+
+
+def test_far_place_is_a_warning_not_an_error(t_map):
+    grid, _ = t_map
+    places = [{"name": "학과사무실", "x": 10, "y": 1.5}, {"name": "안내소", "x": 3, "y": 6.3}]
+    r = rb.process_sketch(grid, _sk({1: (3, 6), 2: (17, 6)}, [(1, 2)]), places)
+    assert r["errors"] == []
+    far = [w for w in r["warnings"] if w["code"] == "far_place"]
+    assert [w["name"] for w in far] == ["학과사무실"]
+    by_name = {p["name"]: p for p in r["places"]}
+    assert by_name["학과사무실"]["far"] and not by_name["안내소"]["far"]
+
+
+def test_save_writes_graph_and_sketch_and_reloads(t_map):
+    grid, root = t_map
+    sk = _sk({1: (3, 6), 2: (10, 6), 3: (17, 6), 4: (10, 1.5)}, [(1, 2), (2, 3), (2, 4)])
+    r = rb.process_sketch(grid, sk)
+    paths = rb.save_route(root, "t", r, sk, "2026-09-30T20:00:00+09:00")
+    doc = json.loads(paths["graph"].read_text(encoding="utf-8"))
+    pens = [f["properties"]["metadata"]["penalty"] for f in doc["features"]
+            if "metadata" in f["properties"]]
+    assert pens and set(pens) == {rb.JUNCTION_PENALTY}
+    assert rb.load_sketch(root, "t")["edges"] == sk["edges"]
+    assert rb.file_version(paths["graph"])
+
+
+def test_generator_rail_turns_back_into_a_small_sketch(t_map):
+    """앱 편집 전 레일(생성기가 만든 것)도 고칠 수 있게 스케치로 되돌린다."""
+    grid, root = t_map
+    sk = _sk({1: (3, 6), 2: (10, 6), 3: (17, 6), 4: (10, 1.5)}, [(1, 2), (2, 3), (2, 4)])
+    g1 = rb.process_sketch(grid, sk)["graph"]
+    back = rb.sketch_from_geojson(rb.graph_geojson(g1))
+    assert len(back["nodes"]) <= 6
+    g2 = rb.process_sketch(grid, back)["graph"]
+    assert max(rb._point_to_graph(g2, *xy) for xy in g1.nodes.values()) < 0.05
+
+
+def test_auto_draft_connects_places(t_map):
+    grid, _ = t_map
+    places = [{"name": "서쪽", "x": 2.5, "y": 6}, {"name": "동쪽", "x": 17.5, "y": 6},
+              {"name": "아래", "x": 10, "y": 1.2}]
+    d = rb.auto_draft(grid, places)
+    assert d["shape"] in ("loop", "tree")
+    assert d["result"]["errors"] == [], d["result"]["errors"]
+    assert not any(p["far"] for p in d["result"]["places"])
+
+
+def test_auto_draft_needs_two_places(t_map):
+    grid, _ = t_map
+    with pytest.raises(rb.RouteError) as err:
+        rb.auto_draft(grid, [{"name": "하나", "x": 3, "y": 6}])
+    assert err.value.reason == "no_destinations"

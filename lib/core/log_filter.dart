@@ -2,7 +2,8 @@ enum LogFilter {
   all('전체'),
   emergencyStop('긴급 정지'),
   coordinateTransfer('좌표 전송'),
-  connection('연결 상태');
+  connection('연결 상태'),
+  delivery('물류 배송');
 
   const LogFilter(this.label);
 
