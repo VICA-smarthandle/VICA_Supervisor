@@ -18,6 +18,9 @@ SUPERVISOR_ROOT = Path(__file__).resolve().parent
 WORKSPACE_ROOT = SUPERVISOR_ROOT.parent.parent
 MAP_LIST_NODE = SUPERVISOR_ROOT / "map_list_node.py"
 STATUS_NODE = SUPERVISOR_ROOT / "vica_status_app_node.py"
+KEEPOUT_NODE = SUPERVISOR_ROOT / "keepout_map_node.py"
+ROUTE_NODE = SUPERVISOR_ROOT / "route_graph_node.py"
+MAP_HTTP_SERVER = SUPERVISOR_ROOT / "map_http_server.py"
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -47,18 +50,21 @@ def generate_launch_description() -> LaunchDescription:
                 launch_arguments={
                     "address": "0.0.0.0",
                     "port": "9090",
+                    "call_services_in_new_thread": "true",
+                    "default_call_service_timeout": "5.0",
                 }.items(),
             ),
             ExecuteProcess(
                 cmd=[
                     sys.executable,
-                    "-m",
-                    "http.server",
+                    str(MAP_HTTP_SERVER),
+                    "--port",
                     "8000",
                     "--bind",
                     "0.0.0.0",
+                    "--directory",
+                    str(WORKSPACE_ROOT / "vica_ros2_ws"),
                 ],
-                cwd=str(WORKSPACE_ROOT / "vica_ros2_ws"),
                 output="screen",
             ),
             IncludeLaunchDescription(
@@ -66,6 +72,14 @@ def generate_launch_description() -> LaunchDescription:
             ),
             ExecuteProcess(
                 cmd=[sys.executable, str(MAP_LIST_NODE)],
+                output="screen",
+            ),
+            ExecuteProcess(
+                cmd=[sys.executable, str(KEEPOUT_NODE)],
+                output="screen",
+            ),
+            ExecuteProcess(
+                cmd=[sys.executable, str(ROUTE_NODE)],
                 output="screen",
             ),
             ExecuteProcess(

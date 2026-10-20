@@ -27,7 +27,7 @@ void main() {
     );
   }
 
-  testWidgets('좁은 화면에서는 Drawer Navigation을 사용한다', (tester) async {
+  testWidgets('좁은 화면에서는 하단 탭과 더보기 목록을 사용한다', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(390, 844);
     addTearDown(() {
@@ -39,8 +39,21 @@ void main() {
     await tester.pump();
 
     final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
-    expect(scaffold.drawer, isA<Drawer>());
-    expect(find.byType(NavigationRail), findsNothing);
+    expect(scaffold.drawer, isNull);
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.byKey(const ValueKey('desktop_sidebar')), findsNothing);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('더보기'));
+    await tester.pumpAndSettle();
+    for (final label in ['현재 위치', '시스템 진단', '알림 및 로그', '설정', '로그아웃']) {
+      expect(find.text(label), findsWidgets, reason: "더보기에 '$label' 이 없습니다.");
+    }
+    expect(find.byTooltip('모드 바꾸기'), findsOneWidget);
+    expect(find.byTooltip('설정'), findsOneWidget);
+    await tester.tap(find.text('설정'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(AppBar, '설정'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

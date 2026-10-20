@@ -81,7 +81,7 @@ void main() {
     });
 
     test('RobotEvent가 중첩 fault까지 파싱된다', () {
-      final event = RobotEvent.fromRosMsg(_decode(_eventPayload), id: 'x');
+      final event = RobotEvent.fromRosMsg(_decode(_eventPayload));
 
       expect(event.transition, FaultTransition.raised);
       expect(event.fault.component, 'motor');

@@ -1,4 +1,5 @@
 import '../core/fault_severity.dart';
+import '../core/json_read.dart';
 
 class RobotFault {
   const RobotFault({
@@ -53,16 +54,16 @@ class RobotFault {
   /// rosbridge가 보낸 필드 map을 읽습니다.
   factory RobotFault.fromRosMsg(Map<String, Object?> msg) {
     return RobotFault(
-      component: _asString(msg['component']),
-      faultCode: _asString(msg['fault_code']),
-      severity: FaultSeverity.fromValue(_asInt(msg['severity'])),
+      component: jsonString(msg['component']),
+      faultCode: jsonString(msg['fault_code']),
+      severity: FaultSeverity.fromValue(jsonInt(msg['severity'])),
       active: msg['active'] == true,
       latched: msg['latched'] == true,
-      occurrenceCount: _asInt(msg['occurrence_count']),
+      occurrenceCount: jsonInt(msg['occurrence_count']),
       firstSeen: rosTimeToDateTime(msg['first_seen']),
       lastSeen: rosTimeToDateTime(msg['last_seen']),
-      detail: _asString(msg['detail']),
-      suggestedAction: _asString(msg['suggested_action']),
+      detail: jsonString(msg['detail']),
+      suggestedAction: jsonString(msg['suggested_action']),
     );
   }
 }
@@ -72,32 +73,12 @@ DateTime rosTimeToDateTime(Object? value) {
   if (value is! Map) {
     return DateTime.now();
   }
-  final sec = _asInt(value['sec']);
-  final nanosec = _asInt(value['nanosec']);
+  final sec = jsonInt(value['sec']);
+  final nanosec = jsonInt(value['nanosec']);
   if (sec <= 0) {
     return DateTime.now();
   }
   return DateTime.fromMillisecondsSinceEpoch(
     sec * 1000 + (nanosec ~/ 1000000),
   );
-}
-
-String _asString(Object? value) {
-  if (value is String) {
-    return value;
-  }
-  return value?.toString() ?? '';
-}
-
-int _asInt(Object? value) {
-  if (value is int) {
-    return value;
-  }
-  if (value is num) {
-    return value.toInt();
-  }
-  if (value is String) {
-    return int.tryParse(value) ?? 0;
-  }
-  return 0;
 }

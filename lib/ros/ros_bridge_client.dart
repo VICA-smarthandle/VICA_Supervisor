@@ -14,6 +14,9 @@ typedef RosTopicHandler = void Function(Map<String, Object?> message);
 typedef RosStateHandler = void Function(
     RosConnectionState state, String detail);
 
+/// WebSocket 을 여는 함수. 시험은 실제 소켓 대신 가짜 채널을 끼웁니다.
+typedef RosChannelConnector = WebSocketChannel Function(Uri uri);
+
 class RosServiceResponse {
   const RosServiceResponse({required this.result, required this.values});
 
@@ -26,9 +29,16 @@ class RosServiceResponse {
 }
 
 class RosBridgeClient {
-  RosBridgeClient({required this.onState});
+  /// [callService] 가 응답을 기다리는 기본 시간.
+  static const defaultServiceTimeout = Duration(seconds: 5);
+
+  RosBridgeClient({
+    required this.onState,
+    RosChannelConnector? connector,
+  }) : _connector = connector ?? WebSocketChannel.connect;
 
   final RosStateHandler onState;
+  final RosChannelConnector _connector;
   final Map<String, RosTopicHandler> _handlers = {};
   final Map<String, Completer<RosServiceResponse>> _pendingServiceCalls = {};
   int _serviceCallCounter = 0;
@@ -42,13 +52,18 @@ class RosBridgeClient {
     await close();
     _setState(RosConnectionState.connecting, 'ROS 연결 시도: $url');
     try {
-      _channel = WebSocketChannel.connect(Uri.parse(url));
+      _channel = _connector(Uri.parse(url));
       await _channel!.ready;
       _subscription = _channel!.stream.listen(
         _handleRawMessage,
-        onDone: () => _setState(RosConnectionState.disconnected, 'ROS 연결 종료'),
-        onError: (Object error) =>
-            _setState(RosConnectionState.failed, 'ROS 연결 오류: $error'),
+        onDone: () => _handleChannelLost(
+          RosConnectionState.disconnected,
+          'ROS 연결 종료',
+        ),
+        onError: (Object error) => _handleChannelLost(
+          RosConnectionState.failed,
+          'ROS 연결 오류: $error',
+        ),
       );
       _setState(RosConnectionState.connected, 'ROS 연결 완료');
     } catch (error) {
@@ -57,12 +72,22 @@ class RosBridgeClient {
     }
   }
 
+  void _handleChannelLost(RosConnectionState next, String detail) {
+    final channel = _channel;
+    _channel = null;
+    _failPendingServiceCalls();
+    _setState(next, detail);
+    channel?.sink.close().ignore();
+  }
+
   Future<void> close() async {
     _failPendingServiceCalls();
-    await _subscription?.cancel();
+    final subscription = _subscription;
+    final channel = _channel;
     _subscription = null;
-    await _channel?.sink.close();
     _channel = null;
+    await subscription?.cancel();
+    channel?.sink.close().ignore();
     if (_state != RosConnectionState.disconnected) {
       _setState(RosConnectionState.disconnected, 'ROS 연결 해제');
     }
@@ -89,6 +114,32 @@ class RosBridgeClient {
     });
   }
 
+  void advertise({required String topic, required String type}) {
+    _send({
+      'op': 'advertise',
+      'topic': topic,
+      'type': type,
+    });
+  }
+
+  void unadvertise(String topic) {
+    _send({
+      'op': 'unadvertise',
+      'topic': topic,
+    });
+  }
+
+  void publishMessage({
+    required String topic,
+    required Map<String, Object?> message,
+  }) {
+    _send({
+      'op': 'publish',
+      'topic': topic,
+      'msg': message,
+    });
+  }
+
   void publishJsonString({
     required String topic,
     required Map<String, Object?> payload,
@@ -106,7 +157,7 @@ class RosBridgeClient {
     required String service,
     String type = 'std_srvs/Trigger',
     Map<String, Object?> args = const {},
-    Duration timeout = const Duration(seconds: 5),
+    Duration timeout = defaultServiceTimeout,
   }) {
     if (_channel == null) {
       return Future.error(StateError('ROS Bridge에 연결되지 않았습니다.'));
@@ -176,11 +227,17 @@ class RosBridgeClient {
       return;
     }
     final rawValues = decoded['values'];
+    if (decoded['result'] != true) {
+      final detail =
+          rawValues is String && rawValues.isNotEmpty ? rawValues : '서비스 호출 실패';
+      completer.completeError(StateError(detail));
+      return;
+    }
     final values =
         rawValues is Map<String, Object?> ? rawValues : <String, Object?>{};
     completer.complete(
       RosServiceResponse(
-        result: decoded['result'] == true,
+        result: true,
         values: values,
       ),
     );

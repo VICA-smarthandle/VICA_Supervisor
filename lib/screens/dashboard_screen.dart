@@ -7,6 +7,7 @@ import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../ros/ros_bridge_client.dart';
 import '../widgets/health_banner.dart';
+import '../widgets/ros_connection_tile.dart';
 import '../widgets/vica_ui.dart';
 
 class DashboardScreen extends StatelessWidget {
@@ -39,8 +40,10 @@ class DashboardScreen extends StatelessWidget {
         icon: Icons.smart_toy,
         label: '전체 로봇',
         value: robots.length.toString(),
-        color: VicaColors.primaryDark,
+        color: VicaColors.primary,
         labelFontSize: metricLabelFontSize,
+        badge: '정상',
+        unit: '대',
       ),
       VicaMetricCard(
         icon: Icons.navigation,
@@ -48,21 +51,27 @@ class DashboardScreen extends StatelessWidget {
         value: moving.toString(),
         color: VicaColors.green,
         labelFontSize: metricLabelFontSize,
+        badge: '주행',
+        unit: '대',
       ),
       VicaMetricCard(
         icon: Icons.hourglass_empty,
         label: '대기 중',
         value: waiting.toString(),
-        color: Colors.blueAccent,
+        color: VicaColors.muted,
         labelFontSize: metricLabelFontSize,
+        badge: '대기',
+        unit: '대',
       ),
       VicaMetricCard(
         icon: Icons.warning,
-        label: '오류/\n긴급 정지',
+        label: '오류 · 긴급정지',
         value: errors.toString(),
         color: VicaColors.red,
         labelMaxLines: 2,
         labelFontSize: errorMetricLabelFontSize,
+        badge: errors == 0 ? '이상 없음' : '이상 있음',
+        unit: '건',
       ),
     ];
 
@@ -73,11 +82,7 @@ class DashboardScreen extends StatelessWidget {
           VicaDisconnectedNotice(detail: supervisor.connectionDetail),
         HealthBanner(onTap: onOpenDiagnostics),
         _ConnectionButtons(
-          connected: connected,
           hasMaps: supervisor.maps.isNotEmpty,
-          onToggleRos: connected
-              ? supervisor.disconnect
-              : () => supervisor.connect(settings),
           onRequestMaps:
               connected ? () => supervisor.requestMapList(settings) : null,
         ),
@@ -103,7 +108,7 @@ class DashboardScreen extends StatelessWidget {
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: columnCount,
                     crossAxisSpacing: 12,
-                    mainAxisSpacing: 4,
+                    mainAxisSpacing: 12,
                     mainAxisExtent: cellHeight,
                   ),
                   itemBuilder: (context, index) => metricCards[index],
@@ -112,6 +117,7 @@ class DashboardScreen extends StatelessWidget {
             ),
           ),
         ),
+        const SizedBox(height: 12),
         const VicaSectionTitle('로봇 상태'),
         VicaRobotCard(robot: robot),
         const VicaSectionTitle('최근 알림'),
@@ -143,26 +149,16 @@ class DashboardScreen extends StatelessWidget {
 
 class _ConnectionButtons extends StatelessWidget {
   const _ConnectionButtons({
-    required this.connected,
     required this.hasMaps,
-    required this.onToggleRos,
     required this.onRequestMaps,
   });
 
-  final bool connected;
   final bool hasMaps;
-  final VoidCallback onToggleRos;
   final VoidCallback? onRequestMaps;
 
   @override
   Widget build(BuildContext context) {
-    final rosButton = OutlinedButton.icon(
-      onPressed: onToggleRos,
-      icon: Icon(
-        connected ? Icons.check_circle : Icons.radio_button_unchecked,
-      ),
-      label: Text(connected ? 'ROS 연결됨' : 'ROS 연결'),
-    );
+    const rosButton = VicaRosConnectionButton();
     final mapButton = OutlinedButton.icon(
       onPressed: onRequestMaps,
       icon: Icon(
@@ -185,7 +181,7 @@ class _ConnectionButtons extends StatelessWidget {
         }
         return Row(
           children: [
-            Expanded(child: rosButton),
+            const Expanded(child: rosButton),
             const SizedBox(width: 10),
             Expanded(child: mapButton),
           ],

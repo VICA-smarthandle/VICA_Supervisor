@@ -117,7 +117,7 @@ void main() {
       expect(
           RobotFault.fromRosMsg(faultMsg(component: 'guidance'))
               .componentLabelText,
-          '안내 장치');
+          '핸들 및 초음파');
     });
 
     test('모르는 컴포넌트는 원문을 그대로 보여준다', () {
@@ -253,12 +253,10 @@ void main() {
     test('전이 종류를 읽는다', () {
       final event = RobotEvent.fromRosMsg(
         {'fault': faultMsg(), 'transition': 0},
-        id: 'a',
       );
 
       expect(event.transition, FaultTransition.raised);
       expect(event.fault.faultCode, 'NAV2_NOT_ACTIVE');
-      expect(event.id, 'a');
     });
 
     test('메시지 상수 값과 일치한다', () {
@@ -272,7 +270,6 @@ void main() {
       for (final transition in FaultTransition.values) {
         final event = RobotEvent.fromRosMsg(
           {'fault': faultMsg(), 'transition': transition.value},
-          id: 'x',
         );
         expect(
           event.belongsInHistory,
@@ -285,13 +282,12 @@ void main() {
     test('알 수 없는 전이 값도 버리지 않는다', () {
       final event = RobotEvent.fromRosMsg(
         {'fault': faultMsg(), 'transition': 77},
-        id: 'x',
       );
       expect(event.transition, FaultTransition.raised);
     });
 
     test('fault가 없어도 예외를 던지지 않는다', () {
-      final event = RobotEvent.fromRosMsg(const {'transition': 3}, id: 'x');
+      final event = RobotEvent.fromRosMsg(const {'transition': 3});
 
       expect(event.transition, FaultTransition.cleared);
       expect(event.fault.component, '');

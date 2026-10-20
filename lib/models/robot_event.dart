@@ -1,4 +1,5 @@
 import 'robot_fault.dart';
+import '../core/json_read.dart';
 
 /// 결함 상태 전이. RobotEvent.msg의 TRANSITION_* 상수와 값이 같습니다.
 enum FaultTransition {
@@ -25,14 +26,10 @@ enum FaultTransition {
 
 class RobotEvent {
   const RobotEvent({
-    required this.id,
     required this.fault,
     required this.transition,
     required this.receivedAt,
   });
-
-  /// 앱이 만드는 로컬 식별자. 목록 위젯의 key로 씁니다.
-  final String id;
 
   final RobotFault fault;
   final FaultTransition transition;
@@ -41,31 +38,14 @@ class RobotEvent {
   /// 이 이벤트를 이력 목록에 남겨야 하는지.
   bool get belongsInHistory => transition != FaultTransition.reminder;
 
-  factory RobotEvent.fromRosMsg(
-    Map<String, Object?> msg, {
-    required String id,
-  }) {
+  factory RobotEvent.fromRosMsg(Map<String, Object?> msg) {
     final rawFault = msg['fault'];
     return RobotEvent(
-      id: id,
       fault: rawFault is Map<String, Object?>
           ? RobotFault.fromRosMsg(rawFault)
           : RobotFault.fromRosMsg(const {}),
-      transition: FaultTransition.fromValue(_asInt(msg['transition'])),
+      transition: FaultTransition.fromValue(jsonInt(msg['transition'])),
       receivedAt: DateTime.now(),
     );
   }
-}
-
-int _asInt(Object? value) {
-  if (value is int) {
-    return value;
-  }
-  if (value is num) {
-    return value.toInt();
-  }
-  if (value is String) {
-    return int.tryParse(value) ?? 0;
-  }
-  return 0;
 }

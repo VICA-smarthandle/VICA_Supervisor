@@ -7,20 +7,17 @@ import '../core/app_settings.dart';
 
 class SettingsProvider extends ChangeNotifier {
   AppSettings _settings = const AppSettings();
-  bool _loaded = false;
 
   AppSettings get settings => _settings;
-  bool get loaded => _loaded;
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString('vica_supervisor_settings');
     if (raw != null) {
       _settings = AppSettings.fromJson(
-        jsonDecode(raw) as Map<String, Object?>,
+        _editableOnly(jsonDecode(raw) as Map<String, Object?>),
       );
     }
-    _loaded = true;
     notifyListeners();
   }
 
@@ -31,7 +28,13 @@ class SettingsProvider extends ChangeNotifier {
     _settings = next;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
-        'vica_supervisor_settings', jsonEncode(next.toJson()));
+        'vica_supervisor_settings', jsonEncode(_editableOnly(next.toJson())));
     notifyListeners();
   }
+
+  static Map<String, Object?> _editableOnly(Map<String, Object?> json) => {
+        for (final entry in json.entries)
+          if (AppSettings.editableJsonKeys.contains(entry.key))
+            entry.key: entry.value,
+      };
 }

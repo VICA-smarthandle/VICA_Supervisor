@@ -1,0 +1,111 @@
+{
+  "name": "demo_cap_3.8x7.0",
+  "anchor": "home",
+  "frame": "forward = 홈이 보는 방향(m), left = 홈의 왼쪽(m)",
+  "nodes": [
+    {
+      "id": 1,
+      "forward": 5.1004,
+      "left": 0.2996
+    },
+    {
+      "id": 2,
+      "forward": -0.2996,
+      "left": 0.2996
+    },
+    {
+      "id": 3,
+      "forward": -0.2996,
+      "left": 2.5396
+    },
+    {
+      "id": 4,
+      "forward": 5.1004,
+      "left": 2.5396
+    }
+  ],
+  "edges": [
+    [
+      1,
+      2
+    ],
+    [
+      2,
+      3
+    ],
+    [
+      3,
+      4
+    ]
+  ],
+  "zone": {
+    "forward_min": -1.0996,
+    "forward_max": 5.9004,
+    "left_min": -0.4804,
+    "left_max": 3.3196
+  },
+  "source": {
+    "made_from": "demo_cap",
+    "zone_m": [
+      3.8,
+      7.0
+    ],
+    "base_source": {
+      "map_id": "map_1002_150946",
+      "home": {
+        "x": 5.3404,
+        "y": 2.2644,
+        "yaw_deg": 270.0,
+        "yaw_deg_file": 270.0
+      },
+      "sketch_updated_at": "2026-10-10T17:21:10+09:00",
+      "extracted_at": "2026-10-11T21:50:41+09:00",
+      "source_map_summary": {
+        "node_count": 21,
+        "edge_count": 40,
+        "length_m": 11.4,
+        "junction_count": 0,
+        "penalty_edge_count": 0,
+        "corner_radii_m": [
+          1.0,
+          0.56
+        ]
+      },
+      "summary": {
+        "node_count": 20,
+        "edge_count": 38,
+        "length_m": 11.2,
+        "junction_count": 0,
+        "penalty_edge_count": 0,
+        "corner_radii_m": [
+          1.0,
+          1.0
+        ]
+      },
+      "source_map_summary_note": "10-11 연습장에서 옛 기준(홈 왼쪽 0.50 · 앞 0)·옛 둥글기로 뜬 결과. 찍을 때 비교 기준은 summary(빈 지도 모양)다.",
+      "home_standard": {
+        "since": "2026-10-12",
+        "rule": "홈 = 홈 쪽 꼭짓점(2)에서 옆 0.30 m · 뒤 0.30 m (꼭짓점 2 = 홈 앞 −0.30 · 왼쪽 0.30)",
+        "moved_from_extract_m": {
+          "forward": -0.3,
+          "left": -0.2
+        },
+        "why": "옛 0.50 m 는 10-10 17:21 연습장 레일만 +0.5 m 옮기고 홈은 안 옮긴 흔적(설계 아님). 홈 ↔ 레일 0.80 m 가 레일 올라타기 문턱 0.8 m 경계였다 → 새 기준 0.49 m. 사용자 결정 10-12, 레일테스트 지도 4×7 에서 시험.",
+        "note": "연습장(map_1002_150946)에서 다시 뜨지 않는다 — 그 지도 레일은 이 기준이 아니다."
+      },
+      "corner_rule": "2026-10-12 부터 짧은 변을 나눠 쓰는 두 코너도 깎기 전 변 길이의 45 % 까지 — 두 코너 모두 R 1.0"
+    },
+    "made_at": "2026-10-12T12:11:28+09:00",
+    "summary": {
+      "node_count": 22,
+      "edge_count": 42,
+      "length_m": 12.2,
+      "junction_count": 0,
+      "penalty_edge_count": 0,
+      "corner_radii_m": [
+        1.0,
+        1.0
+      ]
+    }
+  }
+}
