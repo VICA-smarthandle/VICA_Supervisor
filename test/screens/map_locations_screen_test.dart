@@ -21,6 +21,28 @@ import '../ros/fake_ros_socket.dart';
 class _FakeSupervisor extends SupervisorProvider {
   _FakeSupervisor({super.rosChannelConnector});
 
+  int waitCancels = 0;
+  int approachCancels = 0;
+  int driveCancels = 0;
+
+  @override
+  Future<String> cancelWait(AppSettings settings) async {
+    waitCancels += 1;
+    return '대기를 취소했습니다.';
+  }
+
+  @override
+  Future<String> cancelApproach(AppSettings settings) async {
+    approachCancels += 1;
+    return '접근을 취소했습니다.';
+  }
+
+  @override
+  Future<String> cancelDestination(AppSettings settings) async {
+    driveCancels += 1;
+    return '주행을 취소했습니다.';
+  }
+
   void injectMap() => handleMapListForTest({
         'maps': [
           {
@@ -35,7 +57,14 @@ class _FakeSupervisor extends SupervisorProvider {
         ],
       });
 
-  void injectRobot({String goal = '', String waiting = ''}) =>
+  void injectRobot({
+    String goal = '',
+    String waiting = '',
+    String dialog = '',
+    String place = '',
+    int left = -1,
+    String last = '',
+  }) =>
       handleRobotStatusForTest({
         'robot_id': 'vica_robot_01',
         'robot_name': 'VICA 1호기',
@@ -48,6 +77,10 @@ class _FakeSupervisor extends SupervisorProvider {
         'error_reason': '',
         'waiting_reason': waiting,
         'map_id': 'starlight_1f',
+        'dialog_state': dialog,
+        'wait_place': place,
+        'wait_left_sec': left,
+        'last_destination': last,
       });
 
   void injectStack({required bool nav2}) => setStackStatusForTest(
@@ -67,10 +100,21 @@ void main() {
     bool nav2 = true,
     String goal = '',
     String waiting = '',
+    String dialog = '',
+    String place = '',
+    int left = -1,
+    String last = '',
   }) async {
     final supervisor = _FakeSupervisor();
     supervisor.injectMap();
-    supervisor.injectRobot(goal: goal, waiting: waiting);
+    supervisor.injectRobot(
+      goal: goal,
+      waiting: waiting,
+      dialog: dialog,
+      place: place,
+      left: left,
+      last: last,
+    );
     supervisor.injectStack(nav2: nav2);
     await tester.pumpWidget(
       MultiProvider(
@@ -116,6 +160,116 @@ void main() {
     );
     expect(button.onPressed, isNull);
     expect(find.textContaining(vicaKeepWords('주행 중에는')), findsOneWidget);
+  });
+
+  // 2026-10-29 사용자 결정 표·목업 38~46: 대기·접근 중에도 원격 주행 탭에서 취소, 처음 안내 중엔 버튼 없음.
+  group('대기·접근·처음 안내 표시', () {
+    testWidgets('대기 장소에서 기다리는 중 — 상태 줄·남은 시간·대기 취소, 요청·초기 위치 잠김', (tester) async {
+      await pump(tester,
+          dialog: 'waiting', place: '입구 왼쪽', left: 150, last: '남자 화장실');
+      expect(find.textContaining(vicaKeepWords('남자 화장실 입구 왼쪽에서 기다리는 중입니다.')),
+          findsOneWidget);
+      expect(find.textContaining(vicaKeepWords('남은 시간 2분 30초')), findsOneWidget);
+      expect(find.widgetWithText(OutlinedButton, '대기 취소'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, '대기 중'), findsOneWidget);
+      expect(find.text('일시정지'), findsNothing);
+      final pose = tester.widget<OutlinedButton>(
+        find.widgetWithText(OutlinedButton, '초기 위치 잡기'),
+      );
+      expect(pose.onPressed, isNull);
+    });
+
+    testWidgets('사람에게 다가가는 중 — 접근 취소 하나, 일시정지·주행 취소 없음', (tester) async {
+      await pump(tester, goal: '접근 대상', dialog: 'approaching');
+      expect(find.textContaining(vicaKeepWords('사람에게 다가가는 중입니다.')), findsOneWidget);
+      expect(find.widgetWithText(OutlinedButton, '접근 취소'), findsOneWidget);
+      expect(find.text('일시정지'), findsNothing);
+      expect(find.text('주행 취소'), findsNothing);
+      expect(find.widgetWithText(FilledButton, '접근 중'), findsOneWidget);
+    });
+
+    testWidgets('처음 안내(손잡이 잡기 대기) 중에는 취소 버튼이 없다', (tester) async {
+      await pump(tester, dialog: 'grip_wait');
+      expect(find.textContaining(vicaKeepWords('사용자에게 처음 안내를 하는 중입니다.')),
+          findsOneWidget);
+      expect(find.text('대기 취소'), findsNothing);
+      expect(find.text('접근 취소'), findsNothing);
+      expect(find.text('주행 취소'), findsNothing);
+      expect(find.widgetWithText(FilledButton, '안내 중'), findsOneWidget);
+    });
+
+    testWidgets('대기 취소를 누르면 확인 뒤 대기 취소를 보낸다', (tester) async {
+      // 버튼이 기본 시험 화면(800×600) 아래에 있어 세로로 크게 잡는다.
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final supervisor = await pump(tester,
+          dialog: 'moving_to_wait_spot', place: '입구 왼쪽', last: '남자 화장실');
+      final cancel = find.widgetWithText(OutlinedButton, '대기 취소');
+      await tester.tap(cancel);
+      await tester.pumpAndSettle();
+      expect(find.text('계속 대기'), findsOneWidget);
+      expect(find.textContaining(vicaKeepWords('로봇은 그 자리에 멈춥니다')), findsOneWidget);
+      await tester.tap(find.text('취소하기'));
+      await tester.pumpAndSettle();
+      expect(supervisor.waitCancels, 1);
+      expect(supervisor.driveCancels, 0);
+      expect(find.text('대기를 취소했습니다.'), findsOneWidget);
+    });
+
+    testWidgets('접근 취소는 계속 진행을 누르면 보내지 않는다', (tester) async {
+      // 버튼이 기본 시험 화면(800×600) 아래에 있어 세로로 크게 잡는다.
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final supervisor = await pump(tester, dialog: 'awaiting_user');
+      final cancel = find.widgetWithText(OutlinedButton, '접근 취소');
+      await tester.tap(cancel);
+      await tester.pumpAndSettle();
+      expect(find.textContaining(vicaKeepWords('1분 동안 다시 다가가지 않습니다')), findsOneWidget);
+      await tester.tap(find.text('계속 진행'));
+      await tester.pumpAndSettle();
+      expect(supervisor.approachCancels, 0);
+    });
+
+    testWidgets('확인창이 떠 있는 사이 돌아서는 중이 되면 접근 취소를 보내지 않는다', (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final supervisor = await pump(tester, dialog: 'awaiting_user');
+      await tester.tap(find.widgetWithText(OutlinedButton, '접근 취소'));
+      await tester.pumpAndSettle();
+      // 사람이 "네"라고 답해 돌아서기 시작했다 — 처음 안내는 취소가 없다(10-29 표).
+      supervisor.injectRobot(dialog: 'turning');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('취소하기'));
+      await tester.pumpAndSettle();
+      expect(supervisor.approachCancels, 0);
+      expect(find.text('접근을 취소했습니다.'), findsNothing);
+    });
+
+    testWidgets('확인창이 떠 있는 사이 새 안내가 시작되면 대기 취소를 보내지 않는다', (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final supervisor = await pump(tester, dialog: 'waiting', last: '남자 화장실');
+      await tester.tap(find.widgetWithText(OutlinedButton, '대기 취소'));
+      await tester.pumpAndSettle();
+      // 사용자가 "비카야"로 목적지를 정해 손잡이 안내가 출발했다.
+      supervisor.injectRobot(goal: '408호', dialog: 'navigating');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('취소하기'));
+      await tester.pumpAndSettle();
+      expect(supervisor.waitCancels, 0);
+      expect(supervisor.driveCancels, 0);
+    });
+
+    testWidgets('안내 주행 중은 종전 그대로 일시정지·주행 취소', (tester) async {
+      await pump(tester, goal: '남자 화장실', dialog: 'navigating');
+      expect(find.text('일시정지'), findsOneWidget);
+      expect(find.text('주행 취소'), findsOneWidget);
+      expect(find.text('대기 취소'), findsNothing);
+    });
   });
 
   testWidgets('일시정지 중에도 잠긴다', (tester) async {

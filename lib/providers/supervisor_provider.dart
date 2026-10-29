@@ -936,6 +936,16 @@ class SupervisorProvider extends ChangeNotifier {
     return _sendMissionCommand(settings.missionCancelService, '주행을 취소했습니다.');
   }
 
+  /// 대기·접근 중 취소(2026-10-29, 목업 44·45). 미션에는 같은 취소(on_app_cancel)이고 알림 글자만 다릅니다.
+  /// 접근 취소면 미션이 그 사람을 60 s 다시 다가가지 않게 막습니다.
+  Future<String> cancelWait(AppSettings settings) {
+    return _sendMissionCommand(settings.missionCancelService, '대기를 취소했습니다.');
+  }
+
+  Future<String> cancelApproach(AppSettings settings) {
+    return _sendMissionCommand(settings.missionCancelService, '접근을 취소했습니다.');
+  }
+
   Future<String> pauseNavigation(AppSettings settings) {
     return _sendMissionCommand(settings.missionPauseService, '주행을 일시정지했습니다.');
   }

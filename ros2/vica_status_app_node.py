@@ -59,6 +59,29 @@ ERROR_SOURCES = (ERROR_SOURCE_DIAGNOSTICS, ERROR_SOURCE_HEALTH)
 # 여기에 다시 적습니다. 값이 바뀌면 함께 바꿔야 합니다.
 HEALTH_SEVERITY_STOP = 3
 
+# /vica/robot_state 가 이만큼 끊기면 미션이 알린 '지금 하는 일'(dialog_state 등)을 비웁니다.
+# 미션은 1 Hz 로 낸다. 미션이 꺼진 뒤 앱에 낡은 '대기 취소'·'접근 취소'가 남지 않게 합니다.
+MISSION_ACTIVITY_STALE_SEC = 3.0
+
+
+def mission_activity_fields(snapshot: dict[str, Any] | None, received_at: float | None,
+                            now: float) -> dict[str, Any]:
+    """/robot_status 에 싣는 미션 활동 네 칸(2026-10-29, 원격 주행 대기·접근 중 취소).
+
+    앱은 current_goal 이 있을 때만 주행 버튼을 띄워, 대기 장소 이동·대기·사람 접근·처음 안내
+    중에는 아무것도 못 눌렀습니다. 미션이 1 Hz 로 내는 RobotState 의 값을 그대로 넘깁니다.
+    받은 적이 없거나 MISSION_ACTIVITY_STALE_SEC 보다 오래되면 빈 값입니다.
+    """
+    empty = {"dialog_state": "", "wait_place": "", "wait_left_sec": -1, "last_destination": ""}
+    if snapshot is None or received_at is None or now - received_at > MISSION_ACTIVITY_STALE_SEC:
+        return empty
+    return {
+        "dialog_state": str(snapshot.get("dialog_state", "")),
+        "wait_place": str(snapshot.get("wait_place", "")),
+        "wait_left_sec": int(snapshot.get("wait_left_sec", -1)),
+        "last_destination": str(snapshot.get("last_destination", "")),
+    }
+
 
 class VicaStatusAppNode(Node):
     """VICA 내부 ROS2 상태를 앱 화면에서 쓰기 쉬운 단일 JSON 메시지로 변환합니다."""
@@ -188,6 +211,9 @@ class VicaStatusAppNode(Node):
         self.navigation_paused = False
         self._navigation_active_since: float | None = None
         self.missing_map_yaml_warned = False
+        # 미션이 알린 지금 하는 일(mission_activity_fields). 받은 시각과 함께 둡니다.
+        self._mission_activity: dict[str, Any] | None = None
+        self._mission_activity_at: float | None = None
 
         # map_server yaml_filename 자동 감지 상태.
         self.detected_map_yaml = ""
@@ -415,6 +441,9 @@ class VicaStatusAppNode(Node):
             "waiting_reason": waiting_reason,
             "map_id": map_id,
             "timestamp": datetime.now().isoformat(timespec="seconds"),
+            **mission_activity_fields(
+                self._mission_activity, self._mission_activity_at, time.monotonic()
+            ),
         }
 
         msg = String()
@@ -607,7 +636,8 @@ class VicaStatusAppNode(Node):
         상태가 바로잡습니다.
 
         RobotState에는 목적지 이름이 없으므로 current_goal은 종전대로 goal 이벤트가
-        담당합니다. 이 구독은 is_paused 하나만 대체합니다.
+        담당합니다. 이 구독은 is_paused 를 대체하고, 2026-10-29 부터 미션이 알린 지금 하는 일
+        (dialog_state·wait_place·wait_left_sec·last_destination)도 앱에 넘깁니다.
 
         _setup_health_source와 같은 이유로 import를 감쌉니다. vica_interfaces를 빌드하지
         않은 환경에서 이 노드가 기동 실패하면 안 됩니다.
@@ -624,11 +654,18 @@ class VicaStatusAppNode(Node):
         self.create_subscription(
             RobotState, "/vica/robot_state", self.handle_robot_state, 10
         )
-        self.get_logger().info("/vica/robot_state 구독: is_paused 정본")
+        self.get_logger().info("/vica/robot_state 구독: is_paused 정본·미션 활동(dialog_state 등)")
 
     def handle_robot_state(self, msg) -> None:
-        """Mission Manager가 1 Hz로 알려주는 일시정지 여부를 반영합니다."""
+        """Mission Manager가 1 Hz로 알려주는 일시정지 여부와 지금 하는 일을 반영합니다."""
         self.navigation_paused = bool(msg.is_paused)
+        self._mission_activity = {
+            "dialog_state": msg.dialog_state,
+            "wait_place": msg.wait_place,
+            "wait_left_sec": msg.wait_left_sec,
+            "last_destination": msg.last_destination,
+        }
+        self._mission_activity_at = time.monotonic()
 
     def _setup_health_source(self) -> None:
         """error_source가 health일 때만 /robot/health를 구독합니다.

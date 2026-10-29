@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/location_point.dart';
+import '../models/mission_activity.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../widgets/initial_pose_card.dart';
@@ -55,6 +56,11 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     // provider 는 goal 이벤트를 정본으로 쓰고 문자열은 보조로만 봅니다.
     final paused = supervisor.navigationPaused;
     final driving = drivingGoal.isNotEmpty && !paused;
+    // 목적지 이름 없이도 미션이 알린 지금 하는 일(대기·접근·처음 안내, 2026-10-29 목업 38~46).
+    // 접근 중에는 current_goal('접근 대상')도 차 있지만 이쪽이 우선입니다 — 일시정지는 로봇이
+    // 받지 않아 '접근 취소' 하나만 둡니다.
+    final activity = MissionActivity.of(robot);
+    final busy = driving || paused || activity != null;
 
     return VicaPage(
       title: '원격 주행',
@@ -146,7 +152,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
               }),
             )
           else
-            _initialPoseEntry(context, supervisor, driving || paused),
+            _initialPoseEntry(context, supervisor, busy),
           const SizedBox(height: 20),
           VicaCard(
             child: Column(
@@ -194,7 +200,18 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                   }).toList(),
                 ),
                 const SizedBox(height: 14),
-                if (driving || paused) ...[
+                if (activity != null) ...[
+                  Text(
+                    activity.lines
+                        .map((line) => vicaKeepWords(vicaBreakAtSentences(line)))
+                        .join('\n'),
+                    style: const TextStyle(
+                      color: VicaColors.muted,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                ] else if (driving || paused) ...[
                   Text(
                     vicaKeepWords(vicaBreakAtSentences(
                       paused
@@ -211,13 +228,29 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                 FilledButton.icon(
                   // 요청 가능 여부(권한·접근성·E-stop·Nav2)는 Mission Manager가 판정합니다.
                   // 앱은 장소 선택 여부와 진행 중인 주행만 보고 버튼 상태를 정합니다.
-                  onPressed: selected == null || driving || paused
+                  onPressed: selected == null || busy
                       ? null
                       : () => _requestDrive(context, supervisor, selected),
-                  icon: Icon(driving ? Icons.directions_run : Icons.navigation),
-                  label: Text(driving ? '주행 중' : '선택 장소로 주행 요청'),
+                  icon: Icon(activity != null
+                      ? _activityIcon(activity.kind)
+                      : driving
+                          ? Icons.directions_run
+                          : Icons.navigation),
+                  label: Text(activity?.lockedRequestLabel ??
+                      (driving ? '주행 중' : '선택 장소로 주행 요청')),
                 ),
-                if (driving || paused) ...[
+                if (activity != null && activity.cancellable) ...[
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: () => _confirmActivityCancel(
+                      context,
+                      supervisor,
+                      activity,
+                    ),
+                    icon: const Icon(Icons.cancel_outlined),
+                    label: Text(activity.cancelLabel),
+                  ),
+                ] else if (activity == null && (driving || paused)) ...[
                   const SizedBox(height: 10),
                   // 물류 배송과 같은 버튼 한 벌(2026-09-03 통일).
                   DriveControlBar(
@@ -238,12 +271,13 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                   const SizedBox(height: 10),
                   const Divider(height: 20),
                   OutlinedButton.icon(
-                    onPressed: driving || paused
+                    onPressed: busy
                         ? null
                         : () => _confirmReturnHome(context, supervisor),
                     icon: const Icon(Icons.home_outlined),
                     label: Text(
-                      driving || paused ? '주행 중에는 홈으로 부를 수 없습니다' : '홈으로 복귀',
+                      activity?.homeLockedLabel ??
+                          (driving || paused ? '주행 중에는 홈으로 부를 수 없습니다' : '홈으로 복귀'),
                     ),
                   ),
                   if (!supervisor.home!.visitedOk) ...[
@@ -407,6 +441,46 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  static IconData _activityIcon(MissionActivityKind kind) => switch (kind) {
+        MissionActivityKind.wait => Icons.hourglass_empty,
+        MissionActivityKind.approach => Icons.person_outline,
+        MissionActivityKind.firstGuide => Icons.record_voice_over_outlined,
+      };
+
+  /// '대기 취소'·'접근 취소' 확인(목업 44·45). 주행 취소 확인창과 같은 틀입니다.
+  static Future<void> _confirmActivityCancel(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    MissionActivity activity,
+  ) async {
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.stop_circle_outlined,
+      iconColor: VicaColors.red,
+      title: activity.cancelTitle,
+      body: activity.cancelBody,
+      cancelLabel: activity.keepLabel,
+      confirmLabel: '취소하기',
+      danger: true,
+    );
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+    // 팝업이 떠 있는 사이 단계가 바뀌었으면 보내지 않습니다(10-29 검토). 미션 취소는 상태를 가리지
+    // 않아, "네" 뒤 돌아서는 중이면 버튼이 없어야 할 처음 안내를 끊고, "비카야"로 새 안내가 시작됐으면
+    // 그 안내를 끊습니다. 손잡이 잡기 대기(IDLE)면 아무것도 안 끊긴 채 '취소했습니다'만 뜹니다.
+    final now = MissionActivity.of(supervisor.primaryRobot);
+    if (now == null || now.kind != activity.kind || !now.cancellable) {
+      return;
+    }
+    await sendRobotCommand(
+      context,
+      activity.kind == MissionActivityKind.approach
+          ? supervisor.cancelApproach
+          : supervisor.cancelWait,
     );
   }
 
