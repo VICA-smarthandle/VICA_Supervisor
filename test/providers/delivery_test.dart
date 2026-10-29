@@ -248,6 +248,88 @@ void main() {
       expect(provider.pendingDeliveryNotice?.result.detail, '통신사 확인 없음');
     });
 
+    // 2026-10-23 사용자 결정: 폰 앱이 보낸 배송의 문자 결과를 웹에도 같은 팝업으로 띄운다.
+    group('다른 화면 배송의 문자 결과(웹)', () {
+      late SupervisorProvider web;
+      setUp(() {
+        web = SupervisorProvider(
+          deliveryJobStore: MemoryDeliveryJobStore(),
+          showOtherScreenDeliveryNotices: true,
+        );
+        web.deliveryNotifierForTest = _CountingNotifier()
+          ..canSendNow = false
+          ..needsRelayNow = true;
+        web.handleLocationListForTest({
+          'map_id': 'm1',
+          'locations': [_office.toJson()],
+        });
+      });
+      tearDown(() => web.dispose());
+
+      test('폰이 보낸 배송의 결과를 같은 팝업으로 띄운다', () {
+        web.handleDeliverySmsResultForTest(relayed());
+        final notice = web.pendingDeliveryNotice;
+        expect(notice?.result.sent, isTrue);
+        expect(notice?.result.detail, '관리자 폰에서 보냈다');
+        expect(notice?.job.destination.name, '305호');
+        expect(notice?.job.destination.contactPhone, '01012345678');
+        expect(notice?.text, deliveryArrivalMessage('305호'));
+      });
+
+      test('같은 결과가 두 번 와도 팝업은 한 번이다', () {
+        web.handleDeliverySmsResultForTest(relayed());
+        web.consumeDeliveryNotice();
+        web.handleDeliverySmsResultForTest(relayed());
+        expect(web.pendingDeliveryNotice, isNull);
+      });
+
+      test('이 화면이 그 장소로 보낸 배송이면 다른 화면 팝업을 띄우지 않고 제 흐름에 넘긴다', () async {
+        web.setDeliveryForTest(driving());
+        web.handleDeliverySmsResultForTest(relayed());
+        expect(web.pendingDeliveryNotice, isNull, reason: '결과가 도착 처리보다 먼저 온 경우');
+        web.handleGoalEventForTest(arrival());
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        expect(web.pendingDeliveryNotice?.result.detail, '관리자 폰에서 보냈다');
+      });
+
+      test('끝난 배송 기록이 같은 장소로 남아 있어도 폰이 보낸 배송의 팝업을 띄운다', () {
+        // 완료·중단된 배송은 지워지지 않고 남는다(웹은 새로고침 뒤에도) — 같은 사무실로 거듭 보내면 걸렸다(10-29 검토).
+        web.setDeliveryForTest(DeliveryJob(
+          destination: _office,
+          startedAt: DateTime(2026),
+          phase: DeliveryPhase.completed,
+        ));
+        web.handleDeliverySmsResultForTest(relayed());
+        expect(web.pendingDeliveryNotice?.result.detail, '관리자 폰에서 보냈다');
+      });
+
+      test('이 화면이 기다리다 놓친 결과가 늦게 와도 다른 화면 팝업으로 띄우지 않는다', () {
+        fakeAsync((async) {
+          web.setDeliveryForTest(driving());
+          web.handleGoalEventForTest(arrival());
+          async.flushMicrotasks();
+          async.elapse(deliverySmsRelayWait);
+          async.flushMicrotasks();
+          expect(web.pendingDeliveryNotice?.result.detail, deliverySmsNoReplyDetail);
+          web.consumeDeliveryNotice();
+          web.handleDeliverySmsResultForTest(relayed());
+          expect(web.pendingDeliveryNotice, isNull);
+        });
+      });
+
+      test('장소를 목록에서 못 찾으면 팝업 없이 기록만 남긴다', () {
+        web.handleDeliverySmsResultForTest({...relayed(), 'location_id': 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'});
+        expect(web.pendingDeliveryNotice, isNull);
+      });
+
+      test('웹이 아닌 화면(기본 폰)은 지금처럼 다른 화면 배송의 팝업을 띄우지 않는다', () {
+        injectOffice();
+        provider.handleDeliverySmsResultForTest(relayed());
+        expect(provider.pendingDeliveryNotice, isNull);
+      });
+    });
+
     test('결과가 기다림보다 먼저 와도 쓴다', () async {
       notifier.needsRelayNow = true;
       provider.setDeliveryForTest(driving());

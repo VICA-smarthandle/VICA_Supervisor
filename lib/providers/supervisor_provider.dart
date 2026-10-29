@@ -104,7 +104,9 @@ class SupervisorProvider extends ChangeNotifier {
     RouteServiceCall? routeServiceCall,
     WallMaskLoader? wallMaskLoader,
     RosChannelConnector? rosChannelConnector,
+    bool? showOtherScreenDeliveryNotices,
   })  : _deliveryNotifier = deliveryNotifier ?? createDeliveryNotifier(),
+        _showOtherScreenDeliveryNotices = showOtherScreenDeliveryNotices ?? kIsWeb,
         _deliveryStore =
             deliveryJobStore ?? const SharedPreferencesDeliveryJobStore(),
         _routeGraphLoader = routeGraphLoader ?? const RouteGraphLoader(),
@@ -1232,6 +1234,17 @@ class SupervisorProvider extends ChangeNotifier {
   /// 같은 도착 이벤트가 두 번 와도 한 번만 보냅니다. 열쇠는 [_arrivalKey].
   final Set<String> _relaySentKeys = {};
 
+  /// 다른 화면이 보낸 배송의 도착 문자 결과도 이 화면에 팝업으로 띄우는가(2026-10-23 사용자 결정:
+  /// 폰 앱이 보낸 배송의 문자 결과를 웹에도). 기본은 웹만입니다. 시험은 생성자로 켭니다.
+  final bool _showOtherScreenDeliveryNotices;
+
+  /// 다른 화면의 배송이라 이 화면에 띄운 도착 문자 팝업들. 같은 결과가 두 번 와도 한 번만.
+  final Set<String> _otherScreenNoticeKeys = {};
+
+  /// 이 화면의 배송이 도착해 결과를 기다린 도착들. 기다림이 끝난 뒤 늦게 온 결과도 다른 화면 팝업으로
+  /// 띄우지 않습니다.
+  final Set<String> _ownSmsKeys = {};
+
   /// 관리자 유심 폰이 알려 온 도착 문자 결과와, 그것을 기다리는 이 화면의 배송.
   /// 결과가 기다림보다 먼저 와도 잃지 않게 잠시 둡니다.
   final Map<String, DeliveryNotifyResult> _relayedSmsResults = {};
@@ -1653,6 +1666,10 @@ class SupervisorProvider extends ChangeNotifier {
     if (key == null) {
       return Future.value(noReply);
     }
+    _ownSmsKeys.add(key);
+    while (_ownSmsKeys.length > 50) {
+      _ownSmsKeys.remove(_ownSmsKeys.first);
+    }
     final ready = _relayedSmsResults.remove(key);
     if (ready != null) {
       return Future.value(ready);
@@ -1664,7 +1681,8 @@ class SupervisorProvider extends ChangeNotifier {
     });
   }
 
-  /// 관리자 유심 폰이 알린 결과. 기다리는 배송이 있으면 넘기고, 없으면 잠시 둡니다.
+  /// 관리자 유심 폰이 알린 결과. 기다리는 배송이 있으면 넘기고, 이 화면의 배송이면 잠시 둡니다.
+  /// 다른 화면이 보낸 배송이면 웹은 팝업으로 띄웁니다(2026-10-23).
   void _handleDeliverySmsResult(Map<String, Object?> message) {
     final locationId = (message['location_id'] as String?)?.trim() ?? '';
     final arrival = (message['arrival'] as String?)?.trim() ?? '';
@@ -1681,15 +1699,75 @@ class SupervisorProvider extends ChangeNotifier {
       waiter.complete(result);
       return;
     }
+    // 이 화면이 그 장소로 보낸 배송이 아직 가는 중이면 그 배송의 흐름이 팝업을 띄웁니다 — 결과가 이 화면의
+    // 도착 처리보다 먼저 온 경우라 아래처럼 잠시 둡니다. 이 화면이 기다렸던 결과가 늦게 온 것도 이 화면
+    // 몫입니다. 그 밖은 다른 화면(폰 앱)이 보낸 배송입니다. 끝난 배송 기록(완료·중단)은 지워지지 않고
+    // 남으므로 장소만 보면 폰 앱이 같은 장소로 보낸 배송의 팝업을 막았습니다(10-29 검토).
+    final job = _delivery;
+    final mine = _ownSmsKeys.contains(key) ||
+        (job != null && job.isActive && job.destination.locationId == locationId);
+    if (_showOtherScreenDeliveryNotices && !mine) {
+      _showOtherScreenDeliveryNotice(
+        mapId: (message['map_id'] as String?)?.trim() ?? '',
+        locationId: locationId,
+        key: key,
+        result: result,
+      );
+      return;
+    }
     _relayedSmsResults[key] = result;
     while (_relayedSmsResults.length > 20) {
       _relayedSmsResults.remove(_relayedSmsResults.keys.first);
     }
   }
 
+  /// 다른 화면(폰 앱)이 보낸 배송의 도착 문자 결과를 이 화면에도 같은 팝업으로 띄웁니다(2026-10-23).
+  /// 받는 곳·번호는 이 화면의 장소 목록에서 찾습니다. 못 찾으면(다른 지도를 보는 중) 받는 곳 없이
+  /// 띄우면 잘못 읽을 수 있어 기록만 남깁니다.
+  void _showOtherScreenDeliveryNotice({
+    required String mapId,
+    required String locationId,
+    required String key,
+    required DeliveryNotifyResult result,
+  }) {
+    if (!_otherScreenNoticeKeys.add(key)) {
+      return;
+    }
+    while (_otherScreenNoticeKeys.length > 50) {
+      _otherScreenNoticeKeys.remove(_otherScreenNoticeKeys.first);
+    }
+    LocationPoint? location;
+    for (final candidate in locationsFor(mapId)) {
+      if (candidate.locationId == locationId) {
+        location = candidate;
+        break;
+      }
+    }
+    final state = result.sent ? '발송됨' : '미발송';
+    if (location == null) {
+      _addLog(LogFilter.delivery,
+          '다른 화면에서 보낸 배송의 도착 문자 $state — 장소를 이 화면 목록에서 못 찾아 팝업 없음');
+      notifyListeners();
+      return;
+    }
+    _addLog(LogFilter.delivery,
+        '${location.name} 도착 문자 $state(다른 화면에서 보낸 배송): ${result.detail}');
+    _pendingDeliveryNotice = DeliveryNotice(
+      job: DeliveryJob(
+        destination: location,
+        startedAt: DateTime.now(),
+        phase: DeliveryPhase.arrived,
+      ),
+      text: deliveryArrivalMessage(location.name),
+      result: result,
+    );
+    notifyListeners();
+  }
+
   /// 다른 화면이 보낸 배송의 도착 문자를 이 폰이 대신 보냅니다. 문자를 못 보내는 기기
-  /// (웹·태블릿·유심 없는 폰)는 끼지 않습니다. 팝업은 띄우지 않고 기록만 남깁니다 —
-  /// 팝업은 배송을 보낸 화면에만 뜹니다(2026-10-10 사용자 결정).
+  /// (웹·태블릿·유심 없는 폰)는 끼지 않습니다. 이 폰에는 팝업을 띄우지 않고 기록만 남깁니다 —
+  /// 팝업은 배송을 보낸 화면에 뜨고(2026-10-10 사용자 결정), 2026-10-23 부터 웹에도 뜹니다
+  /// ([_showOtherScreenDeliveryNotice]).
   Future<void> _relayDeliverySms(GoalEvent event) async {
     final key = _arrivalKey(event);
     if (key == null || !_relaySentKeys.add(key)) {
