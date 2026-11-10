@@ -8,6 +8,7 @@ import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../ros/ros_bridge_client.dart';
 import '../widgets/map_canvas.dart';
+import '../widgets/map_work_layout.dart';
 import '../widgets/vica_ui.dart';
 
 class CurrentLocationScreen extends StatefulWidget {
@@ -31,7 +32,8 @@ class _CurrentLocationScreenState extends State<CurrentLocationScreen> {
         : _findMapById(supervisor.maps, robot.mapId);
     final locations = supervisor.locationsFor(map?.mapId);
 
-    return VicaPage(
+    // 넓은 화면은 지도 왼쪽 + 상태 카드 오른쪽, 세로 태블릿은 지도 위 고정(map_work_layout.dart).
+    return MapWorkLayout(
       title: '현재 위치',
       children: [
         if (supervisor.connectionState != RosConnectionState.connected)

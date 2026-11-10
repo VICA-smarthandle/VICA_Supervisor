@@ -22,6 +22,7 @@ import '../widgets/initial_pose_card.dart' show PoseDirection;
 import '../widgets/keepout_card.dart';
 import '../widgets/map_canvas.dart';
 import '../widgets/map_picker.dart';
+import '../widgets/map_work_layout.dart';
 import '../models/route_graph.dart' show kRailHandoffMeters;
 import '../widgets/rail_card.dart';
 import '../widgets/rail_far_place_dialog.dart';
@@ -235,7 +236,8 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       );
     }
 
-    return VicaPage(
+    // 넓은 화면은 지도 왼쪽 + 칸 오른쪽, 세로 태블릿은 지도 위 고정(map_work_layout.dart).
+    return MapWorkLayout(
       title: '지도 설정',
       children: [
         MapPickerRow(
