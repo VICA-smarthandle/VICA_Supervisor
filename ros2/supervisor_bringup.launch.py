@@ -116,7 +116,11 @@ def generate_launch_description() -> LaunchDescription:
                     str(STATUS_NODE),
                     "--ros-args",
                     "-p",
-                    ["map_yaml:=", map_yaml],
+                    # 값을 따옴표로 감쌉니다. 그냥 붙이면 map_yaml 이 빌 때 `-p map_yaml:=` 가
+                    # 되어 rcl 이 해석하지 못하고 상태 노드가 죽습니다(2026-11-14 실기 —
+                    # launch 는 살아 있어 눈에 띄지 않았습니다). `map_yaml:=''` 는 빈 문자열로
+                    # 읽혀 위 설명대로 map_server 자동 감지로 들어갑니다.
+                    ["map_yaml:='", map_yaml, "'"],
                 ],
                 output="screen",
             ),
