@@ -24,6 +24,11 @@ class AppSettings {
     this.missionPauseService = '/vica/mission/pause_navigation',
     this.missionResumeService = '/vica/mission/resume_navigation',
     this.missionHelpAckService = '/vica/mission/help_ack',
+    this.patrolStartService = '/vica/mission/patrol_start',
+    this.patrolStopService = '/vica/mission/patrol_stop',
+    this.patrolAckService = '/vica/mission/patrol_ack',
+    this.patrolRouteSaveService = '/vica/patrol/route/save',
+    this.patrolRouteGetService = '/vica/patrol/route/get',
     this.deleteMapService = '/delete_map',
     this.renameMapService = '/rename_map',
     this.mappingStatusTopic = '/vica/mapping_status',
@@ -151,6 +156,13 @@ class AppSettings {
   final String missionResumeService;
   // 관리자 호출(도움 요청) 팝업의 "확인". request_id 에 그 요청의 help_id 를 실어 보냅니다.
   final String missionHelpAckService;
+  // 경비(순찰, 2026-11-14). 시작·종료·경보 확인은 MissionCommand, 경로는 전용 서비스입니다.
+  // 일시정지·순찰 재개는 위의 pause_navigation·resume_navigation 을 그대로 씁니다.
+  final String patrolStartService;
+  final String patrolStopService;
+  final String patrolAckService;
+  final String patrolRouteSaveService;
+  final String patrolRouteGetService;
   final String robotStatusTopic;
   final String emergencyActivateService;
   final String emergencyResetService;
@@ -207,6 +219,11 @@ class AppSettings {
     String? missionPauseService,
     String? missionResumeService,
     String? missionHelpAckService,
+    String? patrolStartService,
+    String? patrolStopService,
+    String? patrolAckService,
+    String? patrolRouteSaveService,
+    String? patrolRouteGetService,
     String? robotStatusTopic,
     String? emergencyActivateService,
     String? emergencyResetService,
@@ -271,6 +288,13 @@ class AppSettings {
       missionResumeService: missionResumeService ?? this.missionResumeService,
       missionHelpAckService:
           missionHelpAckService ?? this.missionHelpAckService,
+      patrolStartService: patrolStartService ?? this.patrolStartService,
+      patrolStopService: patrolStopService ?? this.patrolStopService,
+      patrolAckService: patrolAckService ?? this.patrolAckService,
+      patrolRouteSaveService:
+          patrolRouteSaveService ?? this.patrolRouteSaveService,
+      patrolRouteGetService:
+          patrolRouteGetService ?? this.patrolRouteGetService,
       robotStatusTopic: robotStatusTopic ?? this.robotStatusTopic,
       emergencyActivateService:
           emergencyActivateService ?? this.emergencyActivateService,
@@ -355,6 +379,11 @@ class AppSettings {
       'missionPauseService': missionPauseService,
       'missionResumeService': missionResumeService,
       'missionHelpAckService': missionHelpAckService,
+      'patrolStartService': patrolStartService,
+      'patrolStopService': patrolStopService,
+      'patrolAckService': patrolAckService,
+      'patrolRouteSaveService': patrolRouteSaveService,
+      'patrolRouteGetService': patrolRouteGetService,
       'robotStatusTopic': robotStatusTopic,
       'emergencyActivateService': emergencyActivateService,
       'emergencyResetService': emergencyResetService,
@@ -420,6 +449,16 @@ class AppSettings {
           defaults.missionResumeService,
       missionHelpAckService: json['missionHelpAckService'] as String? ??
           defaults.missionHelpAckService,
+      patrolStartService:
+          json['patrolStartService'] as String? ?? defaults.patrolStartService,
+      patrolStopService:
+          json['patrolStopService'] as String? ?? defaults.patrolStopService,
+      patrolAckService:
+          json['patrolAckService'] as String? ?? defaults.patrolAckService,
+      patrolRouteSaveService: json['patrolRouteSaveService'] as String? ??
+          defaults.patrolRouteSaveService,
+      patrolRouteGetService: json['patrolRouteGetService'] as String? ??
+          defaults.patrolRouteGetService,
       robotStatusTopic:
           json['robotStatusTopic'] as String? ?? defaults.robotStatusTopic,
       emergencyActivateService: json['emergencyActivateService'] as String? ??

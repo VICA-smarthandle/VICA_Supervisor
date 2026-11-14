@@ -53,6 +53,20 @@ enum GoalEventKind {
   /// 사용자가 취소했거나 로봇이 다시 출발했다 — 떠 있는 도움 팝업을 닫습니다.
   helpCanceled('help_canceled'),
 
+  // 경비(순찰, 2026-11-14). 순찰 구간 이동에는 goal_sent·goal_succeeded 등이 오지 않고
+  // 이 종류만 옵니다. 주행 알림 팝업이 아니라 전용 상태(SupervisorProvider 의 경비 칸)가
+  // 맡습니다 — 경보 넷은 alarm_id 하나에 팝업 하나이고 확인 전까지 10초마다 다시 옵니다.
+  patrolStarted('patrol_started'),
+  patrolWaypoint('patrol_waypoint'),
+  patrolIntruder('patrol_intruder'),
+  patrolSound('patrol_sound'),
+  patrolLight('patrol_light'),
+  patrolCameraLost('patrol_camera_lost'),
+  patrolAcked('patrol_acked'),
+  patrolPaused('patrol_paused'),
+  patrolResumed('patrol_resumed'),
+  patrolStopped('patrol_stopped'),
+
   unknown('');
 
   const GoalEventKind(this.wire);
@@ -101,6 +115,16 @@ enum GoalEventKind {
       this == GoalEventKind.returnHomeSucceeded ||
       this == GoalEventKind.returnHomeFailed ||
       this == GoalEventKind.returnHomeCanceled;
+
+  /// 경비(순찰) 사건인가. 주행 사건과 따로 다룹니다.
+  bool get isPatrol => wire.startsWith('patrol_');
+
+  /// 경비 경보(사람·큰 소리·불 켜짐·카메라 끊김)인가.
+  bool get isPatrolAlarm =>
+      this == GoalEventKind.patrolIntruder ||
+      this == GoalEventKind.patrolSound ||
+      this == GoalEventKind.patrolLight ||
+      this == GoalEventKind.patrolCameraLost;
 }
 
 class GoalEvent {
