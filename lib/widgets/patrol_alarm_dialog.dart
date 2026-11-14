@@ -92,7 +92,7 @@ class _PatrolAlarmDialogState extends State<PatrolAlarmDialog> {
         iconFilled: intruder,
         borderColor: palette.border,
         title: kind.popupTitle,
-        body: kind.popupBody(alarm.place),
+        body: kind.popupBody(alarm.place, levelDb: alarm.levelDb),
         // 목업의 순서(칸 → 녹화 중 띠 → 버튼)를 지키려고 칸도 content 에 넣습니다.
         content: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,

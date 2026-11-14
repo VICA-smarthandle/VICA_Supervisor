@@ -94,12 +94,15 @@ enum PatrolAlarmKind {
   String get ackedHeadline => '$shortTitle${josaEulReul(shortTitle)} 확인했습니다.';
 
   /// 팝업 본문. [place] 는 가장 가까운 저장 장소 이름이고, 모르면 그 말을 뺍니다.
-  String popupBody(String place) {
+  /// 큰 소리는 감지한 크기를 알면 함께 적습니다(2026-11-14 실기 뒤 사용자 요청).
+  String popupBody(String place, {double? levelDb}) {
     final at = place.isEmpty ? '' : '$place에 ';
     final from = place.isEmpty ? '' : '$place에서 ';
     return switch (this) {
       PatrolAlarmKind.intruder => '$at사람이 감지되었습니다.\n확인해 주세요.',
-      PatrolAlarmKind.sound => '$from큰 소리 감지되었습니다.\n확인해 주세요.',
+      PatrolAlarmKind.sound => levelDb == null
+          ? '$from큰 소리 감지되었습니다.\n확인해 주세요.'
+          : '$from큰 소리(${levelDb.round()} dB)가 감지되었습니다.\n확인해 주세요.',
       PatrolAlarmKind.light => '$at불이 켜져 있습니다.\n확인해 주세요.',
       PatrolAlarmKind.cameraLost => '카메라 신호가 끊겼습니다.\n'
           '사람 감지와 영상 저장을 할 수 없습니다.\n'
@@ -137,8 +140,9 @@ enum PatrolAlarmKind {
   /// 로봇이 말을 반복하는 종류. 확인하면 꺼집니다. 카메라 끊김은 말이 없습니다.
   bool get hasVoice => this != PatrolAlarmKind.cameraLost;
 
-  /// 영상이 가장 길 때의 길이(초). 큰 소리는 5초 전 + 10초 뒤, 사람은 최대 60초.
-  int get maxClipSec => this == PatrolAlarmKind.sound ? 15 : 60;
+  /// 영상이 가장 길 때의 길이(초). 큰 소리는 5초 전 + 5초 뒤, 사람은 최대 60초.
+  int get maxClipSec =>
+      this == PatrolAlarmKind.sound ? 5 + kPatrolClipTailSec : 60;
 }
 
 /// 영상은 감지 5초 전부터 담습니다(명세 1절 4항).
@@ -300,13 +304,19 @@ class PatrolAlarm {
     return seconds < 0 || seconds > kind.maxClipSec ? null : seconds;
   }
 
-  /// 상태 칸 아래 줄 '02:13:41 · 화장실 · 경보음 꺼짐'.
+  /// 상태 칸 아래 줄 '02:13:41 · 화장실 · 경보음 꺼짐'. 큰 소리는 감지한 크기도 적습니다.
   String get statusLine => [
         if (clock.isNotEmpty) clock,
         if (place.isNotEmpty) place,
+        if (kind == PatrolAlarmKind.sound && levelDb != null)
+          '${levelDb!.round()} dB',
         if (acked && kind.hasVoice) '경보음 꺼짐',
       ].join(' · ');
 }
+
+/// 영상이 경보 뒤(사람은 마지막으로 보인 뒤) 이어지는 길이(초). 로봇의 patrol_media.CLIP_POST_S 와
+/// 같은 값입니다 — 2026-11-14 실기 뒤 10 → 5초(사용자: 끊는 게 너무 길다).
+const kPatrolClipTailSec = 5;
 
 /// 관리자가 켜고 끄는 감시 항목(목업 PatrolHome 의 '감시 항목' 세 줄, 2026-11-14).
 /// 이름은 경보 종류와 같습니다. 카메라 끊김은 끌 수 없습니다.
@@ -315,6 +325,12 @@ const patrolWatchKinds = [
   PatrolAlarmKind.light,
   PatrolAlarmKind.sound,
 ];
+
+/// 지도 서버에서 경비 기록을 못 받았을 때의 두 줄(2026-11-14 실기 뒤 사용자 요청). 기록·영상·사진은
+/// 설정의 '지도 이미지 URL' 서버가 내줍니다 — 주소가 다르거나 경비 기록을 모르는 옛 서버면
+/// 경보가 나도 화면에는 아무것도 안 뜹니다. 그 주소를 그대로 보여 확인하게 합니다.
+String patrolRecordsFailedText(String baseUrl) =>
+    '경비 기록을 불러오지 못했습니다.\n설정의 지도 이미지 URL($baseUrl)을 확인하세요.';
 
 /// 셋 다 끄려 할 때의 한 줄. 로봇(SavePatrolRoute 의 nothing_watched)도 같은 글자로 거절합니다.
 const patrolWatchNeedsOne = '감시 항목은 하나 이상 켜 두어야 합니다.';
@@ -540,15 +556,15 @@ class PatrolRecord {
       ? ''
       : '${patrolClock(clipStart!)} ~ ${patrolClock(clipEnd!)}';
 
-  /// 마지막으로 사람이 보인 때의 영상 안 위치(초). 사람 영상은 안 보이고 10초 뒤에 끝나므로
-  /// 끝에서 10초 앞입니다(명세 1절 4항의 규칙으로 계산한 값). 60초를 꽉 채운 영상은 끝이
+  /// 마지막으로 사람이 보인 때의 영상 안 위치(초). 사람 영상은 안 보이고 5초 뒤에 끝나므로
+  /// 끝에서 5초 앞입니다(명세 1절 4항의 규칙으로 계산한 값). 60초를 꽉 채운 영상은 끝이
   /// 규칙이 아니라 한도라서 알 수 없습니다.
   double? get lastSeenSec {
     final total = clipSec;
     if (kind != PatrolAlarmKind.intruder || total == null) {
       return null;
     }
-    final last = total - 10;
+    final last = total - kPatrolClipTailSec;
     if (total >= PatrolAlarmKind.intruder.maxClipSec - 1 ||
         last <= (detectSec ?? 0)) {
       return null;

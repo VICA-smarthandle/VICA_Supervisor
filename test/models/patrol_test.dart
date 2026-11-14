@@ -115,6 +115,11 @@ void main() {
     test('구역을 모르면 그 말을 뺀다', () {
       expect(PatrolAlarmKind.intruder.popupBody(''), '사람이 감지되었습니다.\n확인해 주세요.');
       expect(PatrolAlarmKind.sound.popupBody(''), '큰 소리 감지되었습니다.\n확인해 주세요.');
+      // 감지한 크기를 알면 함께 적는다(2026-11-14 사용자 요청).
+      expect(PatrolAlarmKind.sound.popupBody('방2', levelDb: 72.6),
+          '방2에서 큰 소리(73 dB)가 감지되었습니다.\n확인해 주세요.');
+      expect(PatrolAlarmKind.intruder.popupBody('방2', levelDb: 72.6),
+          '방2에 사람이 감지되었습니다.\n확인해 주세요.');
     });
 
     test('종류 칸과 기록 제목 — 큰 소리는 크기를 붙인다', () {
@@ -237,9 +242,9 @@ void main() {
         _alarm('patrol_sound', '20261114_021341_sound'),
         now: now,
       )!;
-      // 큰 소리는 5초 전 + 10초 뒤 = 15초.
-      expect(sound.recordingSec(now.add(const Duration(seconds: 10))), 15);
-      expect(sound.recordingSec(now.add(const Duration(seconds: 11))), isNull);
+      // 큰 소리는 5초 전 + 5초 뒤 = 10초.
+      expect(sound.recordingSec(now.add(const Duration(seconds: 5))), 10);
+      expect(sound.recordingSec(now.add(const Duration(seconds: 6))), isNull);
 
       final light = PatrolAlarm.fromEvent(
         _alarm('patrol_light', '20261114_021341_light'),
@@ -469,8 +474,8 @@ void main() {
       expect(r.clipReady, isTrue);
       expect(r.clipLength, '0:42');
       expect(r.clipRange, '02:13:36 ~ 02:14:18');
-      // 사람 영상은 안 보이고 10초 뒤에 끝난다 → 끝에서 10초 앞.
-      expect(r.lastSeenSec, 32.0);
+      // 사람 영상은 안 보이고 5초 뒤에 끝난다 → 끝에서 5초 앞.
+      expect(r.lastSeenSec, 37.0);
     });
 
     test('큰 소리·불 켜짐·카메라 끊김', () {

@@ -241,7 +241,8 @@ class _PatrolScreenState extends State<PatrolScreen> {
               (PatrolAlarmKind.intruder, '사람 감지', '카메라 · 보이면 멈추고 경보'),
               // 목업의 '기준은 시험 뒤 확정'은 뺐습니다 — 기준이 정해졌습니다(명세 4.B).
               (PatrolAlarmKind.light, '불 켜짐 확인', '밝기 대비로 판정'),
-              // 목업은 0.3초·40 dB 였습니다. 확정값은 0.5초, 정지 53 dB·주행 67 dB(명세 4.C).
+              // 목업은 0.3초·40 dB 였습니다. 지금 값은 0.5초·65 dB(2026-11-14 실기 뒤 사용자 결정,
+              // 종전 0.5초·정지 53 dB·주행 67 dB).
               (PatrolAlarmKind.sound, '큰 소리', '기준 이상이 0.5초 넘게 들리면'),
             ])
               _WatchRow(
@@ -291,6 +292,12 @@ class _PatrolScreenState extends State<PatrolScreen> {
             ),
           ),
         ),
+        // 기록을 못 받았으면 건수 자리에 이유를 적습니다(2026-11-14 실기: 주소가 달라 기록이 안 보였습니다).
+        if (supervisor.patrolRecordsFailed)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: _Caption(patrolRecordsFailedText(settings.mapHttpBaseUrl)),
+          ),
       ],
     ];
   }
@@ -456,9 +463,20 @@ class _PatrolScreenState extends State<PatrolScreen> {
     int? recording,
   ) {
     final baseUrl = settings.mapHttpBaseUrl;
+    // 지도 서버에서 기록을 못 받았으면 영상·사진도 그 서버에서 못 받기 쉽습니다 — 이유를 한 칸 적습니다
+    // (2026-11-14 실기: 주소가 달라 사진·영상이 안 떴습니다). 사진 이름을 아는 경우에는 사진 칸 아래에 붙입니다.
+    final notice = context.read<SupervisorProvider>().patrolRecordsFailed
+        ? <Widget>[
+            VicaCard(
+              key: const ValueKey('patrol_media_notice'),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: _Caption(patrolRecordsFailedText(baseUrl)),
+            ),
+          ]
+        : const <Widget>[];
     if (alarm.kind == PatrolAlarmKind.light) {
       if (alarm.photo.isEmpty) {
-        return const [];
+        return notice;
       }
       // 불 켜짐은 영상이 아니라 사진 한 장입니다. 누르면 크게 봅니다.
       final title = [
@@ -500,6 +518,7 @@ class _PatrolScreenState extends State<PatrolScreen> {
             ),
           ),
         ),
+        ...notice,
       ];
     }
     if (!alarm.kind.hasClip) {
@@ -555,9 +574,10 @@ class _PatrolScreenState extends State<PatrolScreen> {
           padding: const EdgeInsets.only(bottom: 12),
           child: PatrolRecordingStrip(seconds: recording, palette: palette),
         ),
+        ...notice,
       ];
     }
-    return const [];
+    return notice;
   }
 
   // ---- 공통 -------------------------------------------------------------------

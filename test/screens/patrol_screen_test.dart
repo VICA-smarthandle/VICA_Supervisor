@@ -300,6 +300,12 @@ List<bool> _watchMarks(WidgetTester tester) => [
         mark.on,
     ];
 
+/// 화면의 글자 전부(줄 내림 막는 문자는 뺀다).
+List<String> _plainTexts(WidgetTester tester) => [
+      for (final text in tester.widgetList<Text>(find.byType(Text)))
+        (text.data ?? '').replaceAll('\u2060', ''),
+    ];
+
 List<Map<String, Object?>> _calls(FakeRosServer server, String service) => [
       for (final command in server.last.sent)
         if (command['op'] == 'call_service' && command['service'] == service)
@@ -812,7 +818,7 @@ void main() {
           inDialog(find.byKey(const ValueKey('fake_video'))), findsOneWidget);
       expect(inDialog(find.text('0:16')), findsOneWidget);
       expect(inDialog(find.text('감지 0:05')), findsOneWidget);
-      expect(inDialog(find.text('마지막 감지 0:32')), findsOneWidget);
+      expect(inDialog(find.text('마지막 감지 0:37')), findsOneWidget); // 0:42 − 5초
       expect(inDialog(find.text('0:42')), findsOneWidget);
       expect(player.calls, ['play']);
 
@@ -1221,14 +1227,14 @@ void main() {
       expect(dialog, findsNothing);
     });
 
-    testWidgets('큰 소리 — 크기를 종류 칸에 적는다', (tester) async {
+    testWidgets('큰 소리 — 감지한 크기를 본문과 종류 칸에 적는다', (tester) async {
       final supervisor = await pumpShell(tester) as _Supervisor;
       supervisor.alarm('patrol_sound', _sound, '방2', {'level_db': 70.2});
       await tester.pumpAndSettle();
 
       expect(inDialog(find.text('큰 소리 감지')), findsOneWidget);
       expect(
-        inDialog(find.text(_k('방2에서 큰 소리 감지되었습니다.\n확인해 주세요.'))),
+        inDialog(find.text(_k('방2에서 큰 소리(70 dB)가 감지되었습니다.\n확인해 주세요.'))),
         findsOneWidget,
       );
       expect(inDialog(find.text('방2')), findsOneWidget);
@@ -1601,7 +1607,12 @@ void main() {
         _app(const LogsScreen(initialFilter: LogFilter.patrol), supervisor),
       );
       await tester.pumpAndSettle();
-      expect(find.text('경비 기록을 불러오지 못했습니다.'), findsOneWidget);
+      // 어느 주소를 봤는지 함께 적는다 — 주소가 달라 기록이 안 보인 적이 있다(2026-11-14 실기).
+      expect(
+        _plainTexts(tester),
+        contains('경비 기록을 불러오지 못했습니다.\n'
+            '설정의 지도 이미지 URL(http://127.0.0.1:8000)을 확인하세요.'),
+      );
     });
 
     testWidgets('기록이 없으면 지금의 빈 목록 글자다', (tester) async {

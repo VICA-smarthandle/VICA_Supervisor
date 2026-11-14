@@ -121,7 +121,10 @@ class _LogsScreenState extends State<LogsScreen> {
         ),
         const SizedBox(height: 18),
         if (patrol)
-          ..._patrolRecords(supervisor)
+          ..._patrolRecords(
+            supervisor,
+            context.watch<SettingsProvider>().settings.mapHttpBaseUrl,
+          )
         else if (logs.isEmpty)
           const VicaCard(child: Text('표시할 로그가 없습니다.'))
         else
@@ -130,7 +133,7 @@ class _LogsScreenState extends State<LogsScreen> {
     );
   }
 
-  List<Widget> _patrolRecords(SupervisorProvider supervisor) {
+  List<Widget> _patrolRecords(SupervisorProvider supervisor, String baseUrl) {
     final records = supervisor.patrolRecords;
     if (records == null) {
       // 아직 받은 적이 없습니다 — 받는 중이거나, 지도 서버에 닿지 못했습니다.
@@ -144,7 +147,7 @@ class _LogsScreenState extends State<LogsScreen> {
           VicaCard(
             child: Text(
               supervisor.patrolRecordsFailed
-                  ? '경비 기록을 불러오지 못했습니다.'
+                  ? patrolKeepWords(patrolRecordsFailedText(baseUrl))
                   : '표시할 로그가 없습니다.',
             ),
           ),
