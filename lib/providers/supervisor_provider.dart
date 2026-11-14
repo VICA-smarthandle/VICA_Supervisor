@@ -2343,31 +2343,70 @@ class SupervisorProvider extends ChangeNotifier {
 
   /// 순찰 경로를 저장합니다. [ids] 가 비면 경로를 지웁니다(명세 3.2). [names] 는 저장이
   /// 받아들여졌을 때 화면에 바로 보일 같은 순서의 이름입니다.
+  ///
+  /// 로봇은 경로와 꺼 둔 감시 항목을 한 파일에 두고 언제나 통째로 받습니다. [watchOff] 를
+  /// 주지 않으면 지금 저장돼 있는 값을 그대로 보냅니다(경로 편집). [announce] 가 false 면
+  /// 받아들여졌을 때 알림 문구가 없습니다(스위치는 화면이 곧 결과입니다).
   Future<(bool, String)> savePatrolRoute(
     AppSettings settings,
     String mapId,
     List<String> ids, {
     List<String> names = const [],
+    Set<PatrolAlarmKind>? watchOff,
+    bool announce = true,
   }) async {
+    final off = watchOff ?? patrolRouteFor(mapId)?.watchOff ?? const {};
     final reply = await _callService(
       service: settings.patrolRouteSaveService,
       type: 'vica_interfaces/srv/SavePatrolRoute',
-      args: {'map_id': mapId, 'destination_ids': ids},
+      args: {
+        'map_id': mapId,
+        'destination_ids': ids,
+        'watch_off': PatrolRoute.watchOffWire(off),
+      },
       // 거절 문구는 로봇이 한국어 한 줄로 보냅니다(SavePatrolRoute.message).
       describe: (response) => response.accepted
-          ? (ids.isEmpty ? '' : '순찰 경로를 저장했습니다.')
+          ? (ids.isEmpty || !announce ? '' : '순찰 경로를 저장했습니다.')
           : (response.message.isEmpty ? '요청이 거부되었습니다.' : response.message),
       failurePrefix: '순찰 경로 저장 실패',
       onAccepted: (_) => _patrolRoute = PatrolRoute(
         mapId: mapId,
         ids: List.unmodifiable(ids),
         names: List.unmodifiable(names),
+        watchOff: Set.unmodifiable(off),
       ),
     );
     if (reply.accepted) {
       notifyListeners();
     }
     return (reply.accepted, reply.message);
+  }
+
+  /// 감시 항목 하나를 켜거나 끕니다(2026-11-14). 다음 경비 시작부터 적용됩니다.
+  /// 셋 다 끄는 것은 보내지 않고 그 자리에서 거절합니다. 경로를 아직 못 읽었으면 아무것도 하지 않습니다.
+  Future<(bool, String)> setPatrolWatch(
+    AppSettings settings,
+    String mapId,
+    PatrolAlarmKind kind,
+    bool on,
+  ) async {
+    final route = patrolRouteFor(mapId);
+    if (route == null || route.watches(kind) == on) {
+      return (false, '');
+    }
+    final off = {...route.watchOff};
+    on ? off.remove(kind) : off.add(kind);
+    if (off.length >= patrolWatchKinds.length) {
+      return (false, patrolWatchNeedsOne);
+    }
+    return savePatrolRoute(
+      settings,
+      mapId,
+      route.ids,
+      names: route.names,
+      watchOff: off,
+      announce: false,
+    );
   }
 
   /// 경비 명령 하나를 보냅니다. 수락이면 [success] 문구(빈 값이면 알림 없음)와 단계 귀띔,

@@ -709,9 +709,121 @@ void main() {
       expect(r.args, {
         'map_id': 'm1',
         'destination_ids': ['a', 'b', 'c'],
+        'watch_off': <String>[],
       });
       expect(r.result, (true, '순찰 경로를 저장했습니다.'));
       expect(r.provider.patrolRouteFor('m1')!.names, ['입구', '안내소', '작업실']);
+    });
+
+    test('경로를 다시 저장해도 꺼 둔 감시 항목은 그대로 보낸다', () {
+      final r = call(
+        '/vica/patrol/route/save',
+        (p) => p
+            .savePatrolRoute(_settings, 'm1', ['b', 'a'], names: ['안내소', '입구']),
+        {'accepted': true, 'reason': 'ok', 'message': ''},
+        before: (p) => p.setPatrolRouteForTest(const PatrolRoute(
+          mapId: 'm1',
+          ids: ['a', 'b'],
+          names: ['입구', '안내소'],
+          watchOff: {PatrolAlarmKind.light},
+        )),
+      );
+      expect(r.args['watch_off'], ['light']);
+      final route = r.provider.patrolRouteFor('m1')!;
+      expect(route.ids, ['b', 'a']);
+      expect(route.watchOff, {PatrolAlarmKind.light});
+    });
+
+    test('감시 항목 끄기 — 경로는 그대로 보내고 수락되면 화면의 값이 바뀐다(알림 없음)', () {
+      final r = call(
+        '/vica/patrol/route/save',
+        (p) => p.setPatrolWatch(_settings, 'm1', PatrolAlarmKind.sound, false),
+        {'accepted': true, 'reason': 'ok', 'message': '순찰 경로를 저장했습니다(장소 2곳).'},
+        before: (p) => p.setPatrolRouteForTest(const PatrolRoute(
+          mapId: 'm1',
+          ids: ['a', 'b'],
+          names: ['입구', '안내소'],
+          watchOff: {PatrolAlarmKind.light},
+        )),
+      );
+      expect(r.args, {
+        'map_id': 'm1',
+        'destination_ids': ['a', 'b'],
+        'watch_off': ['light', 'sound'],
+      });
+      expect(r.result, (true, ''));
+      final route = r.provider.patrolRouteFor('m1')!;
+      expect(route.watchOff, {PatrolAlarmKind.light, PatrolAlarmKind.sound});
+      expect(route.names, ['입구', '안내소']);
+    });
+
+    test('감시 항목 다시 켜기', () {
+      final r = call(
+        '/vica/patrol/route/save',
+        (p) => p.setPatrolWatch(_settings, 'm1', PatrolAlarmKind.light, true),
+        {'accepted': true, 'reason': 'ok', 'message': ''},
+        before: (p) => p.setPatrolRouteForTest(const PatrolRoute(
+          mapId: 'm1',
+          ids: ['a', 'b'],
+          watchOff: {PatrolAlarmKind.light},
+        )),
+      );
+      expect(r.args['watch_off'], isEmpty);
+      expect(r.provider.patrolRouteFor('m1')!.watchOff, isEmpty);
+    });
+
+    test('감시 항목 저장이 거절되면 로봇의 한 줄을 보이고 값은 그대로다', () {
+      final r = call(
+        '/vica/patrol/route/save',
+        (p) => p.setPatrolWatch(_settings, 'm1', PatrolAlarmKind.sound, false),
+        {
+          'accepted': false,
+          'reason': 'unknown_destination',
+          'message': '저장되지 않은 장소가 경로에 있습니다.',
+        },
+        before: (p) => p.setPatrolRouteForTest(
+            const PatrolRoute(mapId: 'm1', ids: ['a', 'b'])),
+      );
+      expect(r.result, (false, '저장되지 않은 장소가 경로에 있습니다.'));
+      expect(r.provider.patrolRouteFor('m1')!.watchOff, isEmpty);
+    });
+
+    test('마지막 하나는 끌 수 없다 — 로봇에 보내지 않고 그 자리에서 거절한다', () {
+      fakeAsync((async) {
+        final provider =
+            SupervisorProvider(rosChannelConnector: server.connect);
+        provider.connect(_settings);
+        async.flushMicrotasks();
+        provider.setPatrolRouteForTest(const PatrolRoute(
+          mapId: 'm1',
+          ids: ['a', 'b'],
+          watchOff: {PatrolAlarmKind.intruder, PatrolAlarmKind.light},
+        ));
+        late (bool, String) result;
+        provider
+            .setPatrolWatch(_settings, 'm1', PatrolAlarmKind.sound, false)
+            .then((value) => result = value);
+        async.flushMicrotasks();
+        expect(result, (false, '감시 항목은 하나 이상 켜 두어야 합니다.'));
+        expect(
+          server.last.sent.where((c) =>
+              c['op'] == 'call_service' &&
+              c['service'] == '/vica/patrol/route/save'),
+          isEmpty,
+        );
+        // 이미 그 값이거나 경로를 아직 못 읽은 지도면 아무것도 하지 않는다.
+        provider
+            .setPatrolWatch(_settings, 'm1', PatrolAlarmKind.light, false)
+            .then((value) => result = value);
+        async.flushMicrotasks();
+        expect(result, (false, ''));
+        provider
+            .setPatrolWatch(_settings, 'm2', PatrolAlarmKind.light, false)
+            .then((value) => result = value);
+        async.flushMicrotasks();
+        expect(result, (false, ''));
+        provider.dispose();
+      });
     });
 
     test('경로 저장 거절은 로봇의 한 줄을 그대로 보인다', () {

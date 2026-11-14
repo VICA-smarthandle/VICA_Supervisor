@@ -273,14 +273,16 @@ Future<void> _drain(WidgetTester tester) =>
 Future<void> _answerRoute(
   WidgetTester tester,
   FakeRosServer server,
-  int count,
-) async {
+  int count, {
+  List<String> watchOff = const [],
+}) async {
   expect(
     server.last.answer('/vica/patrol/route/get', {
       'found': count > 0,
       'map_id': 'm1',
       'destination_ids': [for (final p in _places.take(count)) p.$1],
       'names': [for (final p in _places.take(count)) p.$2],
+      'watch_off': watchOff,
       'message': '',
     }),
     isTrue,
@@ -290,6 +292,13 @@ Future<void> _answerRoute(
   await tester.pump();
   await tester.pump();
 }
+
+/// 감시 항목 세 줄(사람·불 켜짐·큰 소리)의 스위치가 켜져 있는가.
+List<bool> _watchMarks(WidgetTester tester) => [
+      for (final mark
+          in tester.widgetList<PatrolSwitchMark>(find.byType(PatrolSwitchMark)))
+        mark.on,
+    ];
 
 List<Map<String, Object?>> _calls(FakeRosServer server, String service) => [
       for (final command in server.last.sent)
@@ -331,10 +340,107 @@ void main() {
       ]) {
         expect(find.text(_k(text)), findsOneWidget, reason: text);
       }
-      // 감시 항목은 셋 다 켜짐 표시뿐이다(끄는 길이 없다).
-      expect(find.byType(PatrolOnMark), findsNWidgets(3));
-      expect(find.byType(Switch), findsNothing);
+      // 감시 항목은 처음에 셋 다 켜짐이다(목업 그대로).
+      expect(_watchMarks(tester), [true, true, true]);
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('감시 항목 줄을 누르면 끄고, 경로는 그대로 다시 저장한다', (tester) async {
+      _size(tester, _phone);
+      final (supervisor, server) = await _connected(tester);
+      await tester.pumpWidget(_app(const PatrolScreen(), supervisor));
+      await tester.pump();
+      await _answerRoute(tester, server, 6, watchOff: ['light']);
+      expect(_watchMarks(tester), [true, false, true]);
+
+      await tester.tap(find.text('큰 소리'));
+      await tester.pump();
+      final call = _calls(server, '/vica/patrol/route/save').single;
+      expect(call['args'], {
+        'map_id': 'm1',
+        'destination_ids': ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'],
+        'watch_off': ['light', 'sound'],
+      });
+      // 로봇이 받기 전에는 그대로다 — 받아들여져야 스위치가 바뀐다.
+      expect(_watchMarks(tester), [true, false, true]);
+      server.last.answer('/vica/patrol/route/save', {
+        'accepted': true,
+        'reason': 'ok',
+        'message': '순찰 경로를 저장했습니다(장소 6곳).'
+      });
+      await tester.pump();
+      await tester.pump();
+      expect(_watchMarks(tester), [true, false, false]);
+      expect(find.byType(SnackBar), findsNothing); // 스위치가 곧 결과다
+      expect(find.text('장소 6곳'), findsOneWidget); // 경로는 그대로다
+
+      await tester.tap(find.text('불 켜짐 확인')); // 다시 켠다
+      await tester.pump();
+      expect(_calls(server, '/vica/patrol/route/save').last['args'],
+          containsPair('watch_off', ['sound']));
+      server.last.answer('/vica/patrol/route/save',
+          {'accepted': true, 'reason': 'ok', 'message': ''});
+      await tester.pump();
+      await tester.pump();
+      expect(_watchMarks(tester), [true, true, false]);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('마지막 하나는 끌 수 없다 — 로봇에 보내지 않고 한 줄로 알린다', (tester) async {
+      _size(tester, _phone);
+      final (supervisor, server) = await _connected(tester);
+      await tester.pumpWidget(_app(const PatrolScreen(), supervisor));
+      await tester.pump();
+      await _answerRoute(tester, server, 6, watchOff: ['intruder', 'sound']);
+
+      await tester.tap(find.text('불 켜짐 확인'));
+      await tester.pump();
+      await tester.pump();
+      expect(_calls(server, '/vica/patrol/route/save'), isEmpty);
+      expect(find.text(_k('감시 항목은 하나 이상 켜 두어야 합니다.')), findsOneWidget);
+      expect(_watchMarks(tester), [false, true, false]);
+    });
+
+    testWidgets('로봇이 감시 항목 저장을 거절하면 그 한 줄을 보이고 스위치는 그대로다', (tester) async {
+      _size(tester, _phone);
+      final (supervisor, server) = await _connected(tester);
+      await tester.pumpWidget(_app(const PatrolScreen(), supervisor));
+      await tester.pump();
+      await _answerRoute(tester, server, 6);
+
+      await tester.tap(find.text('사람 감지'));
+      await tester.pump();
+      server.last.answer('/vica/patrol/route/save', {
+        'accepted': false,
+        'reason': 'unknown_destination',
+        'message': '저장되지 않은 장소가 경로에 있습니다.',
+      });
+      await tester.pump();
+      await tester.pump();
+      expect(find.text(_k('저장되지 않은 장소가 경로에 있습니다.')), findsOneWidget);
+      expect(_watchMarks(tester), [true, true, true]);
+    });
+
+    testWidgets('경로가 아직 없어도 감시 항목은 바꿀 수 있다', (tester) async {
+      _size(tester, _phone);
+      final (supervisor, server) = await _connected(tester);
+      await tester.pumpWidget(_app(const PatrolScreen(), supervisor));
+      await tester.pump();
+      await _answerRoute(tester, server, 0);
+
+      await tester.tap(find.text('사람 감지'));
+      await tester.pump();
+      expect(_calls(server, '/vica/patrol/route/save').single['args'], {
+        'map_id': 'm1',
+        'destination_ids': <String>[],
+        'watch_off': ['intruder'],
+      });
+      server.last.answer('/vica/patrol/route/save',
+          {'accepted': true, 'reason': 'ok', 'message': '지울 순찰 경로가 없었습니다.'});
+      await tester.pump();
+      await tester.pump();
+      expect(_watchMarks(tester), [false, true, true]);
+      expect(find.byType(SnackBar), findsNothing);
     });
 
     testWidgets('목업의 옛 기준(40 dB·0.3초·시험 뒤 확정)은 옮기지 않았다', (tester) async {
@@ -421,6 +527,10 @@ void main() {
         find.widgetWithText(FilledButton, '경비 시작'),
       );
       expect(start.onPressed, isNull);
+      // 감시 항목도 누를 수 없다(경로를 못 읽었다).
+      await tester.tap(find.text('큰 소리'), warnIfMissed: false);
+      await tester.pump();
+      expect(_watchMarks(tester), [true, true, true]);
     });
   });
 
@@ -927,6 +1037,7 @@ void main() {
       expect(call['args'], {
         'map_id': 'm1',
         'destination_ids': ['p1', 'p2', 'p4', 'p5', 'p6'],
+        'watch_off': <String>[],
       });
       server.last.answer('/vica/patrol/route/save',
           {'accepted': true, 'reason': 'ok', 'message': ''});

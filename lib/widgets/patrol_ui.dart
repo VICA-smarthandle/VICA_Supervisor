@@ -180,21 +180,25 @@ class PatrolChip extends StatelessWidget {
   }
 }
 
-/// 감시 항목 줄 끝의 '켜짐' 표시. 누를 수 없습니다 — 항목을 끄는 길이 로봇에 없습니다.
-class PatrolOnMark extends StatelessWidget {
-  const PatrolOnMark({super.key});
+/// 감시 항목 줄 끝의 스위치 그림(목업 PatrolHome 의 '켜짐' 모양, 끄면 회색에 손잡이가 왼쪽).
+/// 누르는 곳은 줄 전체입니다 — 이 위젯은 그림만 그립니다.
+class PatrolSwitchMark extends StatelessWidget {
+  const PatrolSwitchMark({super.key, required this.on});
+
+  final bool on;
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      label: '켜짐',
-      child: Container(
+      label: on ? '켜짐' : '꺼짐',
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
         width: 44,
         height: 26,
         padding: const EdgeInsets.all(3),
-        alignment: Alignment.centerRight,
+        alignment: on ? Alignment.centerRight : Alignment.centerLeft,
         decoration: BoxDecoration(
-          color: VicaColors.primary,
+          color: on ? VicaColors.primary : PatrolColors.offDot,
           borderRadius: BorderRadius.circular(13),
         ),
         child: Container(

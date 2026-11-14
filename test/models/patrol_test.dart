@@ -349,6 +349,45 @@ void main() {
       expect(route.summary, '');
     });
 
+    test('꺼 둔 감시 항목을 읽는다 — 없으면 모두 켬, 경로가 없어도 남는다', () {
+      final all = PatrolRoute.fromValues({
+        'found': true,
+        'destination_ids': ['a', 'b'],
+        'names': ['입구', '안내소'],
+      }, fallbackMapId: 'm1');
+      expect(all.watchOff, isEmpty);
+      expect(patrolWatchKinds.every(all.watches), isTrue);
+
+      final some = PatrolRoute.fromValues({
+        'found': true,
+        'destination_ids': ['a', 'b'],
+        'names': ['입구', '안내소'],
+        'watch_off': ['sound', 'camera_lost', 'light', 'nonsense'],
+      }, fallbackMapId: 'm1');
+      // 카메라 끊김은 끌 수 있는 항목이 아니다.
+      expect(some.watchOff, {PatrolAlarmKind.light, PatrolAlarmKind.sound});
+      expect(some.watches(PatrolAlarmKind.intruder), isTrue);
+      expect(some.watches(PatrolAlarmKind.sound), isFalse);
+
+      final noRoute = PatrolRoute.fromValues({
+        'found': false,
+        'destination_ids': [],
+        'names': [],
+        'watch_off': ['intruder'],
+      }, fallbackMapId: 'm1');
+      expect(noRoute.isEmpty, isTrue);
+      expect(noRoute.watchOff, {PatrolAlarmKind.intruder});
+    });
+
+    test('보낼 이름은 정해진 순서(사람·불 켜짐·큰 소리)다', () {
+      expect(
+        PatrolRoute.watchOffWire(
+            {PatrolAlarmKind.sound, PatrolAlarmKind.intruder}),
+        ['intruder', 'sound'],
+      );
+      expect(PatrolRoute.watchOffWire(const {}), isEmpty);
+    });
+
     test('이름이 덜 와도 순서를 맞춘다', () {
       final route = PatrolRoute.fromValues({
         'found': true,

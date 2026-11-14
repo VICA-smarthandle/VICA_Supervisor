@@ -308,12 +308,24 @@ class PatrolAlarm {
       ].join(' · ');
 }
 
-/// 저장된 순찰 경로(지도 하나에 하나).
+/// 관리자가 켜고 끄는 감시 항목(목업 PatrolHome 의 '감시 항목' 세 줄, 2026-11-14).
+/// 이름은 경보 종류와 같습니다. 카메라 끊김은 끌 수 없습니다.
+const patrolWatchKinds = [
+  PatrolAlarmKind.intruder,
+  PatrolAlarmKind.light,
+  PatrolAlarmKind.sound,
+];
+
+/// 셋 다 끄려 할 때의 한 줄. 로봇(SavePatrolRoute 의 nothing_watched)도 같은 글자로 거절합니다.
+const patrolWatchNeedsOne = '감시 항목은 하나 이상 켜 두어야 합니다.';
+
+/// 저장된 순찰 경로(지도 하나에 하나)와, 같은 파일에 적힌 꺼 둔 감시 항목.
 class PatrolRoute {
   const PatrolRoute({
     required this.mapId,
     this.ids = const [],
     this.names = const [],
+    this.watchOff = const {},
   });
 
   final String mapId;
@@ -322,8 +334,20 @@ class PatrolRoute {
   final List<String> ids;
   final List<String> names;
 
+  /// 꺼 둔 감시 항목. 비어 있으면 모두 켬입니다. 경로가 없어도 남습니다.
+  final Set<PatrolAlarmKind> watchOff;
+
   bool get isEmpty => ids.isEmpty;
   int get length => ids.length;
+
+  /// 이 항목을 보고 있는가.
+  bool watches(PatrolAlarmKind kind) => !watchOff.contains(kind);
+
+  /// SavePatrolRoute 의 watch_off 로 보낼 이름들.
+  static List<String> watchOffWire(Set<PatrolAlarmKind> off) => [
+        for (final kind in patrolWatchKinds)
+          if (off.contains(kind)) kind.wire,
+      ];
 
   /// GetPatrolRoute 응답에서. 경로가 없으면(found=false) 빈 경로입니다.
   factory PatrolRoute.fromValues(
@@ -335,8 +359,14 @@ class PatrolRoute {
         : const [];
     final mapId = (values['map_id'] as String?)?.trim() ?? '';
     final resolved = mapId.isEmpty ? fallbackMapId : mapId;
+    // 옛 로봇은 watch_off 를 보내지 않습니다 — 모두 켬으로 읽습니다.
+    final named = strings(values['watch_off']);
+    final watchOff = {
+      for (final kind in patrolWatchKinds)
+        if (named.contains(kind.wire)) kind,
+    };
     if (values['found'] != true) {
-      return PatrolRoute(mapId: resolved);
+      return PatrolRoute(mapId: resolved, watchOff: watchOff);
     }
     final ids = strings(values['destination_ids']);
     final names = strings(values['names']);
@@ -347,6 +377,7 @@ class PatrolRoute {
       names: [
         for (var i = 0; i < ids.length; i++) i < names.length ? names[i] : '',
       ],
+      watchOff: watchOff,
     );
   }
 

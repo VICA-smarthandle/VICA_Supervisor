@@ -228,20 +228,30 @@ class _PatrolScreenState extends State<PatrolScreen> {
             ],
           ),
         ),
-      const VicaCard(
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      VicaCard(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 9),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _CardTitle('감시 항목'),
-            SizedBox(height: 10),
-            _WatchRow(title: '사람 감지', caption: '카메라 · 보이면 멈추고 경보'),
-            SizedBox(height: 10),
-            // 목업의 '기준은 시험 뒤 확정'은 뺐습니다 — 기준이 정해졌습니다(명세 4.B).
-            _WatchRow(title: '불 켜짐 확인', caption: '밝기 대비로 판정'),
-            SizedBox(height: 10),
-            // 목업은 0.3초·40 dB 였습니다. 확정값은 0.5초, 정지 53 dB·주행 67 dB(명세 4.C).
-            _WatchRow(title: '큰 소리', caption: '기준 이상이 0.5초 넘게 들리면'),
+            const _CardTitle('감시 항목'),
+            const SizedBox(height: 5),
+            // 줄을 누르면 켜고 끕니다(2026-11-14). 로봇의 순찰 경로 파일에 같이 저장되고 다음
+            // 경비 시작부터 적용됩니다. 경로를 아직 못 읽었으면(route == null) 누를 수 없습니다.
+            for (final (kind, title, caption) in const [
+              (PatrolAlarmKind.intruder, '사람 감지', '카메라 · 보이면 멈추고 경보'),
+              // 목업의 '기준은 시험 뒤 확정'은 뺐습니다 — 기준이 정해졌습니다(명세 4.B).
+              (PatrolAlarmKind.light, '불 켜짐 확인', '밝기 대비로 판정'),
+              // 목업은 0.3초·40 dB 였습니다. 확정값은 0.5초, 정지 53 dB·주행 67 dB(명세 4.C).
+              (PatrolAlarmKind.sound, '큰 소리', '기준 이상이 0.5초 넘게 들리면'),
+            ])
+              _WatchRow(
+                title: title,
+                caption: caption,
+                on: route?.watches(kind) ?? true,
+                onChanged: !connected || route == null || _busy
+                    ? null
+                    : (on) => _setWatch(supervisor, settings, route, kind, on),
+              ),
           ],
         ),
       ),
@@ -625,6 +635,20 @@ class _PatrolScreenState extends State<PatrolScreen> {
     await _send(() => supervisor.startPatrol(settings));
   }
 
+  /// 감시 항목 하나를 켜거나 끕니다. 받아들여지면 스위치가 바뀌는 것이 결과이고, 거절이면 한 줄을 띄웁니다.
+  Future<void> _setWatch(
+    SupervisorProvider supervisor,
+    AppSettings settings,
+    PatrolRoute route,
+    PatrolAlarmKind kind,
+    bool on,
+  ) =>
+      _send(() async {
+        final (_, message) =
+            await supervisor.setPatrolWatch(settings, route.mapId, kind, on);
+        return message;
+      });
+
   Future<void> _confirmStop(
     SupervisorProvider supervisor,
     AppSettings settings,
@@ -794,36 +818,60 @@ class _CountPill extends StatelessWidget {
   }
 }
 
-/// 감시 항목 한 줄: 이름·설명과 '켜짐' 표시.
+/// 감시 항목 한 줄: 이름·설명과 스위치. 줄 전체를 누르면 켜고 끕니다. [onChanged] 가 null 이면
+/// 누를 수 없고 흐리게 그립니다(연결이 끊겼거나 경로를 아직 못 읽었을 때).
 class _WatchRow extends StatelessWidget {
-  const _WatchRow({required this.title, required this.caption});
+  const _WatchRow({
+    required this.title,
+    required this.caption,
+    required this.on,
+    required this.onChanged,
+  });
 
   final String title;
   final String caption;
+  final bool on;
+  final ValueChanged<bool>? onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  color: VicaColors.text,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
+    final change = onChanged;
+    return Semantics(
+      container: true,
+      toggled: on,
+      enabled: change != null,
+      child: InkWell(
+        onTap: change == null ? null : () => change(!on),
+        borderRadius: BorderRadius.circular(8),
+        child: Opacity(
+          opacity: change == null ? 0.5 : 1,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: VicaColors.text,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      _Caption(caption),
+                    ],
+                  ),
                 ),
-              ),
-              _Caption(caption),
-            ],
+                const SizedBox(width: 10),
+                PatrolSwitchMark(on: on),
+              ],
+            ),
           ),
         ),
-        const SizedBox(width: 10),
-        const PatrolOnMark(),
-      ],
+      ),
     );
   }
 }
