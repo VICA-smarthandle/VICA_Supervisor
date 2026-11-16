@@ -12,6 +12,7 @@ import '../models/mode_status.dart';
 import '../providers/app_mode_provider.dart';
 import '../providers/supervisor_provider.dart';
 import 'vica_ui.dart';
+import 'voice_alert_snack.dart';
 
 class DriveNodesCard extends StatefulWidget {
   const DriveNodesCard({super.key});
@@ -64,11 +65,15 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
               const Expanded(
                 child: Text(
                   '주행 노드',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: VicaColors.text),
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: VicaColors.text),
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: VicaColors.accentTint,
                   borderRadius: BorderRadius.circular(999),
@@ -86,12 +91,16 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
           ),
           const SizedBox(height: 14),
           _Row(
-            icon: detectorOff ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+            icon: detectorOff
+                ? Icons.visibility_off_outlined
+                : Icons.visibility_outlined,
             title: '사람 감지',
             state: _detectorText(status.detector),
             trailing: Switch(
               value: status.detectorOn,
-              onChanged: _busy || status.detector == 'none' || status.detector == 'deactivating'
+              onChanged: _busy ||
+                      status.detector == 'none' ||
+                      status.detector == 'deactivating'
                   ? null
                   : (on) => _run(() => supervisor.setDetector(on)),
             ),
@@ -108,34 +117,41 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
           _Row(
             icon: Icons.mic_none,
             title: '음성',
-            state: _voiceText(status.voice),
-            trailing: DropdownButton<VoiceChoice>(
-              value: status.voiceChoice,
-              underline: const SizedBox.shrink(),
-              borderRadius: BorderRadius.circular(12),
-              onChanged: _busy
-                  ? null
-                  : (choice) {
-                      if (choice == null || choice == status.voiceChoice) {
-                        return;
-                      }
-                      _run(() => supervisor.setVoice(choice));
-                    },
-              items: [
-                for (final choice in VoiceChoice.values)
-                  DropdownMenuItem(
-                    value: choice,
-                    child: Text(
-                      choice.label,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
+            state: _voiceLine(status.voice, supervisor.lastVoiceEvent),
+            // 폭 상한을 두고 그 안에서 줄인다 — 좁은 폰·큰 글자에서 줄을 밀어내지 않게(11-16 APK 확인).
+            trailing: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 150),
+              child: DropdownButton<VoiceChoice>(
+                isExpanded: true,
+                value: status.voiceChoice,
+                underline: const SizedBox.shrink(),
+                borderRadius: BorderRadius.circular(12),
+                onChanged: _busy
+                    ? null
+                    : (choice) {
+                        if (choice == null || choice == status.voiceChoice) {
+                          return;
+                        }
+                        _run(() => supervisor.setVoice(choice));
+                      },
+                items: [
+                  for (final choice in VoiceChoice.values)
+                    DropdownMenuItem(
+                      value: choice,
+                      child: Text(
+                        choice.label,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 10),
           _Note(
-            text: '${status.voiceChoice.hint}. 음성을 바꾸면 음성을 다시 띄웁니다(약 10초, 말하던 것이 '
+            text:
+                '${status.voiceChoice.hint}. 음성을 바꾸면 음성을 다시 띄웁니다(약 10초, 말하던 것이 '
                 '끊김). 로봇이 움직이는 중에는 바꿀 수 없습니다.',
           ),
         ],
@@ -151,6 +167,18 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
         'failed' => ('꺼짐(오류) · 다시 켜 보세요', VicaColors.red),
         _ => ('유닛 없음', VicaColors.muted),
       };
+
+  // 음성 줄: 유닛 상태에 마지막 연결 알림을 붙입니다(목업 D). 색은 알림을 따릅니다.
+  static (String, Color) _voiceLine(String state, VoiceEvent? last) {
+    final (label, color) = _voiceText(state);
+    if (last == null || state != 'active') {
+      return (label, color);
+    }
+    return (
+      '$label · ${voiceEventClock(last.at)} ${last.text}',
+      voiceEventColor(last)
+    );
+  }
 
   static (String, Color) _voiceText(String state) => switch (state) {
         'active' => ('켜짐', VicaColors.green),
@@ -196,11 +224,15 @@ class _Row extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: VicaColors.text),
+                style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: VicaColors.text),
               ),
               Text(
                 vicaKeepWords(label),
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color),
+                style: TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w700, color: color),
               ),
             ],
           ),

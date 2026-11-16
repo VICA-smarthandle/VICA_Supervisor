@@ -442,6 +442,8 @@ class SupervisorProvider extends ChangeNotifier {
     // 모드 상태도 현재 사실이 아닙니다. 남기면 끊긴 사이 꺼진 주행을 켜져 있다고 그립니다.
     _modeStatus = null;
     _modeStatusAt = null;
+    // 다시 붙은 뒤 처음 받는 음성 알림은 끊긴 사이 일이라 기록만 합니다(띄우지 않음).
+    _voiceFirstAfterConnect = true;
     if (_robotsById.isEmpty) {
       return;
     }
@@ -567,8 +569,65 @@ class SupervisorProvider extends ChangeNotifier {
     }
     _modeStatus = ModeStatus.fromJson(decoded);
     _modeStatusAt = DateTime.now();
+    _ingestVoiceEvents(_modeStatus!);
     notifyListeners();
   }
+
+  @visibleForTesting
+  void handleModeStatusForTest(Map<String, Object?> message) => _handleModeStatus(message);
+
+  // ---- 음성 연결 알림(사용자 11-16, 목업 D·E) ------------------------------------
+  //
+  // 모드 노드가 상태에 최근 알림 5건을 번호와 함께 싣습니다. 번호로 이미 본 것을 거르고,
+  // 새것은 '알림 및 로그 › 연결 상태'에 남기고 화면 아래 알림 띠로 띄웁니다.
+  // 연결 직후 처음 받은 상태의 알림은 끊긴 사이 일이라 기록만 하고 띄우지 않습니다 — 로봇과
+  // 앱 기기의 시계가 달라도 틀리지 않게 시각이 아니라 '연결 뒤 첫 상태인가'로 가립니다.
+
+  double _voiceEpochSeen = -1;
+  int _voiceIdSeen = 0;
+  bool _voiceFirstAfterConnect = true;
+  final List<VoiceEvent> _voiceAlerts = [];
+  int _voiceAlertSeq = 0;
+  VoiceEvent? _lastVoiceEvent;
+
+  /// 띄우지 않은 알림이 생길 때마다 늘어납니다. 화면은 이 값이 바뀌면 [takeVoiceAlerts] 로 꺼냅니다.
+  int get voiceAlertSeq => _voiceAlertSeq;
+
+  /// 가장 최근 음성 연결 알림(주행 노드 카드의 음성 줄).
+  VoiceEvent? get lastVoiceEvent => _lastVoiceEvent;
+
+  /// 띄울 알림을 꺼내고 비웁니다.
+  List<VoiceEvent> takeVoiceAlerts() {
+    final out = List<VoiceEvent>.of(_voiceAlerts);
+    _voiceAlerts.clear();
+    return out;
+  }
+
+  void _ingestVoiceEvents(ModeStatus status) {
+    final firstAfterConnect = _voiceFirstAfterConnect;
+    _voiceFirstAfterConnect = false;
+    if (status.voiceEventsEpoch != _voiceEpochSeen) {
+      // 모드 노드가 다시 떴다. 번호가 1 부터 다시 시작한다.
+      _voiceEpochSeen = status.voiceEventsEpoch;
+      _voiceIdSeen = 0;
+    }
+    for (final event in status.voiceEvents) {
+      if (event.id <= _voiceIdSeen) {
+        continue;
+      }
+      _voiceIdSeen = event.id;
+      _lastVoiceEvent = event;
+      _addLog(LogFilter.connection, '음성: ${event.text} (${_clock(event.at)})');
+      if (!firstAfterConnect) {
+        _voiceAlerts.add(event);
+        _voiceAlertSeq += 1;
+      }
+    }
+  }
+
+  static String _clock(DateTime at) =>
+      '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}:'
+      '${at.second.toString().padLeft(2, '0')}';
 
   /// 주행 묶음 켜기. (받아들였는가, 사람에게 보일 문구)
   Future<(bool, String)> driveStart() =>

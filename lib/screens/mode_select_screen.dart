@@ -531,22 +531,31 @@ class _VoicePicker extends StatelessWidget {
               style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: VicaColors.text),
             ),
           ),
-          DropdownButton<VoiceChoice>(
-            value: value,
-            underline: const SizedBox.shrink(),
-            borderRadius: BorderRadius.circular(12),
-            onChanged: (choice) {
-              if (choice != null) {
-                onChanged(choice);
-              }
-            },
-            items: [
-              for (final choice in VoiceChoice.values)
-                DropdownMenuItem(
-                  value: choice,
-                  child: Text(choice.label, style: const TextStyle(fontWeight: FontWeight.w700)),
-                ),
-            ],
+          // 폭 상한을 두고 그 안에서 줄인다 — 좁은 폰·큰 글자에서 넘치지 않게(11-16 APK 확인).
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 160),
+            child: DropdownButton<VoiceChoice>(
+              isExpanded: true,
+              value: value,
+              underline: const SizedBox.shrink(),
+              borderRadius: BorderRadius.circular(12),
+              onChanged: (choice) {
+                if (choice != null) {
+                  onChanged(choice);
+                }
+              },
+              items: [
+                for (final choice in VoiceChoice.values)
+                  DropdownMenuItem(
+                    value: choice,
+                    child: Text(
+                      choice.label,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
       ),

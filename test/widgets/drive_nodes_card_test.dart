@@ -104,4 +104,23 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('안 됐습니다: 주행 중입니다. 정지한 뒤 바꿉니다.'), findsOneWidget);
   });
+
+  testWidgets('음성 줄에 마지막 연결 알림을 붙인다', (tester) async {
+    final supervisor = await pump(tester, drive());
+    supervisor.handleModeStatusForTest({
+      'mode': 'drive',
+      'state': 'running',
+      'nav2': 'active',
+      'detector': 'active',
+      'voice': 'active',
+      'voice_mode': 'online',
+      'voice_events_epoch': 1.0,
+      'voice_events': [
+        {'id': 1, 'at': 1794825000.0, 'kind': 'external_fallback', 'text': '외부 API 연결 실패 → 로컬 API 로 전환'},
+      ],
+    });
+    await tester.pump();
+
+    expect(find.textContaining(vicaKeepWords('외부 API 연결 실패 → 로컬 API 로 전환')), findsOneWidget);
+  });
 }

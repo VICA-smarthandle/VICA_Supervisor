@@ -74,4 +74,24 @@ void main() {
     expect(VoiceChoice.local.label, '로컬(LOCAL)');
     expect(VoiceChoice.api.label, '외부 API');
   });
+
+  test('음성 연결 알림을 읽고 종류를 가른다', () {
+    final status = ModeStatus.fromJson({
+      'mode': 'drive',
+      'state': 'running',
+      'voice_events_epoch': 1794825000.5,
+      'voice_events': [
+        {'id': 1, 'at': 1794825010.0, 'kind': 'external_ok', 'text': '외부 API 연결 성공'},
+        {'id': 2, 'at': 1794825020.0, 'kind': 'external_fallback', 'text': '외부 API 연결 실패 → 로컬 API 로 전환'},
+        {'id': 3, 'at': 1794825030.0, 'kind': 'local_fail', 'text': '로컬 API 연결 실패'},
+        {'id': 'x'},
+      ],
+    });
+
+    expect(status.voiceEventsEpoch, 1794825000.5);
+    expect(status.voiceEvents.map((e) => e.id), [1, 2, 3], reason: '깨진 항목은 버린다');
+    expect(status.voiceEvents[0].isSuccess, isTrue);
+    expect(status.voiceEvents[1].isFallback, isTrue);
+    expect(status.voiceEvents[2].isSuccess || status.voiceEvents[2].isFallback, isFalse);
+  });
 }

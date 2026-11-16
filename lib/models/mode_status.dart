@@ -49,6 +49,43 @@ enum VoiceChoice {
       raw == 'online' ? VoiceChoice.api : VoiceChoice.local;
 }
 
+/// 음성 연결 알림 한 건(모드 노드가 음성 로그에서 가려 냄, 사용자 11-16).
+class VoiceEvent {
+  const VoiceEvent({required this.id, required this.at, required this.kind, required this.text});
+
+  /// 모드 노드가 뜬 뒤 1 부터 늘어나는 번호. 모드 노드가 다시 뜨면 [ModeStatus.voiceEventsEpoch] 가 바뀝니다.
+  final int id;
+  final DateTime at;
+
+  /// external_ok · external_fail · external_fallback · external_back · external_auth · realtime_fail ·
+  /// local_ok · local_fail · both_fail
+  final String kind;
+
+  /// '외부 API 연결 성공' 처럼 바로 보일 문구.
+  final String text;
+
+  bool get isSuccess => kind == 'external_ok' || kind == 'local_ok' || kind == 'external_back';
+  bool get isFallback => kind == 'external_fallback';
+
+  static VoiceEvent? fromJson(Object? raw) {
+    if (raw is! Map) {
+      return null;
+    }
+    final id = raw['id'];
+    final at = raw['at'];
+    final text = raw['text'];
+    if (id is! num || at is! num || text is! String) {
+      return null;
+    }
+    return VoiceEvent(
+      id: id.toInt(),
+      at: DateTime.fromMillisecondsSinceEpoch((at * 1000).round()),
+      kind: raw['kind'] as String? ?? '',
+      text: text,
+    );
+  }
+}
+
 class ModeStatus {
   const ModeStatus({
     required this.mode,
@@ -64,6 +101,8 @@ class ModeStatus {
     this.detector = 'none',
     this.voice = 'none',
     this.voiceChoice = VoiceChoice.local,
+    this.voiceEvents = const [],
+    this.voiceEventsEpoch = 0,
   });
 
   /// idle · drive · mapping · unknown
@@ -92,6 +131,12 @@ class ModeStatus {
 
   /// 고른 음성(젯슨 voice_mode 파일).
   final VoiceChoice voiceChoice;
+
+  /// 최근 음성 연결 알림(많아야 5건, 오래된 것부터).
+  final List<VoiceEvent> voiceEvents;
+
+  /// 모드 노드가 뜬 시각(초). 알림 번호는 이 값이 같은 동안만 이어집니다.
+  final double voiceEventsEpoch;
 
   /// Nav2 가 다 떠서 초기 위치를 받을 수 있는가(모드 노드가 Nav2 기동 기록에서 읽은 값).
   bool get nav2Up => nav2 == 'waiting_pose' || nav2 == 'active';
@@ -123,6 +168,11 @@ class ModeStatus {
       detector: json['detector'] as String? ?? 'none',
       voice: json['voice'] as String? ?? 'none',
       voiceChoice: VoiceChoice.fromWire(json['voice_mode'] as String?),
+      voiceEvents: [
+        for (final raw in (json['voice_events'] is List ? json['voice_events'] as List : const []))
+          if (VoiceEvent.fromJson(raw) case final event?) event,
+      ],
+      voiceEventsEpoch: (json['voice_events_epoch'] as num?)?.toDouble() ?? 0,
     );
   }
 }

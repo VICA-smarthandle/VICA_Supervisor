@@ -27,6 +27,7 @@ import 'widgets/help_alert_dialog.dart';
 import 'widgets/patrol_alarm_dialog.dart';
 import 'widgets/patrol_ui.dart';
 import 'widgets/route_dialogs.dart';
+import 'widgets/voice_alert_snack.dart';
 import 'widgets/vica_ui.dart';
 import 'screens/current_location_screen.dart';
 import 'screens/dashboard_screen.dart';
@@ -280,6 +281,9 @@ class SupervisorShell extends StatefulWidget {
 class _SupervisorShellState extends State<SupervisorShell> {
   int _index = 0;
 
+  /// 마지막으로 띄운 음성 연결 알림 번호(SupervisorProvider.voiceAlertSeq).
+  int _voiceAlertSeqShown = 0;
+
   @override
   void initState() {
     super.initState();
@@ -415,6 +419,21 @@ class _SupervisorShellState extends State<SupervisorShell> {
     // 띄웁니다 — 미션은 관리자가 확인할 때까지 10초마다 같은 요청을 다시 보내고, 열린 팝업은
     // provider 를 보고 위치 칸만 바꿉니다. 띄웠다는 표시는 build 안에서 바로 남깁니다(알림을
     // 부르지 않는 값이라 안전합니다) — 한 프레임 안에 build 가 두 번 돌아도 팝업은 하나입니다.
+    // 음성 연결 알림(외부 API·로컬 API 연결 성공/실패, 2026-11-16 목업 D)도 셸이 띄웁니다 — 어느
+    // 탭을 보고 있든 떠야 합니다. 띄운 번호는 build 안에서 바로 남겨 한 번만 띄웁니다.
+    if (supervisor.voiceAlertSeq != _voiceAlertSeqShown) {
+      _voiceAlertSeqShown = supervisor.voiceAlertSeq;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        final messenger = ScaffoldMessenger.of(context);
+        for (final event in supervisor.takeVoiceAlerts()) {
+          messenger.showSnackBar(voiceAlertSnackBar(event));
+        }
+      });
+    }
+
     if (supervisor.helpPopupPending) {
       final helpId = supervisor.activeHelp!.helpId;
       supervisor.markHelpPopupShown();
