@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 
 import '../models/location_point.dart';
 import '../models/mission_activity.dart';
+import '../models/mode_status.dart';
+import '../models/stack_status.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../widgets/initial_pose_card.dart';
@@ -12,6 +14,7 @@ import '../widgets/drive_control_bar.dart';
 import '../widgets/drive_map_canvas.dart';
 import '../widgets/map_canvas.dart';
 import '../widgets/map_picker.dart';
+import '../widgets/map_work_layout.dart';
 import '../widgets/vica_ui.dart';
 
 class MapLocationsScreen extends StatefulWidget {
@@ -62,7 +65,8 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     final activity = MissionActivity.of(robot);
     final busy = driving || paused || activity != null;
 
-    return VicaPage(
+    // 넓은 화면은 지도 왼쪽 + 카드 오른쪽, 세로 태블릿은 지도 위 고정(map_work_layout.dart).
+    return MapWorkLayout(
       title: '원격 주행',
       children: [
         MapPickerRow(
@@ -375,13 +379,25 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
   // Nav2 를 끄고 나갔다 들어와도 버튼이 열려 있었습니다. 조회가 아예 안 되면
   // (rosapi 불통) 막지 않습니다 -- "확인해보니 없다"와 "확인을 못 한다"를 섞지
   // 않는 기존 원칙 그대로이고, 그 경우는 노드의 확정 거부가 마지막 방벽입니다.
+  //
+  // Nav2 가 없다고 볼 근거는 둘입니다(2026-11-16).
+  //   - 모드 노드(/vica/mode_status): Nav2 기동 기록을 직접 읽어 '초기 위치 대기'를 압니다.
+  //   - rosapi 노드 목록: 칸에서 띄운 Nav2 도 보지만, 막 뜬 직후에는 목록이 늦게 따라옵니다
+  //     (2026-11-16 실기: 초기 위치 대기인데 '꺼져 있습니다' — 새로고침 뒤 풀림).
+  // 모드 노드가 떠 있다고 하면 엽니다. 아니면 예전처럼 노드 목록으로 판단합니다.
+  static bool _nav2Down(StackStatus? stack, ModeStatus? mode) {
+    if (mode != null && mode.nav2Up) {
+      return false;
+    }
+    return stack != null && !stack.nav2Running;
+  }
+
   Future<void> _enterPosePicking(SupervisorProvider supervisor) async {
     await supervisor.refreshStackStatus();
     if (!mounted) {
       return;
     }
-    final fresh = supervisor.stackStatus;
-    if (fresh != null && !fresh.nav2Running) {
+    if (_nav2Down(supervisor.stackStatus, supervisor.modeStatus)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('주행(Nav2)이 꺼져 있습니다. 확인해주세요.')),
       );
@@ -401,8 +417,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     SupervisorProvider supervisor,
     bool busyDriving,
   ) {
-    final stack = supervisor.stackStatus;
-    final nav2Down = stack != null && !stack.nav2Running;
+    final nav2Down = _nav2Down(supervisor.stackStatus, supervisor.modeStatus);
     final blocked = busyDriving
         ? '주행 중에는 초기 위치를 변경할 수 없습니다. 변경하시려면 주행을 멈추세요.'
         : (nav2Down ? '주행(Nav2)이 꺼져 있습니다. 확인해주세요.' : '');

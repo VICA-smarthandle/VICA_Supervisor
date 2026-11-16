@@ -2,6 +2,7 @@
 //
 // 2026-09-14 리디자인 2단계. 화면 틀이 바뀌었다.
 //   - 폰: 햄버거 드로어 → 하단 탭 5개(대시보드·지도 설정·원격 주행·물류 배송·더보기).
+//     2026-11-14 경비 탭이 더보기 앞에 들어가 6개가 됐다(목업 PatrolHome).
 //     나머지 네 화면(현재 위치·시스템 진단·알림 및 로그·설정)과 모드 바꾸기·로그아웃은
 //     '더보기' 탭 안 목록으로 간다. 갈 수 있는 곳은 전과 같다 — 가는 길만 바뀌었다.
 //   - 태블릿·데스크톱: 어두운 사이드바 + 본문 위 페이지 헤더(제목·설명·실시간 수신 칩·
@@ -12,6 +13,7 @@ import 'package:provider/provider.dart';
 import 'core/app_mode.dart';
 import 'core/app_settings.dart';
 import 'core/layout_breakpoints.dart';
+import 'core/log_filter.dart';
 import 'providers/app_mode_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/settings_provider.dart';
@@ -22,7 +24,10 @@ import 'widgets/confirm_logout.dart';
 import 'widgets/delivery_notice_dialog.dart';
 import 'widgets/goal_alert_dialog.dart';
 import 'widgets/help_alert_dialog.dart';
+import 'widgets/patrol_alarm_dialog.dart';
+import 'widgets/patrol_ui.dart';
 import 'widgets/route_dialogs.dart';
+import 'widgets/voice_alert_snack.dart';
 import 'widgets/vica_ui.dart';
 import 'screens/current_location_screen.dart';
 import 'screens/dashboard_screen.dart';
@@ -32,6 +37,7 @@ import 'screens/login_screen.dart';
 import 'screens/map_locations_screen.dart';
 import 'screens/mapping_shell.dart';
 import 'screens/mode_select_screen.dart';
+import 'screens/patrol_screen.dart';
 import 'screens/save_location_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/system_diagnostics_screen.dart';
@@ -275,9 +281,28 @@ class SupervisorShell extends StatefulWidget {
 class _SupervisorShellState extends State<SupervisorShell> {
   int _index = 0;
 
+  /// 마지막으로 띄운 음성 연결 알림 번호(SupervisorProvider.voiceAlertSeq).
+  int _voiceAlertSeqShown = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // 모드 선택에서 정한 첫 탭(경비 하위 모드 → '경비', 초기 위치 잡기 → '원격 주행',
+    // 2026-11-16). 한 번만 씁니다 — 모드 바꾸기로 다시 들어오면 대시보드부터입니다.
+    final tab = context.read<AppModeProvider>().takeLandingTab();
+    final index = tab == null ? -1 : _titles.indexOf(tab);
+    if (index >= 0) {
+      _index = index;
+    }
+  }
+
   /// 설정 화면의 저장 버튼은 헤더(AppBar)에 있습니다. 화면 밖에서 저장을
   /// 부르려면 그 화면의 State 에 닿아야 해서 key 로 붙잡습니다.
   final _settingsKey = GlobalKey<SettingsScreenState>();
+
+  /// 경비 탭의 '경비 기록 N건'으로 알림 및 로그에 들어갈 때 처음 고를 분류. 그 화면을
+  /// 떠나면 비워, 다음에 메뉴로 들어가면 지금처럼 '전체'로 엽니다.
+  LogFilter? _logsJumpFilter;
 
   // 대시보드 배너가 진단 화면으로 보내려면 콜백이 필요해 const 리스트를 게터로 바꿨습니다.
   List<Widget> get _screens => [
@@ -288,9 +313,15 @@ class _SupervisorShellState extends State<SupervisorShell> {
         const SaveLocationScreen(),
         const MapLocationsScreen(),
         const DeliveryScreen(),
+        PatrolScreen(
+          onOpenRecords: () => setState(() {
+            _logsJumpFilter = LogFilter.patrol;
+            _index = _logsIndex;
+          }),
+        ),
         const CurrentLocationScreen(),
         const SystemDiagnosticsScreen(),
-        const LogsScreen(),
+        LogsScreen(initialFilter: _logsJumpFilter ?? LogFilter.all),
         SettingsScreen(key: _settingsKey),
         // 폰 전용 '더보기' 목록. 사이드바가 있는 넓은 창에서는 쓰이지 않습니다.
         _MoreScreen(
@@ -308,15 +339,18 @@ class _SupervisorShellState extends State<SupervisorShell> {
   static int get _systemDiagnosticsIndex => _titles.indexOf('시스템 진단');
   static int get _settingsIndex => _titles.indexOf('설정');
   static int get _moreIndex => _titles.indexOf('더보기');
+  static int get _logsIndex => _titles.indexOf('알림 및 로그');
 
   /// 하단 탭에 직접 올라가는 화면 수. 이 뒤의 화면은 '더보기' 탭이 대표합니다.
-  static const int _bottomTabCount = 4;
+  /// 2026-11-14 경비 탭이 들어가 4 → 5 (목업 PatrolHome 의 아래 탭 6칸).
+  static const int _bottomTabCount = 5;
 
   static const _titles = [
     '대시보드',
     '지도 설정',
     '원격 주행',
     '물류 배송',
+    '경비',
     '현재 위치',
     '시스템 진단',
     '알림 및 로그',
@@ -330,6 +364,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
     '장소 · 홈 · 금지구역',
     '목적지 지정 · 주행 제어',
     '도착 문자 · 자동 복귀',
+    '순찰 경로 · 감시 항목',
     '상태 원본값',
     '결함 · 준비 상태',
     '종류별 알림',
@@ -343,6 +378,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
     '장소 · 홈 위치 · 금지구역을 지도 위에서 설정합니다',
     '목적지를 지정해 로봇을 보내고 주행을 제어합니다',
     '연락처가 저장된 장소로 물건을 보내고 도착 문자를 발송합니다',
+    '순찰 경로 · 감시 항목',
     '로봇이 보고하는 위치와 상태 원본값을 확인합니다',
     '로봇이 보고한 상태와 결함, 항목별 준비 상태입니다',
     '로봇과 앱에서 발생한 알림을 종류별로 확인합니다',
@@ -383,6 +419,21 @@ class _SupervisorShellState extends State<SupervisorShell> {
     // 띄웁니다 — 미션은 관리자가 확인할 때까지 10초마다 같은 요청을 다시 보내고, 열린 팝업은
     // provider 를 보고 위치 칸만 바꿉니다. 띄웠다는 표시는 build 안에서 바로 남깁니다(알림을
     // 부르지 않는 값이라 안전합니다) — 한 프레임 안에 build 가 두 번 돌아도 팝업은 하나입니다.
+    // 음성 연결 알림(외부 API·로컬 API 연결 성공/실패, 2026-11-16 목업 D)도 셸이 띄웁니다 — 어느
+    // 탭을 보고 있든 떠야 합니다. 띄운 번호는 build 안에서 바로 남겨 한 번만 띄웁니다.
+    if (supervisor.voiceAlertSeq != _voiceAlertSeqShown) {
+      _voiceAlertSeqShown = supervisor.voiceAlertSeq;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        final messenger = ScaffoldMessenger.of(context);
+        for (final event in supervisor.takeVoiceAlerts()) {
+          messenger.showSnackBar(voiceAlertSnackBar(event));
+        }
+      });
+    }
+
     if (supervisor.helpPopupPending) {
       final helpId = supervisor.activeHelp!.helpId;
       supervisor.markHelpPopupShown();
@@ -407,6 +458,33 @@ class _SupervisorShellState extends State<SupervisorShell> {
         }
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(helpNotice)));
+      });
+    }
+
+    // 경비 경보 팝업(2026-11-14)도 도움 요청과 같은 방식입니다 — alarm_id 하나에 한 번,
+    // 미션이 10초마다 다시 보내도 팝업은 하나입니다. 어느 화면을 보고 있어도 뜹니다.
+    if (supervisor.patrolPopupPending) {
+      final alarmId = supervisor.patrolAlarm!.alarmId;
+      supervisor.markPatrolPopupShown();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => PatrolAlarmDialog(alarmId: alarmId),
+        );
+      });
+    }
+    // 관리자가 누르지 않았는데 순찰이 끝났을 때의 한 줄 알림(지점에 못 감·감지 준비 안 됨).
+    final patrolNotice = supervisor.pendingPatrolNotice;
+    if (patrolNotice != null) {
+      supervisor.consumePatrolNotice();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          showPatrolToast(context, patrolNotice);
+        }
       });
     }
 
@@ -461,6 +539,9 @@ class _SupervisorShellState extends State<SupervisorShell> {
         // 사이드바가 있는 창에서 '더보기' 에 머물러 있으면(창을 넓힌 경우)
         // 대시보드로 돌립니다. 그 목록은 사이드바가 이미 다 보여줍니다.
         final index = useSidebar && _index == _moreIndex ? 0 : _index;
+        if (index != _logsIndex) {
+          _logsJumpFilter = null;
+        }
 
         return PopScope(
           canPop: !supervisor.emergencyOverlayVisible,
@@ -562,24 +643,44 @@ class _SupervisorShellState extends State<SupervisorShell> {
 
   Widget _buildBottomNavigation(int index) {
     final selected = index < _bottomTabCount ? index : _bottomTabCount;
-    return NavigationBar(
-      selectedIndex: selected,
-      labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-      onDestinationSelected: (value) => setState(() {
-        _index = value < _bottomTabCount ? value : _moreIndex;
-      }),
-      destinations: [
-        for (final item in _navigationItems.take(_bottomTabCount))
-          NavigationDestination(
-            icon: Icon(item.icon),
-            selectedIcon: Icon(item.selectedIcon),
-            label: item.label,
-          ),
-        const NavigationDestination(
-          icon: Icon(Icons.menu),
-          label: '더보기',
+    final theme = NavigationBarTheme.of(context);
+    // 여섯 칸이라 글자·아이콘을 한 단계 줄입니다(목업 PatrolHome: 글자 10·아이콘 18).
+    // 360 폭 폰에서 한 칸이 60 이라 11 글자 네 자가 빠듯합니다.
+    return NavigationBarTheme(
+      data: theme.copyWith(
+        labelTextStyle: WidgetStateProperty.resolveWith(
+          (states) => theme.labelTextStyle?.resolve(states)?.copyWith(
+                fontSize: 10,
+              ),
         ),
-      ],
+        iconTheme: WidgetStateProperty.resolveWith(
+          (states) => theme.iconTheme?.resolve(states)?.copyWith(size: 20),
+        ),
+      ),
+      // 글자 배율을 올린 기기(1.3)의 320 폭에서는 옆 칸 글자와 맞닿았습니다. 탭 글자만
+      // 배율을 1.1 까지로 묶습니다 — 본문 글자는 그대로 커집니다.
+      child: MediaQuery.withClampedTextScaling(
+        maxScaleFactor: 1.1,
+        child: NavigationBar(
+          selectedIndex: selected,
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+          onDestinationSelected: (value) => setState(() {
+            _index = value < _bottomTabCount ? value : _moreIndex;
+          }),
+          destinations: [
+            for (final item in _navigationItems.take(_bottomTabCount))
+              NavigationDestination(
+                icon: Icon(item.icon),
+                selectedIcon: Icon(item.selectedIcon),
+                label: item.label,
+              ),
+            const NavigationDestination(
+              icon: Icon(Icons.menu),
+              label: '더보기',
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -976,7 +1077,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
     );
   }
 
-  /// 사이드바(전부)와 하단 탭(앞 네 개)이 같은 목록을 씁니다. 순서는 _titles 와
+  /// 사이드바(전부)와 하단 탭(앞 다섯 개)이 같은 목록을 씁니다. 순서는 _titles 와
   /// 같아야 합니다 — supervisor_shell_test 가 잠급니다.
   static const _navigationItems = [
     _NavigationItem(
@@ -998,6 +1099,11 @@ class _SupervisorShellState extends State<SupervisorShell> {
       icon: Icons.inventory_2_outlined,
       selectedIcon: Icons.inventory_2,
       label: '물류 배송',
+    ),
+    _NavigationItem(
+      icon: Icons.shield_outlined,
+      selectedIcon: Icons.shield,
+      label: '경비',
     ),
     _NavigationItem(
       icon: Icons.my_location_outlined,

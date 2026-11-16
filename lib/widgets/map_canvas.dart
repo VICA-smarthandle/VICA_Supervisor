@@ -143,6 +143,7 @@ class MapCanvas extends StatelessWidget {
     this.doorArrow,
     this.robotOutline,
     this.ghostPoint,
+    this.overlayBuilder,
   });
 
   final VicaMap map;
@@ -232,6 +233,12 @@ class MapCanvas extends StatelessWidget {
 
   /// 기존 목적지를 옮기는 중일 때 원래 자리(ROS 좌표).
   final Offset? ghostPoint;
+
+  /// 화면이 지도 위에 얹는 표시(2026-11-14, 경비의 순찰 번호). ROS 좌표를 지도 그림 위
+  /// 자리로 바꾸는 함수를 받아 Stack 에 놓일 위젯(Positioned)을 돌려줍니다. 장소 점 위,
+  /// 로봇 화살표 아래에 놓이고 지도와 함께 확대됩니다.
+  final List<Widget> Function(Offset Function(double x, double y) toPixel)?
+      overlayBuilder;
 
   bool get _hasWaitOverlay =>
       waitSpots.isNotEmpty ||
@@ -488,6 +495,8 @@ class MapCanvas extends StatelessWidget {
                         label: poseArrow!.label,
                         color: poseArrow!.color,
                       ),
+                    ...?overlayBuilder
+                        ?.call((x, y) => _scaledOffset(x, y, scale)),
                     if (robot != null && robot!.mapId == map.mapId)
                       _RobotMarker(
                         offset: _scaledOffset(robot!.x, robot!.y, scale),

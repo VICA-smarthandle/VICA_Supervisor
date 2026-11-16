@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vica_supervisor/core/app_settings.dart';
+import 'package:vica_supervisor/models/mode_status.dart';
 import 'package:vica_supervisor/models/stack_status.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
@@ -151,6 +152,31 @@ void main() {
       find.textContaining(vicaKeepWords('주행(Nav2)이 꺼져 있습니다')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('노드 목록이 늦어도 모드 노드가 초기 위치 대기라고 하면 열린다', (tester) async {
+    // 2026-11-16 실기: Nav2 가 막 뜬 직후 rosapi 목록에 Nav2 가 아직 없어 잠겼다(새로고침 뒤 풀림).
+    final supervisor = await pump(tester, nav2: false);
+    supervisor.setModeStatusForTest(
+      const ModeStatus(mode: 'drive', state: ModeState.needInitialPose, nav2: 'waiting_pose'),
+    );
+    await tester.pump();
+    final button = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, '초기 위치 잡기'),
+    );
+    expect(button.onPressed, isNotNull);
+  });
+
+  testWidgets('모드 노드도 Nav2 가 아직이라고 하면 잠긴 채다', (tester) async {
+    final supervisor = await pump(tester, nav2: false);
+    supervisor.setModeStatusForTest(
+      const ModeStatus(mode: 'drive', state: ModeState.starting, nav2: 'starting'),
+    );
+    await tester.pump();
+    final button = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, '초기 위치 잡기'),
+    );
+    expect(button.onPressed, isNull);
   });
 
   testWidgets('주행 중에는 잠긴다', (tester) async {

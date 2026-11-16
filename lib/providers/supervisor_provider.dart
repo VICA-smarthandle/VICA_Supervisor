@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../core/app_settings.dart';
 import '../core/json_read.dart';
 import '../core/log_filter.dart';
+import '../core/mode_contract.dart';
 import '../models/delivery_job.dart';
 import '../models/goal_event.dart';
 import '../models/home_position.dart';
@@ -19,6 +20,8 @@ import '../models/robot_health.dart';
 import '../models/map_preview.dart';
 import '../models/pose_check_result.dart';
 import '../models/mapping_status.dart';
+import '../models/mode_status.dart';
+import '../models/patrol.dart';
 import '../models/robot_status.dart';
 import '../models/route_edit.dart';
 import '../models/route_graph.dart';
@@ -29,6 +32,7 @@ import '../ros/ros_bridge_client.dart';
 import '../services/delivery_job_store.dart';
 import '../services/delivery_notifier.dart';
 import '../services/map_wall_mask.dart';
+import '../services/patrol_log_loader.dart';
 import '../services/route_graph_loader.dart';
 
 enum EmergencyStopState {
@@ -105,6 +109,7 @@ class SupervisorProvider extends ChangeNotifier {
     WallMaskLoader? wallMaskLoader,
     RosChannelConnector? rosChannelConnector,
     bool? showOtherScreenDeliveryNotices,
+    PatrolLogLoader? patrolLogLoader,
   })  : _deliveryNotifier = deliveryNotifier ?? createDeliveryNotifier(),
         _showOtherScreenDeliveryNotices = showOtherScreenDeliveryNotices ?? kIsWeb,
         _deliveryStore =
@@ -112,6 +117,7 @@ class SupervisorProvider extends ChangeNotifier {
         _routeGraphLoader = routeGraphLoader ?? const RouteGraphLoader(),
         _routeServiceCall = routeServiceCall,
         _wallMaskLoader = wallMaskLoader ?? MapWallMask.load,
+        _patrolLogLoader = patrolLogLoader ?? const PatrolLogLoader(),
         _rosChannelConnector = rosChannelConnector;
 
   /// rosbridge 소켓을 여는 함수. null 이면 실제 WebSocket 을 엽니다. 시험은 가짜
@@ -414,6 +420,9 @@ class SupervisorProvider extends ChangeNotifier {
     // 있으므로 이벤트로 켠 값을 비웁니다. 다시 붙으면 1 Hz 상태 문자열이
     // 진짜 일시정지를 곧바로 복원합니다.
     _pausedByEvent = false;
+    // 경비 단계의 귀띔도 마찬가지입니다. 걸려 있던 경보는 지나간 사실이라 남깁니다.
+    _patrolHint = null;
+    _patrolHintAt = null;
     // 연결이 끊기면 teleop 반복도 멈춥니다. 로봇은 0.5초 watchdog 으로 서지만,
     // 앱이 계속 보내려 시도하며 로그를 채울 이유가 없습니다.
     _teleopTimer?.cancel();
@@ -430,6 +439,11 @@ class SupervisorProvider extends ChangeNotifier {
     // 떠 있다"고 잘못된 안심을 줄 수 있습니다 — 그래서 '확인 불가'로 되돌립니다.
     _stackStatus = null;
     _stackStatusError = '';
+    // 모드 상태도 현재 사실이 아닙니다. 남기면 끊긴 사이 꺼진 주행을 켜져 있다고 그립니다.
+    _modeStatus = null;
+    _modeStatusAt = null;
+    // 다시 붙은 뒤 처음 받는 음성 알림은 끊긴 사이 일이라 기록만 합니다(띄우지 않음).
+    _voiceFirstAfterConnect = true;
     if (_robotsById.isEmpty) {
       return;
     }
@@ -525,7 +539,145 @@ class SupervisorProvider extends ChangeNotifier {
       ..subscribe(
         topic: settings.deliverySmsResultTopic,
         handler: _handleDeliverySmsResult,
+      )
+      // 모드 노드(부팅 자동 기동, 2026-11-16). 없으면 아무것도 안 와서 예전처럼 동작합니다.
+      ..subscribe(
+        topic: kModeStatusTopic,
+        handler: _handleModeStatus,
       );
+  }
+
+  // ---- 모드 노드 (주행 묶음 켜기·끄기, 2026-11-16) ---------------------------------
+
+  ModeStatus? _modeStatus;
+  DateTime? _modeStatusAt;
+
+  /// 모드 노드가 보낸 최근 상태. 8 s 넘게 안 왔으면 null — 모드 노드가 없거나 끊긴 것으로
+  /// 보고 화면은 예전처럼(화면만 바꾸기) 동작합니다.
+  ModeStatus? get modeStatus {
+    final at = _modeStatusAt;
+    if (_modeStatus == null || at == null) {
+      return null;
+    }
+    return DateTime.now().difference(at) > kModeStatusStale ? null : _modeStatus;
+  }
+
+  void _handleModeStatus(Map<String, Object?> message) {
+    final decoded = _decodeJsonString(message);
+    if (decoded == null) {
+      return;
+    }
+    _modeStatus = ModeStatus.fromJson(decoded);
+    _modeStatusAt = DateTime.now();
+    _ingestVoiceEvents(_modeStatus!);
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  void handleModeStatusForTest(Map<String, Object?> message) => _handleModeStatus(message);
+
+  // ---- 음성 연결 알림(사용자 11-16, 목업 D·E) ------------------------------------
+  //
+  // 모드 노드가 상태에 최근 알림 5건을 번호와 함께 싣습니다. 번호로 이미 본 것을 거르고,
+  // 새것은 '알림 및 로그 › 연결 상태'에 남기고 화면 아래 알림 띠로 띄웁니다.
+  // 연결 직후 처음 받은 상태의 알림은 끊긴 사이 일이라 기록만 하고 띄우지 않습니다 — 로봇과
+  // 앱 기기의 시계가 달라도 틀리지 않게 시각이 아니라 '연결 뒤 첫 상태인가'로 가립니다.
+
+  double _voiceEpochSeen = -1;
+  int _voiceIdSeen = 0;
+  bool _voiceFirstAfterConnect = true;
+  final List<VoiceEvent> _voiceAlerts = [];
+  int _voiceAlertSeq = 0;
+  VoiceEvent? _lastVoiceEvent;
+
+  /// 띄우지 않은 알림이 생길 때마다 늘어납니다. 화면은 이 값이 바뀌면 [takeVoiceAlerts] 로 꺼냅니다.
+  int get voiceAlertSeq => _voiceAlertSeq;
+
+  /// 가장 최근 음성 연결 알림(주행 노드 카드의 음성 줄).
+  VoiceEvent? get lastVoiceEvent => _lastVoiceEvent;
+
+  /// 띄울 알림을 꺼내고 비웁니다.
+  List<VoiceEvent> takeVoiceAlerts() {
+    final out = List<VoiceEvent>.of(_voiceAlerts);
+    _voiceAlerts.clear();
+    return out;
+  }
+
+  void _ingestVoiceEvents(ModeStatus status) {
+    final firstAfterConnect = _voiceFirstAfterConnect;
+    _voiceFirstAfterConnect = false;
+    if (status.voiceEventsEpoch != _voiceEpochSeen) {
+      // 모드 노드가 다시 떴다. 번호가 1 부터 다시 시작한다.
+      _voiceEpochSeen = status.voiceEventsEpoch;
+      _voiceIdSeen = 0;
+    }
+    for (final event in status.voiceEvents) {
+      if (event.id <= _voiceIdSeen) {
+        continue;
+      }
+      _voiceIdSeen = event.id;
+      _lastVoiceEvent = event;
+      _addLog(LogFilter.connection, '음성: ${event.text} (${_clock(event.at)})');
+      if (!firstAfterConnect) {
+        _voiceAlerts.add(event);
+        _voiceAlertSeq += 1;
+      }
+    }
+  }
+
+  static String _clock(DateTime at) =>
+      '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}:'
+      '${at.second.toString().padLeft(2, '0')}';
+
+  /// 주행 묶음 켜기. (받아들였는가, 사람에게 보일 문구)
+  Future<(bool, String)> driveStart() =>
+      _callModeService(kDriveStartService, '주행 켜기');
+
+  /// 주행 묶음 끄기. Nav2 가 뜨는 중이면 모드 노드가 다 뜬 뒤로 예약합니다.
+  Future<(bool, String)> driveStop() =>
+      _callModeService(kDriveStopService, '주행 끄기');
+
+  /// Nav2 만 다시 띄우기.
+  Future<(bool, String)> nav2Restart() =>
+      _callModeService(kNav2RestartService, 'Nav2 다시 띄우기');
+
+  /// ⑮ 감지기만 켜고 끄기(잠시 끄기). 주행을 다시 켜면 켜진 상태로 돌아갑니다.
+  Future<(bool, String)> setDetector(bool on) => on
+      ? _callModeService(kDetectorOnService, '사람 감지 켜기')
+      : _callModeService(kDetectorOffService, '사람 감지 끄기');
+
+  /// 음성을 로컬 / 외부 API 로. 음성이 떠 있으면 젯슨이 다시 띄웁니다(말이 끊김).
+  Future<(bool, String)> setVoice(VoiceChoice choice) => switch (choice) {
+        VoiceChoice.local => _callModeService(kVoiceLocalService, '음성 로컬'),
+        VoiceChoice.api => _callModeService(kVoiceApiService, '음성 외부 API'),
+      };
+
+  // std_srvs/Trigger 는 accepted 가 아니라 success 로 답합니다. 그래서 _callService 를
+  // 쓰지 않습니다(그 도우미는 accepted 만 봅니다).
+  Future<(bool, String)> _callModeService(String service, String what) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return (false, 'ROS Bridge에 연결되지 않았습니다.');
+    }
+    try {
+      final response = await client.callService(service: service);
+      final message =
+          response.message.isEmpty ? '$what 요청을 보냈습니다.' : response.message;
+      _addLog(LogFilter.coordinateTransfer, '$what: $message');
+      return (response.success, message);
+    } catch (error) {
+      final message = '$what 실패: $error';
+      _addLog(LogFilter.coordinateTransfer, message);
+      return (false, message);
+    }
+  }
+
+  /// 모드 노드 없이 화면 규칙만 검증하기 위한 주입 지점입니다.
+  @visibleForTesting
+  void setModeStatusForTest(ModeStatus? status) {
+    _modeStatus = status;
+    _modeStatusAt = status == null ? null : DateTime.now();
+    notifyListeners();
   }
 
   // 앱 비상정지 버튼: app_emergency_node의 activate 서비스를 호출합니다.
@@ -1996,6 +2148,572 @@ class SupervisorProvider extends ChangeNotifier {
     return reply.message;
   }
 
+  // ---- 경비(순찰, 2026-11-14) ----------------------------------------------
+  //
+  // 계약은 ~/vica_data/patrol_plan/SPEC.md 2·3절입니다. 순찰 단계는 /robot_status 의
+  // dialog_state(patrol*)가 정본이고, patrol_* 사건은 그 1초 사이를 메우는 귀띔과 경보·지점
+  // 정보를 줍니다. 경보는 도움 요청과 같은 방식입니다 — alarm_id 하나에 팝업 하나이고,
+  // 미션이 확인 전까지 10초마다 같은 id 로 다시 보냅니다(앱을 껐다 켜도 뜨게).
+  //
+  // 앱은 요청만 합니다. 시작·종료·확인·재개·일시정지를 받을지는 미션이 정합니다.
+
+  final PatrolLogLoader _patrolLogLoader;
+
+  PatrolRoute? _patrolRoute;
+  bool _patrolRouteLoading = false;
+
+  PatrolAlarm? _patrolAlarm;
+  String? _patrolPopupShownFor;
+
+  /// 이번 순찰에서 사건으로 알게 된 것. 순찰 도중에 붙은 앱에서는 비어 있습니다.
+  List<String> _patrolRunNames = const [];
+  DateTime? _patrolStartedAt;
+  int? _patrolWaypointIndex;
+  String _patrolWaypointName = '';
+  int _patrolLap = 0;
+
+  /// 사건·응답으로 먼저 안 단계와 그때. 상태 토픽(1 Hz)이 따라올 때까지만 씁니다.
+  PatrolPhase? _patrolHint;
+  DateTime? _patrolHintAt;
+  static const _patrolHintHold = Duration(seconds: 3);
+
+  /// 경비 칸과 경비 화면이 보는 시계. 시험이 3초 귀띔·녹화 시간을 기다리지 않고 확인하게
+  /// 바꿔 끼웁니다.
+  DateTime Function() patrolNow = DateTime.now;
+
+  String? _pendingPatrolNotice;
+
+  /// 관리자가 끝낸 종료 사건(patrol_stopped, reason=admin)을 받은 횟수와, 그 사건이 알린
+  /// 홈 복귀 여부(return_home). 종료를 누른 화면이 알림 띠의 둘째 줄을 고르는 데 씁니다.
+  int _patrolAdminStops = 0;
+  bool _patrolStopReturnsHome = false;
+  Completer<void>? _patrolStopWaiter;
+
+  /// 종료 응답을 받고 종료 사건을 기다리는 시간. 미션은 사건을 먼저 내고 응답하지만
+  /// 토픽과 서비스 응답은 길이 달라 순서가 바뀔 수 있습니다.
+  static const _patrolStopEventWait = Duration(milliseconds: 1500);
+
+  List<PatrolRecord>? _patrolRecords;
+  bool _patrolRecordsLoading = false;
+  bool _patrolRecordsFailed = false;
+  Timer? _patrolClipTimer;
+
+  /// 관리자가 누르지 않았는데 순찰이 끝난 까닭(patrol_stopped 의 reason). 비상정지는
+  /// 전체화면 알림이 이미 알리므로 여기에 없습니다.
+  static const _patrolStopNotices = <String, String>{
+    'nav_failed': '순찰 지점으로 가지 못해 경비를 종료했습니다.',
+    'detector_not_ready': '사람 감지가 준비되지 않아 경비를 종료했습니다.',
+  };
+
+  /// 지금 순찰 단계. 화면은 이 값으로 꺼짐·순찰 중·멈춤을 고릅니다.
+  PatrolPhase get patrolPhase {
+    final hint = _patrolHint;
+    final at = _patrolHintAt;
+    if (hint != null &&
+        at != null &&
+        patrolNow().difference(at) < _patrolHintHold) {
+      return hint;
+    }
+    return PatrolPhase.of(primaryRobot?.dialogState ?? '');
+  }
+
+  /// [mapId] 지도의 저장된 순찰 경로. 아직 못 읽었거나 다른 지도의 것이면 null.
+  PatrolRoute? patrolRouteFor(String? mapId) {
+    final route = _patrolRoute;
+    return route != null && mapId != null && route.mapId == mapId
+        ? route
+        : null;
+  }
+
+  bool get patrolRouteLoading => _patrolRouteLoading;
+
+  /// 지금 걸려 있는 경보(확인 전·후 모두). 순찰을 재개하거나 끝내면 비워집니다.
+  PatrolAlarm? get patrolAlarm => _patrolAlarm;
+
+  /// 아직 띄우지 않은 경보 팝업이 있는가. 셸이 띄운 뒤 [markPatrolPopupShown] 을 부릅니다.
+  bool get patrolPopupPending {
+    final alarm = _patrolAlarm;
+    return alarm != null &&
+        !alarm.acked &&
+        alarm.alarmId != _patrolPopupShownFor;
+  }
+
+  void markPatrolPopupShown() {
+    _patrolPopupShownFor = _patrolAlarm?.alarmId;
+  }
+
+  /// 아직 띄우지 않은 한 줄 알림(순찰이 스스로 끝난 까닭). 셸이 띄우고 비웁니다.
+  String? get pendingPatrolNotice => _pendingPatrolNotice;
+
+  void consumePatrolNotice() {
+    _pendingPatrolNotice = null;
+  }
+
+  /// 이번 순찰이 시작된 때(로봇 시계). 순찰 도중에 붙은 앱은 모릅니다.
+  DateTime? get patrolStartedAt => _patrolStartedAt;
+
+  /// 지금 몇 바퀴째인가(1부터). 모르면 0.
+  int get patrolLap => _patrolLap;
+
+  /// 지금 가는(또는 방금 닿은) 지점의 순번(0부터)과 이름. 모르면 null·빈 값.
+  int? get patrolWaypointIndex => _patrolWaypointIndex;
+  String get patrolWaypointName => _patrolWaypointName;
+
+  /// 그 지점으로 출발한 앞 지점의 이름. 첫 바퀴 첫 지점이거나 모르면 빈 값.
+  String get patrolFromName {
+    final names = _patrolRunNames.isNotEmpty
+        ? _patrolRunNames
+        : (_patrolRoute?.names ?? const <String>[]);
+    final index = _patrolWaypointIndex;
+    if (index == null ||
+        names.length < 2 ||
+        index < 0 ||
+        index >= names.length) {
+      return '';
+    }
+    if (index == 0 && _patrolLap <= 1) {
+      return '';
+    }
+    return names[(index - 1 + names.length) % names.length];
+  }
+
+  /// 경비 기록(최신순). 아직 받은 적이 없으면 null.
+  List<PatrolRecord>? get patrolRecords => _patrolRecords;
+  bool get patrolRecordsLoading => _patrolRecordsLoading;
+
+  /// 마지막으로 받으려다 실패했는가(서버에 닿지 못함). 옛 목록은 그대로 둡니다.
+  bool get patrolRecordsFailed => _patrolRecordsFailed;
+
+  PatrolRecord? patrolRecordFor(String alarmId) {
+    for (final record in _patrolRecords ?? const <PatrolRecord>[]) {
+      if (record.alarmId == alarmId) {
+        return record;
+      }
+    }
+    return null;
+  }
+
+  void _hintPatrol(PatrolPhase phase) {
+    _patrolHint = phase;
+    _patrolHintAt = patrolNow();
+  }
+
+  void _clearPatrolAlarm() {
+    _patrolAlarm = null;
+    _patrolClipTimer?.cancel();
+    _patrolClipTimer = null;
+  }
+
+  void _applyPatrolEvent(GoalEvent event, Map<String, Object?> json) {
+    switch (event.kind) {
+      case GoalEventKind.patrolStarted:
+        final route = json['route'];
+        _patrolRunNames = route is List
+            ? route.map((name) => name.toString()).toList(growable: false)
+            : const [];
+        _patrolStartedAt = DateTime.tryParse(event.robotStamp) ?? patrolNow();
+        _patrolWaypointIndex = null;
+        _patrolWaypointName = '';
+        _patrolLap = 0;
+        _clearPatrolAlarm();
+        _hintPatrol(PatrolPhase.dwell);
+      case GoalEventKind.patrolWaypoint:
+        _patrolWaypointIndex = (json['index'] as num?)?.toInt();
+        _patrolWaypointName = event.destinationName;
+        _patrolLap = (json['lap'] as num?)?.toInt() ?? _patrolLap;
+        _hintPatrol(PatrolPhase.moving);
+      case GoalEventKind.patrolIntruder:
+      case GoalEventKind.patrolSound:
+      case GoalEventKind.patrolLight:
+      case GoalEventKind.patrolCameraLost:
+        final alarm = PatrolAlarm.fromEvent(json, now: patrolNow());
+        if (alarm == null) {
+          break;
+        }
+        final current = _patrolAlarm;
+        if (current != null && current.alarmId == alarm.alarmId) {
+          // 재전송. 새로 알게 된 영상 id·사진만 채웁니다.
+          _patrolAlarm = current.merged(alarm);
+          break;
+        }
+        _patrolAlarm = alarm;
+        _hintPatrol(
+          alarm.kind == PatrolAlarmKind.light
+              ? PatrolPhase.light
+              : PatrolPhase.alarm,
+        );
+        _addLog(
+          LogFilter.patrol,
+          [
+            alarm.kind.recordTitle(alarm.levelDb),
+            if (alarm.place.isNotEmpty) alarm.place,
+          ].join(' · '),
+        );
+        _watchPatrolClip(alarm);
+      case GoalEventKind.patrolAcked:
+        final id = (json['alarm_id'] as String?)?.trim() ?? '';
+        final current = _patrolAlarm;
+        if (current != null && (id.isEmpty || current.alarmId == id)) {
+          _patrolAlarm = current.copyWith(acked: true);
+        }
+      case GoalEventKind.patrolPaused:
+        _hintPatrol(PatrolPhase.paused);
+      case GoalEventKind.patrolResumed:
+        _clearPatrolAlarm();
+        _hintPatrol(PatrolPhase.moving);
+      case GoalEventKind.patrolStopped:
+        _clearPatrolAlarm();
+        _patrolRunNames = const [];
+        _patrolStartedAt = null;
+        _patrolWaypointIndex = null;
+        _patrolWaypointName = '';
+        _patrolLap = 0;
+        _hintPatrol(PatrolPhase.off);
+        if (event.reason == 'admin') {
+          // 키가 없으면(옛 미션) 돌아가지 않는 것으로 봅니다.
+          _patrolAdminStops += 1;
+          _patrolStopReturnsHome = json['return_home'] == true;
+          _patrolStopWaiter?.complete();
+          _patrolStopWaiter = null;
+        }
+        final notice = _patrolStopNotices[event.reason];
+        if (notice != null) {
+          _pendingPatrolNotice = notice;
+          _addLog(LogFilter.emergencyStop, notice);
+        }
+      default:
+        break;
+    }
+  }
+
+  /// 경보 사건은 상태 토픽보다 먼저 옵니다. 그 사이를 지나서도 로봇이 경보로 서 있지
+  /// 않으면 그 경보는 끝난 것입니다 — 다른 화면에서 재개·종료했고 이 앱이 그 사건을
+  /// 놓친 경우(잠깐 끊김)에 팝업과 멈춤 화면이 남지 않게 합니다.
+  void _reconcilePatrolAlarm(RobotStatus robot) {
+    final alarm = _patrolAlarm;
+    if (alarm == null || PatrolPhase.of(robot.dialogState).stoppedByAlarm) {
+      return;
+    }
+    if (patrolNow().difference(alarm.firstSeen) > _patrolHintHold) {
+      _clearPatrolAlarm();
+    }
+  }
+
+  /// 영상이 다 저장될 때까지 경비 기록을 5초마다 다시 받습니다. 영상 id·길이는 기록에만
+  /// 있고(확인이 빠르면 재전송이 끊겨 사건으로는 못 받습니다), 서버는 기록을 내줄 때 끝난
+  /// 장면을 mp4 로 바꾸기 시작합니다. 영상이 준비되거나 경보가 풀리면, 늦어도 90초 뒤에
+  /// 멈춥니다(가장 긴 영상이 60초).
+  void _watchPatrolClip(PatrolAlarm alarm) {
+    _patrolClipTimer?.cancel();
+    _patrolClipTimer = null;
+    final settings = _lastSettings;
+    if (!alarm.kind.hasClip || settings == null) {
+      return;
+    }
+    var tries = 0;
+    _patrolClipTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      tries += 1;
+      final current = _patrolAlarm;
+      final ready = patrolRecordFor(alarm.alarmId)?.clipReady ?? false;
+      if (_disposed ||
+          current == null ||
+          current.alarmId != alarm.alarmId ||
+          ready ||
+          tries > 18) {
+        timer.cancel();
+        return;
+      }
+      unawaited(refreshPatrolRecords(settings));
+    });
+  }
+
+  /// 지도 서버에서 경비 기록을 다시 받습니다. 실패하면 옛 목록을 그대로 둡니다.
+  Future<void> refreshPatrolRecords(AppSettings settings) async {
+    if (_patrolRecordsLoading) {
+      return;
+    }
+    _patrolRecordsLoading = true;
+    notifyListeners();
+    final records = await _patrolLogLoader.loadRecords(settings.mapHttpBaseUrl);
+    if (_disposed) {
+      return;
+    }
+    _patrolRecordsLoading = false;
+    _patrolRecordsFailed = records == null;
+    if (records != null) {
+      _patrolRecords = List.unmodifiable(records);
+      // 걸려 있는 경보의 영상 id·사진을 기록에서 채웁니다.
+      final alarm = _patrolAlarm;
+      final record = alarm == null ? null : patrolRecordFor(alarm.alarmId);
+      if (alarm != null && record != null) {
+        _patrolAlarm = alarm.copyWith(
+          clipId: alarm.clipId.isEmpty ? record.clipId : null,
+          photo: alarm.photo.isEmpty ? record.photo : null,
+        );
+      }
+    }
+    notifyListeners();
+  }
+
+  /// 로봇의 경비 기록과 영상·사진을 모두 지웁니다(2026-11-16 사용자 요청).
+  ///
+  /// 지우는 것은 미션입니다(`patrol_records_clear`) — 경비 중이면 거절하고 그 문구를 돌려줍니다.
+  /// 지워지면 목록을 바로 비웁니다. 돌려주는 글자는 알림 띠에 그대로 씁니다.
+  Future<String> clearPatrolRecords(AppSettings settings) {
+    return _sendPatrolCommand(
+      settings.patrolRecordsClearService,
+      success: kPatrolRecordsClearedText,
+      onAccepted: () {
+        _patrolRecords = const <PatrolRecord>[];
+        _patrolRecordsFailed = false;
+      },
+    );
+  }
+
+  /// rosbridge 없이 경로가 있는 화면을 그리기 위한 주입 지점입니다.
+  @visibleForTesting
+  void setPatrolRouteForTest(PatrolRoute? route) {
+    _patrolRoute = route;
+    notifyListeners();
+  }
+
+  /// 저장된 순찰 경로를 읽습니다. 못 읽으면 이전 값을 그대로 둡니다.
+  Future<void> refreshPatrolRoute(AppSettings settings, String mapId) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return;
+    }
+    _patrolRouteLoading = true;
+    notifyListeners();
+    try {
+      final response = await client.callService(
+        service: settings.patrolRouteGetService,
+        type: 'vica_interfaces/srv/GetPatrolRoute',
+        args: {'map_id': mapId},
+      );
+      _patrolRoute =
+          PatrolRoute.fromValues(response.values, fallbackMapId: mapId);
+    } catch (error) {
+      _addLog(LogFilter.coordinateTransfer, '순찰 경로를 읽지 못했습니다: $error');
+    } finally {
+      _patrolRouteLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// 순찰 경로를 저장합니다. [ids] 가 비면 경로를 지웁니다(명세 3.2). [names] 는 저장이
+  /// 받아들여졌을 때 화면에 바로 보일 같은 순서의 이름입니다.
+  ///
+  /// 로봇은 경로와 꺼 둔 감시 항목을 한 파일에 두고 언제나 통째로 받습니다. [watchOff] 를
+  /// 주지 않으면 지금 저장돼 있는 값을 그대로 보냅니다(경로 편집). [announce] 가 false 면
+  /// 받아들여졌을 때 알림 문구가 없습니다(스위치는 화면이 곧 결과입니다).
+  Future<(bool, String)> savePatrolRoute(
+    AppSettings settings,
+    String mapId,
+    List<String> ids, {
+    List<String> names = const [],
+    Set<PatrolAlarmKind>? watchOff,
+    bool announce = true,
+  }) async {
+    final off = watchOff ?? patrolRouteFor(mapId)?.watchOff ?? const {};
+    final reply = await _callService(
+      service: settings.patrolRouteSaveService,
+      type: 'vica_interfaces/srv/SavePatrolRoute',
+      args: {
+        'map_id': mapId,
+        'destination_ids': ids,
+        'watch_off': PatrolRoute.watchOffWire(off),
+      },
+      // 거절 문구는 로봇이 한국어 한 줄로 보냅니다(SavePatrolRoute.message).
+      describe: (response) => response.accepted
+          ? (ids.isEmpty || !announce ? '' : '순찰 경로를 저장했습니다.')
+          : (response.message.isEmpty ? '요청이 거부되었습니다.' : response.message),
+      failurePrefix: '순찰 경로 저장 실패',
+      onAccepted: (_) => _patrolRoute = PatrolRoute(
+        mapId: mapId,
+        ids: List.unmodifiable(ids),
+        names: List.unmodifiable(names),
+        watchOff: Set.unmodifiable(off),
+      ),
+    );
+    if (reply.accepted) {
+      notifyListeners();
+    }
+    return (reply.accepted, reply.message);
+  }
+
+  /// 감시 항목 하나를 켜거나 끕니다(2026-11-14). 다음 경비 시작부터 적용됩니다.
+  /// 셋 다 끄는 것은 보내지 않고 그 자리에서 거절합니다. 경로를 아직 못 읽었으면 아무것도 하지 않습니다.
+  Future<(bool, String)> setPatrolWatch(
+    AppSettings settings,
+    String mapId,
+    PatrolAlarmKind kind,
+    bool on,
+  ) async {
+    final route = patrolRouteFor(mapId);
+    if (route == null || route.watches(kind) == on) {
+      return (false, '');
+    }
+    final off = {...route.watchOff};
+    on ? off.remove(kind) : off.add(kind);
+    if (off.length >= patrolWatchKinds.length) {
+      return (false, patrolWatchNeedsOne);
+    }
+    return savePatrolRoute(
+      settings,
+      mapId,
+      route.ids,
+      names: route.names,
+      watchOff: off,
+      announce: false,
+    );
+  }
+
+  /// 경비 명령 하나를 보냅니다. 수락이면 [success] 문구(빈 값이면 알림 없음)와 단계 귀띔,
+  /// 거절이면 미션이 보낸 한국어 한 줄을 그대로 돌려줍니다 — 순찰 서비스의 거절 문구는
+  /// 미션이 정합니다(mission_logic 의 PATROL_REJECT_TEXT).
+  ///
+  /// [requestId] 를 안 주면 새 UUID 입니다. [sharedService] 는 주행과 함께 쓰는 서비스
+  /// (일시정지·재개)입니다 — 순찰이 이미 끝난 뒤에 누르면 미션의 주행 쪽 사유('… 요청 거부:
+  /// not_paused')가 오므로 그때만 기존 표로 읽기 좋게 옮깁니다.
+  Future<String> _sendPatrolCommand(
+    String service, {
+    required String success,
+    PatrolPhase? hint,
+    String? requestId,
+    bool sharedService = false,
+    void Function()? onAccepted,
+  }) async {
+    final reply = await _callService(
+      service: service,
+      type: 'vica_interfaces/srv/MissionCommand',
+      args: {'request_id': requestId ?? _uuid.v4()},
+      describe: (response) {
+        if (response.accepted) {
+          return success;
+        }
+        if (response.message.isEmpty) {
+          return '요청이 거부되었습니다.';
+        }
+        return sharedService
+            ? _localizeGateReason(response.message)
+            : response.message;
+      },
+      failurePrefix: 'Mission Manager 요청 실패',
+      onAccepted: (_) {
+        if (hint != null) {
+          _hintPatrol(hint);
+        }
+        onAccepted?.call();
+      },
+    );
+    if (reply.accepted) {
+      notifyListeners();
+    }
+    return reply.message;
+  }
+
+  /// 저장된 경로로 순찰을 시작합니다. 감지 노드가 준비될 때까지 로봇은 제자리에 있습니다.
+  Future<String> startPatrol(AppSettings settings) {
+    return _sendPatrolCommand(
+      settings.patrolStartService,
+      success: '경비를 시작했습니다.',
+      hint: PatrolPhase.dwell,
+    );
+  }
+
+  /// 경비를 끝냅니다. 순찰을 멈추고 로봇이 홈으로 돌아갑니다(2026-11-14 사용자 결정).
+  ///
+  /// 돌려주는 알림 띠는 [patrolStoppedNotice] 가 고릅니다. 홈으로 돌아가는지는 미션이 종료
+  /// 사건(patrol_stopped 의 `return_home`)으로 알리므로, 응답을 받은 뒤 그 사건이 아직
+  /// 안 왔으면 잠깐 기다립니다.
+  ///
+  /// 홈 복귀를 시작하지 못하면(홈 없음·Nav2 미준비) 미션은 종료는 받아들이고 응답 `message`
+  /// 에 홈 복귀 서비스의 거절과 같은 글자('홈 복귀 거부: no_home')를 싣습니다. 그 문구는
+  /// '홈으로 복귀' 버튼의 거절과 같은 표([_localizeGateReason])로 옮겨 둘째 줄에 보입니다 —
+  /// 버튼을 눌렀을 때와 같은 글자가 나옵니다.
+  Future<String> stopPatrol(AppSettings settings) async {
+    final stopsBefore = _patrolAdminStops;
+    var missionMessage = '';
+    final reply = await _callService(
+      service: settings.patrolStopService,
+      type: 'vica_interfaces/srv/MissionCommand',
+      args: {'request_id': _uuid.v4()},
+      describe: (response) {
+        missionMessage = response.message.trim();
+        if (response.accepted) {
+          return kPatrolStoppedText;
+        }
+        return missionMessage.isEmpty ? '요청이 거부되었습니다.' : missionMessage;
+      },
+      failurePrefix: 'Mission Manager 요청 실패',
+      onAccepted: (_) {
+        _hintPatrol(PatrolPhase.off);
+        _clearPatrolAlarm();
+      },
+    );
+    if (!reply.accepted || _disposed) {
+      return reply.message;
+    }
+    // 화면은 기다리지 않고 곧바로 꺼짐으로 바꿉니다.
+    notifyListeners();
+    if (_patrolAdminStops == stopsBefore) {
+      final waiter = _patrolStopWaiter ??= Completer<void>();
+      await waiter.future.timeout(_patrolStopEventWait, onTimeout: () {});
+    }
+    final returnHome =
+        _patrolAdminStops != stopsBefore && _patrolStopReturnsHome;
+    final notice = patrolStoppedNotice(
+      returnHome: returnHome,
+      homeRefusal: _localizeGateReason(missionMessage),
+    );
+    if (!returnHome && notice != kPatrolStoppedText && !_disposed) {
+      // 못 돌아간 까닭은 알림 목록에도 남깁니다(종료 문장은 위에서 이미 남았습니다).
+      _addLog(LogFilter.coordinateTransfer, notice);
+    }
+    return notice;
+  }
+
+  /// 순찰 일시정지. 화면이 곧바로 바뀌므로 수락 알림은 없습니다.
+  Future<String> pausePatrol(AppSettings settings) {
+    return _sendPatrolCommand(
+      settings.missionPauseService,
+      success: '',
+      hint: PatrolPhase.paused,
+      sharedService: true,
+    );
+  }
+
+  /// 순찰 재개. 경보로 멈춘 상태에서는 확인도 함께 한 것으로 미션이 처리합니다.
+  Future<String> resumePatrol(AppSettings settings) {
+    return _sendPatrolCommand(
+      settings.missionResumeService,
+      success: '순찰을 재개했습니다.',
+      hint: PatrolPhase.moving,
+      sharedService: true,
+      onAccepted: _clearPatrolAlarm,
+    );
+  }
+
+  /// 경보 팝업의 "확인". 로봇의 음성 반복이 꺼지고, 로봇은 '순찰 재개'까지 그대로 섭니다.
+  ///
+  /// request_id 에 그 팝업의 [alarmId] 를 실어 보냅니다(새 UUID 가 아닙니다). 미션은 그
+  /// 경보만 확인하고 지금 걸린 경보가 다르면 거절합니다 — 뒤늦게 누른 확인이 새 경보의
+  /// 음성을 꺼 버리지 않게 하려는 것입니다.
+  Future<String> acknowledgePatrolAlarm(AppSettings settings, String alarmId) {
+    return _sendPatrolCommand(
+      settings.patrolAckService,
+      success: '',
+      requestId: alarmId,
+      onAccepted: () {
+        final current = _patrolAlarm;
+        if (current != null && current.alarmId == alarmId) {
+          _patrolAlarm = current.copyWith(acked: true);
+        }
+      },
+    );
+  }
+
   // ---- 알림이 저절로 풀리는 경우 (2026-09-30) ---------------------------------
   //
   // Nav2 가 실패해도 미션 매니저는 같은 목적지로 3초 뒤 다시 출발합니다
@@ -2065,6 +2783,13 @@ class SupervisorProvider extends ChangeNotifier {
     // 도움 요청은 주행 사건이 아닙니다 — 일시정지 표시·주행 알림 팝업과 따로 다룹니다.
     if (event.isHelp) {
       _applyHelpEvent(event);
+      notifyListeners();
+      return;
+    }
+
+    // 경비(순찰) 사건도 따로 다룹니다 — 순찰 구간 이동에는 goal_* 가 오지 않습니다.
+    if (event.kind.isPatrol) {
+      _applyPatrolEvent(event, message);
       notifyListeners();
       return;
     }
@@ -3430,6 +4155,7 @@ class SupervisorProvider extends ChangeNotifier {
     if (_deliveryNeedsReconcile) {
       _reconcileRestoredDelivery(next);
     }
+    _reconcilePatrolAlarm(next);
     _logErrorReasonChange(next);
     _handleNav2StatusLog(next);
     notifyListeners();
@@ -3716,6 +4442,7 @@ class SupervisorProvider extends ChangeNotifier {
     _reconnectTimer?.cancel();
     _reconnectStableTimer?.cancel();
     _deliveryReturnTimer?.cancel();
+    _patrolClipTimer?.cancel();
     unawaited(_client?.close());
     super.dispose();
   }

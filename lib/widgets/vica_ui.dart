@@ -249,11 +249,19 @@ class VicaDialog extends StatelessWidget {
     this.rows = const [],
     this.actions = const [],
     this.maxWidth = 440,
+    this.iconFilled = false,
+    this.borderColor,
   });
 
   final String title;
   final IconData? icon;
   final Color iconColor;
+
+  /// true 면 아이콘 원을 [iconColor] 로 채웁니다(경비의 침입 감지 팝업).
+  final bool iconFilled;
+
+  /// 있으면 팝업에 이 색 테두리(2px)를 두릅니다. 경비 경보 팝업이 종류를 색으로 가릅니다.
+  final Color? borderColor;
 
   /// 짧은 설명 문장. 줄바꿈이 필요하면 content 로 위젯을 넘긴다.
   final String? body;
@@ -268,6 +276,12 @@ class VicaDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      shape: borderColor == null
+          ? null
+          : RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(kVicaCardRadius),
+              side: BorderSide(color: borderColor!, width: 2),
+            ),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxWidth),
         child: SingleChildScrollView(
@@ -277,7 +291,12 @@ class VicaDialog extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (icon != null) ...[
-                VicaIconCircle(icon: icon!, color: iconColor, size: 44),
+                VicaIconCircle(
+                  icon: icon!,
+                  color: iconColor,
+                  size: 44,
+                  filled: iconFilled,
+                ),
                 const SizedBox(height: 14),
               ],
               Text(title, style: Theme.of(context).textTheme.titleMedium),
