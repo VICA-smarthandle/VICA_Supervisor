@@ -16,5 +16,14 @@ const String kDriveStopService = '/vica/mode/drive_stop';
 /// Nav2 만 다시 띄우기(기동 실패 뒤 사람이 누름).
 const String kNav2RestartService = '/vica/mode/nav2_restart';
 
+/// ⑮ 감지기만 켜고 끄기(잠시 끄기 — 주행을 다시 켜면 켜진다). 주행 중에만 통한다.
+const String kDetectorOnService = '/vica/mode/detector_on';
+const String kDetectorOffService = '/vica/mode/detector_off';
+
+/// 음성: 로컬(⑬, 로봇 안 midm2-mini) / 외부 API(⑫, 클라우드 LLM). 고른 값은 젯슨 파일에 남고,
+/// 음성이 떠 있으면 다시 띄운다(말이 끊김). 움직이는 중에는 거절된다.
+const String kVoiceLocalService = '/vica/mode/voice_offline';
+const String kVoiceApiService = '/vica/mode/voice_online';
+
 /// 모드 상태가 이보다 오래 안 오면 모드 노드가 없다고 본다. 노드는 2 s 마다 낸다.
 const Duration kModeStatusStale = Duration(seconds: 8);

@@ -34,6 +34,12 @@ class _FakeSupervisor extends SupervisorProvider {
     calls.add('drive_stop');
     return reply;
   }
+
+  @override
+  Future<(bool, String)> setVoice(VoiceChoice choice) async {
+    calls.add('voice_${choice.wire}');
+    return reply;
+  }
 }
 
 ModeStatus mode(String m, ModeState state, {List<String> stopTimeouts = const []}) =>
@@ -275,5 +281,32 @@ void main() {
       expect(find.text('지난 주행 끄기가 늦었습니다'), findsOneWidget);
       expect(find.textContaining(vicaKeepWords('Nav2, 위치 확인')), findsOneWidget);
     });
+  });
+
+  testWidgets('시트에서 음성을 외부 API 로 바꾸면 켜기 전에 음성부터 바꾼다', (tester) async {
+    final supervisor = _FakeSupervisor();
+    await pump(tester, supervisor);
+    supervisor.injectMode(mode('idle', ModeState.idle));
+    await tester.pump();
+
+    await tester.tap(find.text('주행'));
+    await tester.pumpAndSettle();
+    expect(find.text('로컬(LOCAL)'), findsOneWidget);
+    await tester.tap(find.text('로컬(LOCAL)'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('외부 API').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('안내·배송'));
+    await tester.pumpAndSettle();
+
+    expect(supervisor.calls, ['voice_online', 'drive_start']);
+  });
+
+  testWidgets('모드 노드가 없으면 시트에 음성 칸이 없다', (tester) async {
+    await pump(tester, _FakeSupervisor());
+    await tester.tap(find.text('주행'));
+    await tester.pumpAndSettle();
+    expect(find.text('어떤 일을 할까요?'), findsOneWidget);
+    expect(find.text('로컬(LOCAL)'), findsNothing);
   });
 }

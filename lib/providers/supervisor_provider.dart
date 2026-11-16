@@ -582,6 +582,17 @@ class SupervisorProvider extends ChangeNotifier {
   Future<(bool, String)> nav2Restart() =>
       _callModeService(kNav2RestartService, 'Nav2 다시 띄우기');
 
+  /// ⑮ 감지기만 켜고 끄기(잠시 끄기). 주행을 다시 켜면 켜진 상태로 돌아갑니다.
+  Future<(bool, String)> setDetector(bool on) => on
+      ? _callModeService(kDetectorOnService, '사람 감지 켜기')
+      : _callModeService(kDetectorOffService, '사람 감지 끄기');
+
+  /// 음성을 로컬 / 외부 API 로. 음성이 떠 있으면 젯슨이 다시 띄웁니다(말이 끊김).
+  Future<(bool, String)> setVoice(VoiceChoice choice) => switch (choice) {
+        VoiceChoice.local => _callModeService(kVoiceLocalService, '음성 로컬'),
+        VoiceChoice.api => _callModeService(kVoiceApiService, '음성 외부 API'),
+      };
+
   // std_srvs/Trigger 는 accepted 가 아니라 success 로 답합니다. 그래서 _callService 를
   // 쓰지 않습니다(그 도우미는 accepted 만 봅니다).
   Future<(bool, String)> _callModeService(String service, String what) async {

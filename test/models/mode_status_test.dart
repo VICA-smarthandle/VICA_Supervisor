@@ -49,4 +49,29 @@ void main() {
     expect(modeUnitLabel('nav2'), 'Nav2');
     expect(modeUnitLabel('새것'), '새것');
   });
+
+  test('감지기·음성 상태와 고른 음성을 읽는다', () {
+    final status = ModeStatus.fromJson({
+      'mode': 'drive',
+      'state': 'running',
+      'nav2': 'active',
+      'detector': 'inactive',
+      'voice': 'active',
+      'voice_mode': 'online',
+    });
+
+    expect(status.detector, 'inactive');
+    expect(status.detectorOn, isFalse);
+    expect(status.voice, 'active');
+    expect(status.voiceChoice, VoiceChoice.api);
+    expect(status.nav2Up, isTrue);
+  });
+
+  test('음성을 모르면 로컬로 본다(젯슨도 그렇게 띄운다)', () {
+    expect(VoiceChoice.fromWire(null), VoiceChoice.local);
+    expect(VoiceChoice.fromWire('offline'), VoiceChoice.local);
+    expect(VoiceChoice.fromWire('online'), VoiceChoice.api);
+    expect(VoiceChoice.local.label, '로컬(LOCAL)');
+    expect(VoiceChoice.api.label, '외부 API');
+  });
 }

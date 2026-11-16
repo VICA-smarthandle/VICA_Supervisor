@@ -7,6 +7,7 @@ import '../models/robot_status.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../ros/ros_bridge_client.dart';
+import '../widgets/drive_nodes_card.dart';
 import '../widgets/health_banner.dart';
 import '../widgets/ros_connection_tile.dart';
 import '../widgets/vica_ui.dart';
@@ -92,6 +93,8 @@ class DashboardScreen extends StatelessWidget {
           VicaDisconnectedNotice(detail: supervisor.connectionDetail),
         // 최고 등급 결함을 한 줄로 알립니다. 결함이 없으면 아무것도 그리지 않습니다.
         HealthBanner(onTap: onOpenDiagnostics),
+        // 주행 노드(사람 감지 켜기·끄기, 음성 고르기). 모드 노드가 켠 주행일 때만 보입니다(2026-11-16).
+        const DriveNodesCard(),
         // 좁은 창에서는 두 버튼을 나란히 두면 각 버튼이 130px까지 줄어 라벨이
         // 잘립니다. 그때는 위아래로 쌓아 문구를 그대로 보여줍니다.
         _ConnectionButtons(

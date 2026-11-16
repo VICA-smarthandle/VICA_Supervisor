@@ -24,6 +24,31 @@ enum ModeState {
       };
 }
 
+/// 음성을 무엇으로 돌릴지(사용자 11-16: 앱에서 LOCAL / 외부 API 고르기).
+/// [wire] 는 모드 노드의 voice_mode 값입니다.
+enum VoiceChoice {
+  local(
+    wire: 'offline',
+    label: '로컬(LOCAL)',
+    hint: '로봇 안 모델(midm2-mini) · 인터넷 없이 말마다 약 3초',
+  ),
+  api(
+    wire: 'online',
+    label: '외부 API',
+    hint: '클라우드 LLM · 인터넷이 필요',
+  );
+
+  const VoiceChoice({required this.wire, required this.label, required this.hint});
+
+  final String wire;
+  final String label;
+  final String hint;
+
+  /// 모르는 값이면 로컬(모드 노드도 파일이 없거나 이상하면 로컬로 띄웁니다).
+  static VoiceChoice fromWire(String? raw) =>
+      raw == 'online' ? VoiceChoice.api : VoiceChoice.local;
+}
+
 class ModeStatus {
   const ModeStatus({
     required this.mode,
@@ -36,6 +61,9 @@ class ModeStatus {
     this.missingNodes = const [],
     this.stopTimeouts = const [],
     this.stopInSec,
+    this.detector = 'none',
+    this.voice = 'none',
+    this.voiceChoice = VoiceChoice.local,
   });
 
   /// idle · drive · mapping · unknown
@@ -55,6 +83,21 @@ class ModeStatus {
 
   /// 기동 중 정지를 예약했을 때 늦어도 몇 초 안에 끄는지. 예약이 없으면 null.
   final int? stopInSec;
+
+  /// ⑮ 감지기 유닛 상태(active·inactive·activating·deactivating·failed). 유닛이 없으면 none.
+  final String detector;
+
+  /// 음성 유닛 상태. 유닛이 없으면 none.
+  final String voice;
+
+  /// 고른 음성(젯슨 voice_mode 파일).
+  final VoiceChoice voiceChoice;
+
+  /// Nav2 가 다 떠서 초기 위치를 받을 수 있는가(모드 노드가 Nav2 기동 기록에서 읽은 값).
+  bool get nav2Up => nav2 == 'waiting_pose' || nav2 == 'active';
+
+  /// 감지기가 켜져 있거나 켜지는 중인가.
+  bool get detectorOn => detector == 'active' || detector == 'activating';
 
   /// 주행 묶음이 켜져 있거나 켜지는 중·꺼지는 중인가.
   bool get driveOn => mode == 'drive';
@@ -77,6 +120,9 @@ class ModeStatus {
       missingNodes: strings(json['missing_nodes']),
       stopTimeouts: strings(json['stop_timeouts']),
       stopInSec: stopIn is num ? stopIn.round() : null,
+      detector: json['detector'] as String? ?? 'none',
+      voice: json['voice'] as String? ?? 'none',
+      voiceChoice: VoiceChoice.fromWire(json['voice_mode'] as String?),
     );
   }
 }

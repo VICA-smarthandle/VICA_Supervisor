@@ -342,12 +342,31 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
 
   // 주행 카드: 하위 모드를 고른 뒤, 모드 노드가 있으면 주행 묶음을 켜고 준비 화면으로 갑니다.
   Future<void> _onDrive(BuildContext context, ModeStatus? mode) async {
-    final submode = await showDriveSubmodeSheet(context);
-    if (submode == null || !context.mounted) {
+    final choice = await showDriveSubmodeSheet(context, voice: mode?.voiceChoice);
+    if (choice == null || !context.mounted) {
       return;
     }
+    final (submode, voice) = choice;
     final modes = context.read<AppModeProvider>();
     final supervisor = context.read<SupervisorProvider>();
+    // 음성을 바꿨으면 켜기 전에 먼저 알립니다. 꺼져 있으면 젯슨이 다음 기동에 쓰고,
+    // 떠 있으면 다시 띄웁니다(사용자 11-16: LOCAL / 외부 API 고르기).
+    if (mode != null && voice != null && voice != mode.voiceChoice) {
+      final (ok, message) = await supervisor.setVoice(voice);
+      if (!context.mounted) {
+        return;
+      }
+      if (!ok) {
+        await showVicaNotice(
+          context,
+          icon: Icons.error_outline,
+          iconColor: VicaColors.red,
+          title: '음성을 바꾸지 못했습니다',
+          body: message,
+        );
+        return;
+      }
+    }
     final paneNav2 =
         !(mode?.driveOn ?? false) && (supervisor.stackStatus?.nav2Running ?? false);
     // 모드 노드가 없거나(칸으로 띄우는 방식) Nav2 를 칸에서 띄웠으면 화면만 바꿉니다.
@@ -419,53 +438,120 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
 }
 
 /// 주행 하위 모드 시트(목업 '안 2', 2026-11-16 사용자 채택). 고르지 않고 닫으면 null.
-Future<DriveSubmode?> showDriveSubmodeSheet(BuildContext context) {
-  return showModalBottomSheet<DriveSubmode>(
+///
+/// [voice] 가 있으면(모드 노드가 있을 때) 음성 드롭다운을 함께 보이고(목업 A), 고른 음성을
+/// 돌려줍니다. 없으면 음성 칸 없이 하위 모드만 고릅니다.
+Future<(DriveSubmode, VoiceChoice?)?> showDriveSubmodeSheet(
+  BuildContext context, {
+  VoiceChoice? voice,
+}) {
+  var picked = voice;
+  return showModalBottomSheet<(DriveSubmode, VoiceChoice?)>(
     context: context,
     backgroundColor: VicaColors.card,
     showDragHandle: true,
+    isScrollControlled: true,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
     builder: (sheetContext) {
-      return SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                '어떤 일을 할까요?',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: VicaColors.text,
+      return StatefulBuilder(
+        builder: (sheetContext, setSheetState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  '어떤 일을 할까요?',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: VicaColors.text,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                '고르면 주행 노드를 켭니다(약 40초).',
-                style: TextStyle(fontSize: 13, color: VicaColors.muted),
-              ),
-              const SizedBox(height: 14),
-              for (final submode in DriveSubmode.values) ...[
-                _SubmodeButton(
-                  submode: submode,
-                  onTap: () => Navigator.of(sheetContext).pop(submode),
+                const SizedBox(height: 4),
+                Text(
+                  voice == null
+                      ? '고르면 주행 노드를 켭니다(약 40초).'
+                      : '고르면 주행 노드·사람 감지·음성을 켭니다(약 40초).',
+                  style: const TextStyle(fontSize: 13, color: VicaColors.muted),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 14),
+                if (picked != null) ...[
+                  _VoicePicker(
+                    value: picked!,
+                    onChanged: (choice) => setSheetState(() => picked = choice),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                for (final submode in DriveSubmode.values) ...[
+                  _SubmodeButton(
+                    submode: submode,
+                    onTap: () => Navigator.of(sheetContext).pop((submode, picked)),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                TextButton(
+                  onPressed: () => Navigator.of(sheetContext).pop(),
+                  child: const Text('닫기'),
+                ),
               ],
-              TextButton(
-                onPressed: () => Navigator.of(sheetContext).pop(),
-                child: const Text('닫기'),
-              ),
-            ],
+            ),
           ),
         ),
       );
     },
   );
+}
+
+class _VoicePicker extends StatelessWidget {
+  const _VoicePicker({required this.value, required this.onChanged});
+
+  final VoiceChoice value;
+  final ValueChanged<VoiceChoice> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: VicaColors.surfaceSunken,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: VicaColors.border),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.mic_none, color: VicaColors.primary, size: 22),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+              '음성',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: VicaColors.text),
+            ),
+          ),
+          DropdownButton<VoiceChoice>(
+            value: value,
+            underline: const SizedBox.shrink(),
+            borderRadius: BorderRadius.circular(12),
+            onChanged: (choice) {
+              if (choice != null) {
+                onChanged(choice);
+              }
+            },
+            items: [
+              for (final choice in VoiceChoice.values)
+                DropdownMenuItem(
+                  value: choice,
+                  child: Text(choice.label, style: const TextStyle(fontWeight: FontWeight.w700)),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _SubmodeButton extends StatelessWidget {
