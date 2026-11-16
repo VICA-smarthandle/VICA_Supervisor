@@ -2310,6 +2310,21 @@ class SupervisorProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 로봇의 경비 기록과 영상·사진을 모두 지웁니다(2026-11-16 사용자 요청).
+  ///
+  /// 지우는 것은 미션입니다(`patrol_records_clear`) — 경비 중이면 거절하고 그 문구를 돌려줍니다.
+  /// 지워지면 목록을 바로 비웁니다. 돌려주는 글자는 알림 띠에 그대로 씁니다.
+  Future<String> clearPatrolRecords(AppSettings settings) {
+    return _sendPatrolCommand(
+      settings.patrolRecordsClearService,
+      success: kPatrolRecordsClearedText,
+      onAccepted: () {
+        _patrolRecords = const <PatrolRecord>[];
+        _patrolRecordsFailed = false;
+      },
+    );
+  }
+
   /// rosbridge 없이 경로가 있는 화면을 그리기 위한 주입 지점입니다.
   @visibleForTesting
   void setPatrolRouteForTest(PatrolRoute? route) {

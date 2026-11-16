@@ -590,6 +590,12 @@ String patrolRemovedNotice(String name, {required bool shifted}) {
 
 /// 경비 종료 알림 띠의 두 줄(목업 PatrolTexts).
 const String kPatrolStoppedText = '경비를 종료했습니다.';
+
+/// 경비 기록 삭제(알림 및 로그 > 경비 기록, 2026-11-16)의 물음과 결과 문구.
+const String kPatrolRecordsClearTitle = '경비 기록을 모두 지울까요?';
+const String kPatrolRecordsClearBody =
+    '로봇에 저장된 기록과 영상·사진이 모두 지워집니다.\n되돌릴 수 없습니다.';
+const String kPatrolRecordsClearedText = '경비 기록을 지웠습니다.';
 const String kPatrolReturnHomeText = '로봇이 홈으로 돌아갑니다.';
 
 /// 경비를 종료한 뒤의 알림 띠(2026-11-14 사용자 결정: 종료하면 로봇이 홈으로 돌아갑니다).

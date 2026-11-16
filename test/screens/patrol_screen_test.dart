@@ -177,6 +177,20 @@ class _Supervisor extends SupervisorProvider {
       });
 }
 
+/// 경비 기록 삭제를 미션 없이 받는 가짜. 부른 횟수만 셉니다.
+class _ClearSupervisor extends _Supervisor {
+  _ClearSupervisor({super.records});
+
+  int clears = 0;
+  String reply = kPatrolRecordsClearedText;
+
+  @override
+  Future<String> clearPatrolRecords(AppSettings settings) async {
+    clears++;
+    return reply;
+  }
+}
+
 /// 42초짜리 가짜 영상. 조작만 기록합니다.
 class _FakePlayer extends ChangeNotifier implements PatrolClipPlayer {
   Duration _position = const Duration(seconds: 16);
@@ -1535,6 +1549,30 @@ void main() {
       );
     });
 
+    testWidgets('경비 기록 삭제 — 물어보고, 지우기를 눌렀을 때만 미션에 보낸다', (tester) async {
+      _size(tester, _phone);
+      final supervisor = _ClearSupervisor(records: _records());
+      addTearDown(supervisor.dispose);
+      await tester.pumpWidget(
+        _app(const LogsScreen(initialFilter: LogFilter.patrol), supervisor),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('경비 기록 삭제'));
+      await tester.pumpAndSettle();
+      expect(find.text(kPatrolRecordsClearTitle), findsOneWidget);
+      await tester.tap(find.text('취소'));
+      await tester.pumpAndSettle();
+      expect(supervisor.clears, 0);
+
+      await tester.tap(find.byTooltip('경비 기록 삭제'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('지우기'));
+      await tester.pumpAndSettle();
+      expect(supervisor.clears, 1);
+      expect(find.text(_k(kPatrolRecordsClearedText)), findsOneWidget);
+    });
+
     testWidgets('경비 기록 네 줄 — 영상은 길이 버튼, 불 켜짐은 사진 버튼', (tester) async {
       _size(tester, _phone);
       final supervisor = _Supervisor(records: _records());
@@ -1575,14 +1613,15 @@ void main() {
       // 영상 버튼 둘, 사진 버튼 하나, 카메라 끊김 줄에는 버튼이 없다.
       expect(find.byIcon(Icons.play_arrow), findsNWidgets(2));
       expect(find.byIcon(Icons.image_outlined), findsOneWidget);
-      // 로봇의 기록이라 지우는 버튼은 잠겨 있다.
+      // 지우는 버튼이 켜져 있다(2026-11-16 — 물어본 뒤 미션에 지워 달라고 한다).
       expect(
         tester
             .widget<IconButton>(
                 find.widgetWithIcon(IconButton, Icons.delete_sweep))
             .onPressed,
-        isNull,
+        isNotNull,
       );
+      expect(find.byTooltip('경비 기록 삭제'), findsOneWidget);
 
       await tester.tap(find.text('0:42'));
       await tester.pumpAndSettle();

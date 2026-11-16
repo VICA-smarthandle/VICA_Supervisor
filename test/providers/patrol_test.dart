@@ -85,6 +85,8 @@ void main() {
     expect(_settings.patrolStartService, '/vica/mission/patrol_start');
     expect(_settings.patrolStopService, '/vica/mission/patrol_stop');
     expect(_settings.patrolAckService, '/vica/mission/patrol_ack');
+    expect(_settings.patrolRecordsClearService,
+        '/vica/mission/patrol_records_clear');
     expect(_settings.patrolRouteSaveService, '/vica/patrol/route/save');
     expect(_settings.patrolRouteGetService, '/vica/patrol/route/get');
 
@@ -92,6 +94,7 @@ void main() {
       patrolStartService: '/x/start',
       patrolStopService: '/x/stop',
       patrolAckService: '/x/ack',
+      patrolRecordsClearService: '/x/clear',
       patrolRouteSaveService: '/x/save',
       patrolRouteGetService: '/x/get',
     );
@@ -99,10 +102,15 @@ void main() {
     expect(restored.patrolStartService, '/x/start');
     expect(restored.patrolStopService, '/x/stop');
     expect(restored.patrolAckService, '/x/ack');
+    expect(restored.patrolRecordsClearService, '/x/clear');
     expect(restored.patrolRouteSaveService, '/x/save');
     expect(restored.patrolRouteGetService, '/x/get');
     // 옛 설정에 항목이 없으면 기본값.
-    final old = _settings.toJson()..remove('patrolAckService');
+    final old = _settings.toJson()
+      ..remove('patrolAckService')
+      ..remove('patrolRecordsClearService');
+    expect(AppSettings.fromJson(old).patrolRecordsClearService,
+        '/vica/mission/patrol_records_clear');
     expect(
         AppSettings.fromJson(old).patrolAckService, '/vica/mission/patrol_ack');
   });

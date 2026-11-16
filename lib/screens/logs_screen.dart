@@ -2,7 +2,7 @@
 //
 // '경비 기록' 분류(2026-11-14, 목업 PatrolLog)는 앱 로그가 아니라 로봇에 남은 경비 기록을
 // 지도 서버(/patrol/events.json)에서 받아 보입니다 — 영상·사진이 딸려 있고 앱을 껐다 켜도
-// 남습니다. 로봇의 기록이라 이 화면에서 지우지는 못합니다.
+// 남습니다. 삭제 버튼은 물어본 뒤 미션에 모두 지워 달라고 합니다(2026-11-16 사용자 요청).
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -87,10 +87,14 @@ class _LogsScreenState extends State<LogsScreen> {
               ),
             ),
             IconButton.outlined(
-              // 경비 기록은 로봇에 있는 기록이라 앱에서 지우지 못합니다.
-              onPressed: patrol ? null : () => supervisor.clearLogs(_filter),
+              // 경비 기록은 로봇에 있는 기록입니다 — 영상·사진까지 지워지므로 먼저 묻습니다.
+              onPressed: patrol
+                  ? () => unawaited(_confirmClearPatrol(supervisor))
+                  : () => supervisor.clearLogs(_filter),
               icon: const Icon(Icons.delete_sweep),
-              tooltip: _filter == LogFilter.all ? '전체 삭제' : '필터 로그 삭제',
+              tooltip: patrol
+                  ? '경비 기록 삭제'
+                  : (_filter == LogFilter.all ? '전체 삭제' : '필터 로그 삭제'),
             ),
           ],
         ),
@@ -168,6 +172,27 @@ class _LogsScreenState extends State<LogsScreen> {
           onPhoto: () => _openPhoto(record),
         ),
     ];
+  }
+
+  Future<void> _confirmClearPatrol(SupervisorProvider supervisor) async {
+    final settings = context.read<SettingsProvider>().settings;
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.delete_outline,
+      iconColor: VicaColors.red,
+      title: kPatrolRecordsClearTitle,
+      body: kPatrolRecordsClearBody,
+      confirmLabel: '지우기',
+      danger: true,
+    );
+    if (!confirmed || !mounted) {
+      return;
+    }
+    final message = await supervisor.clearPatrolRecords(settings);
+    if (!mounted) {
+      return;
+    }
+    showPatrolToast(context, message);
   }
 
   void _openPhoto(PatrolRecord record) {

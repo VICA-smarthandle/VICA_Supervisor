@@ -27,6 +27,7 @@ class AppSettings {
     this.patrolStartService = '/vica/mission/patrol_start',
     this.patrolStopService = '/vica/mission/patrol_stop',
     this.patrolAckService = '/vica/mission/patrol_ack',
+    this.patrolRecordsClearService = '/vica/mission/patrol_records_clear',
     this.patrolRouteSaveService = '/vica/patrol/route/save',
     this.patrolRouteGetService = '/vica/patrol/route/get',
     this.deleteMapService = '/delete_map',
@@ -161,6 +162,8 @@ class AppSettings {
   final String patrolStartService;
   final String patrolStopService;
   final String patrolAckService;
+  // 경비 기록·영상·사진을 모두 지웁니다(2026-11-16). 경비 중에는 미션이 거절합니다.
+  final String patrolRecordsClearService;
   final String patrolRouteSaveService;
   final String patrolRouteGetService;
   final String robotStatusTopic;
@@ -222,6 +225,7 @@ class AppSettings {
     String? patrolStartService,
     String? patrolStopService,
     String? patrolAckService,
+    String? patrolRecordsClearService,
     String? patrolRouteSaveService,
     String? patrolRouteGetService,
     String? robotStatusTopic,
@@ -291,6 +295,8 @@ class AppSettings {
       patrolStartService: patrolStartService ?? this.patrolStartService,
       patrolStopService: patrolStopService ?? this.patrolStopService,
       patrolAckService: patrolAckService ?? this.patrolAckService,
+      patrolRecordsClearService:
+          patrolRecordsClearService ?? this.patrolRecordsClearService,
       patrolRouteSaveService:
           patrolRouteSaveService ?? this.patrolRouteSaveService,
       patrolRouteGetService:
@@ -382,6 +388,7 @@ class AppSettings {
       'patrolStartService': patrolStartService,
       'patrolStopService': patrolStopService,
       'patrolAckService': patrolAckService,
+      'patrolRecordsClearService': patrolRecordsClearService,
       'patrolRouteSaveService': patrolRouteSaveService,
       'patrolRouteGetService': patrolRouteGetService,
       'robotStatusTopic': robotStatusTopic,
@@ -455,6 +462,9 @@ class AppSettings {
           json['patrolStopService'] as String? ?? defaults.patrolStopService,
       patrolAckService:
           json['patrolAckService'] as String? ?? defaults.patrolAckService,
+      patrolRecordsClearService:
+          json['patrolRecordsClearService'] as String? ??
+              defaults.patrolRecordsClearService,
       patrolRouteSaveService: json['patrolRouteSaveService'] as String? ??
           defaults.patrolRouteSaveService,
       patrolRouteGetService: json['patrolRouteGetService'] as String? ??
