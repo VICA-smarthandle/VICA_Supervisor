@@ -1,0 +1,127 @@
+// 이 파일은 젯슨의 지도 HTTP 서버에서 경비 기록과 영상·사진 주소를 받아 옵니다(2026-11-14).
+//
+// 지도 그림을 주는 서버(map_http_server.py, 8000번)가 `/patrol/` 아래로 경비 기록을
+// 함께 내줍니다.
+//
+//   /patrol/events.json                 기록 목록(최신순, 최대 200건)
+//   /patrol/clips/<id>.mp4              영상(H.264). 서버가 처음 요청 때 만듭니다
+//   /patrol/clips/<id>.jpg              영상 첫 장
+//   /patrol/clips/<id>/frames.json      mp4 를 못 만든 장면의 사진 목록
+//   /patrol/clips/<id>/frames/<n>.jpg   그 사진 한 장
+//   /patrol/photos/<이름>               불 켜짐 사진
+//
+// 실제 HTTP 호출은 [fetch] 로 바꿔 끼울 수 있어 시험에서는 네트워크 없이 문자열을
+// 바로 넣습니다(RouteGraphLoader 와 같은 방식).
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+
+import '../models/patrol.dart';
+
+/// URL 하나를 받아 본문 문자열을 돌려줍니다. 없거나 실패하면 null.
+typedef PatrolFetch = Future<String?> Function(Uri uri);
+
+/// 사진 넘기기의 기본 속도(초당 장수). 서버가 값을 안 주거나 이상한 값을 줄 때 씁니다.
+const double kPatrolDefaultFps = 5;
+
+/// mp4 가 없는 장면의 사진 묶음: 장마다의 주소와 넘길 속도.
+class PatrolFrames {
+  const PatrolFrames({required this.frames, this.fps = kPatrolDefaultFps});
+
+  final List<Uri> frames;
+
+  /// 초당 장수. 감지 노드가 실제로 잰 값이라 소수일 수 있습니다(예: 3.41). 이 값으로
+  /// 넘겨야 서버가 알려 준 영상 길이(clip_sec)와 재생 길이가 같습니다.
+  final double fps;
+}
+
+class PatrolLogLoader {
+  const PatrolLogLoader({PatrolFetch? fetch}) : _fetch = fetch ?? _httpFetch;
+
+  final PatrolFetch _fetch;
+
+  static String _root(String baseUrl) =>
+      '${baseUrl.replaceAll(RegExp(r'/$'), '')}/patrol';
+
+  static Uri eventsUri(String baseUrl) =>
+      Uri.parse('${_root(baseUrl)}/events.json');
+
+  static Uri clipUri(String baseUrl, String clipId) =>
+      Uri.parse('${_root(baseUrl)}/clips/${Uri.encodeComponent(clipId)}.mp4');
+
+  static Uri posterUri(String baseUrl, String clipId) =>
+      Uri.parse('${_root(baseUrl)}/clips/${Uri.encodeComponent(clipId)}.jpg');
+
+  static Uri framesUri(String baseUrl, String clipId) => Uri.parse(
+      '${_root(baseUrl)}/clips/${Uri.encodeComponent(clipId)}/frames.json');
+
+  static Uri frameUri(String baseUrl, String clipId, String name) =>
+      Uri.parse('${_root(baseUrl)}/clips/${Uri.encodeComponent(clipId)}/frames/'
+          '${Uri.encodeComponent(name)}');
+
+  static Uri photoUri(String baseUrl, String name) =>
+      Uri.parse('${_root(baseUrl)}/photos/${Uri.encodeComponent(name)}');
+
+  /// 경비 기록 목록. 서버에 닿지 못했거나 모양이 다르면 null — 화면은 '없다'와
+  /// '못 받았다'를 구분해 보입니다.
+  Future<List<PatrolRecord>?> loadRecords(String baseUrl) async {
+    final decoded = await _json(eventsUri(baseUrl));
+    if (decoded is! List) {
+      return null;
+    }
+    return [
+      for (final item in decoded)
+        if (PatrolRecord.fromJson(item) case final record?) record,
+    ];
+  }
+
+  /// mp4 가 없는 장면의 사진 주소 목록과 넘길 속도(frames.json 의 fps). 없으면 null.
+  Future<PatrolFrames?> loadFrames(String baseUrl, String clipId) async {
+    final decoded = await _json(framesUri(baseUrl, clipId));
+    if (decoded is! Map || decoded['frames'] is! List) {
+      return null;
+    }
+    final frames = [
+      for (final name in decoded['frames'] as List)
+        if (name is String && name.isNotEmpty) frameUri(baseUrl, clipId, name),
+    ];
+    if (frames.isEmpty) {
+      return null;
+    }
+    return PatrolFrames(frames: frames, fps: _fps(decoded['fps']));
+  }
+
+  /// 서버(map_http_server.clip_fps)와 같은 범위만 받습니다. 그 밖은 기본 속도.
+  static double _fps(Object? raw) {
+    if (raw is num && raw.isFinite && raw >= 0.5 && raw <= 30) {
+      return raw.toDouble();
+    }
+    return kPatrolDefaultFps;
+  }
+
+  Future<Object?> _json(Uri uri) async {
+    final String? text;
+    try {
+      text = await _fetch(uri);
+    } catch (_) {
+      return null;
+    }
+    if (text == null || text.isEmpty) {
+      return null;
+    }
+    try {
+      return jsonDecode(text);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<String?> _httpFetch(Uri uri) async {
+    final response = await http.get(uri).timeout(const Duration(seconds: 8));
+    if (response.statusCode != 200) {
+      return null;
+    }
+    // 서버는 UTF-8 로 보냅니다. 머리말에 기대지 않고 직접 풉니다(장소 이름이 한글).
+    return utf8.decode(response.bodyBytes, allowMalformed: true);
+  }
+}

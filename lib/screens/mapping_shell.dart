@@ -20,6 +20,7 @@ import '../providers/supervisor_provider.dart';
 import 'settings_screen.dart';
 import '../widgets/confirm_logout.dart';
 import '../widgets/map_canvas.dart';
+import '../widgets/map_work_layout.dart';
 import '../widgets/ros_connection_tile.dart';
 import '../widgets/teleop_pad.dart';
 import '../widgets/vica_ui.dart';
@@ -105,65 +106,80 @@ class _MappingShellState extends State<MappingShell> {
         ],
       ),
       body: SafeArea(
-        child: VicaPage(
-          title: '새 지도 그리기',
-          children: [
-            const VicaRosConnectionTile(),
-            const _EmergencyResetCard(),
-            if (status == null) const _WaitingForSupervisor(),
-            _Step(
-              index: 0,
-              current: step,
-              title: '준비 확인',
-              child: _PrepareStep(
-                status: status,
-                estopConfirmed: _estopConfirmed,
-                onEstopChanged: (value) =>
-                    setState(() => _estopConfirmed = value ?? false),
-                onStart: () => _start(context, settings),
-              ),
-            ),
-            _Step(
-              index: 1,
-              current: step,
-              title: '작성 중',
-              child: _MappingStep(
-                settings: settings,
-                onStop: () => _stop(context, settings),
-                onGoSave: () => setState(() => _readyToSave = true),
-              ),
-            ),
-            _Step(
-              index: 2,
-              current: step,
-              title: '저장',
-              child: _SaveStep(
-                controller: _nameController,
-                status: status,
-                onSave: () => _save(context, settings),
-              ),
-            ),
-            _Step(
-              index: 3,
-              current: step,
-              title: '완료',
-              child: _DoneStep(
-                mapId: savedMapId,
-                mapName: status != null &&
-                        status.mapId == savedMapId &&
-                        status.mapName.isNotEmpty
-                    ? status.mapName
-                    : savedMapId,
-                // 바르게 세웠는지 결과 한 줄(2026-10-07, 목업 14번). 감독 노드가
-                // 저장을 마치며 save_align 으로 보냅니다. 옛 노드면 없습니다.
-                alignSentence: status != null && status.mapId == savedMapId
-                    ? status.saveAlign?.sentence
-                    : null,
-                onRefreshMaps: () => supervisor.requestMapList(settings),
-                onFinish: () => _stop(context, settings, thenIdle: true),
-              ),
-            ),
-          ],
+        // 넓은 화면에서 ② 작성 중이면 미리보기 지도를 단계 칸 밖으로 꺼내 왼쪽(세로
+        // 태블릿은 위)에 고정합니다. 단계·조작판·버튼은 그대로입니다(map_work_layout.dart).
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final liftPreview = step == 1 &&
+                MapWorkLayout.arrangementFor(constraints) !=
+                    MapWorkArrangement.stacked;
+            return MapWorkLayout(
+              title: '새 지도 그리기',
+              showTitleWhenWide: true,
+              children: [
+                if (liftPreview)
+                  MapWorkMap(
+                    child: _MappingPreview(settings: settings, fill: true),
+                  ),
+                const VicaRosConnectionTile(),
+                const _EmergencyResetCard(),
+                if (status == null) const _WaitingForSupervisor(),
+                _Step(
+                  index: 0,
+                  current: step,
+                  title: '준비 확인',
+                  child: _PrepareStep(
+                    status: status,
+                    estopConfirmed: _estopConfirmed,
+                    onEstopChanged: (value) =>
+                        setState(() => _estopConfirmed = value ?? false),
+                    onStart: () => _start(context, settings),
+                  ),
+                ),
+                _Step(
+                  index: 1,
+                  current: step,
+                  title: '작성 중',
+                  child: _MappingStep(
+                    settings: settings,
+                    showPreview: !liftPreview,
+                    onStop: () => _stop(context, settings),
+                    onGoSave: () => setState(() => _readyToSave = true),
+                  ),
+                ),
+                _Step(
+                  index: 2,
+                  current: step,
+                  title: '저장',
+                  child: _SaveStep(
+                    controller: _nameController,
+                    status: status,
+                    onSave: () => _save(context, settings),
+                  ),
+                ),
+                _Step(
+                  index: 3,
+                  current: step,
+                  title: '완료',
+                  child: _DoneStep(
+                    mapId: savedMapId,
+                    mapName: status != null &&
+                            status.mapId == savedMapId &&
+                            status.mapName.isNotEmpty
+                        ? status.mapName
+                        : savedMapId,
+                    // 바르게 세웠는지 결과 한 줄(2026-10-07, 목업 14번). 감독 노드가
+                    // 저장을 마치며 save_align 으로 보냅니다. 옛 노드면 없습니다.
+                    alignSentence: status != null && status.mapId == savedMapId
+                        ? status.saveAlign?.sentence
+                        : null,
+                    onRefreshMaps: () => supervisor.requestMapList(settings),
+                    onFinish: () => _stop(context, settings, thenIdle: true),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -588,66 +604,30 @@ class _PrepareStep extends StatelessWidget {
 class _MappingStep extends StatelessWidget {
   const _MappingStep({
     required this.settings,
+    this.showPreview = true,
     required this.onStop,
     required this.onGoSave,
   });
 
   final AppSettings settings;
+
+  /// 넓은 화면에서는 미리보기를 단계 칸 밖(지도 자리)으로 꺼내 놓으므로 여기서 뺍니다.
+  final bool showPreview;
   final VoidCallback onStop;
   final VoidCallback onGoSave;
 
   @override
   Widget build(BuildContext context) {
     final supervisor = context.watch<SupervisorProvider>();
-    final preview = supervisor.mapPreview;
     final status = supervisor.mappingStatus;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (preview == null)
-          Text(
-            vicaKeepWords(vicaBreakAtSentences(
-              '지도를 띄우는 중입니다. 로봇을 조금 움직이면 그려지기 시작합니다.',
-            )),
-            style: const TextStyle(fontSize: 12, color: VicaColors.muted),
-          )
-        else ...[
-          ResponsiveMapFrame(
-            map: preview.toVicaMap(),
-            minHeight: 220,
-            maxHeight: 420,
-            child: MapCanvas(
-              map: preview.toVicaMap(),
-              settings: settings,
-              locations: const [],
-              // 로봇 위치는 미리보기 JSON 에 함께 실려 옵니다(map_preview_node 가
-              // Cartographer 의 /tracked_pose 를 동봉). /robot_status 를 넘기면
-              // 매핑 중엔 map_id 가 비어 그려지지 않고, 위치도 /odom 좌표라
-              // 엉뚱한 자리에 찍힙니다(2026-09-04). poseArrow 는 지도 id 를 따지지
-              // 않아 초기위치·홈 화면과 같은 방식으로 씁니다.
-              poseArrow: preview.hasRobotPose
-                  ? MapPoseArrow(
-                      x: preview.robotX!,
-                      y: preview.robotY!,
-                      yawDegrees: preview.robotYaw!,
-                      label: '로봇 위치',
-                      // 회색 지도 위에서 잘 보이게 빨강(2026-09-15).
-                      color: VicaColors.red,
-                    )
-                  : null,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '${preview.width}×${preview.height} 칸 · '
-            '${(preview.bytes / 1024).toStringAsFixed(1)} KB · '
-            '${preview.seq}회 갱신'
-            '${preview.hasRobotPose ? '' : ' · 로봇 위치 없음'}',
-            style: const TextStyle(fontSize: 11, color: VicaColors.muted),
-          ),
+        if (showPreview) ...[
+          _MappingPreview(settings: settings),
+          const SizedBox(height: 12),
         ],
-        const SizedBox(height: 12),
         TeleopPad(enabled: status?.state == MappingState.mapping),
         const SizedBox(height: 4),
         // 버튼 둘을 위아래로 놓습니다(2026-09-14 시안). 전에는 Row 에 두었는데,
@@ -662,6 +642,76 @@ class _MappingStep extends StatelessWidget {
         OutlinedButton(
           onPressed: onStop,
           child: const Text('취소'),
+        ),
+      ],
+    );
+  }
+}
+
+// ② 작성 중 미리보기 지도. 지금 배치에서는 단계 칸 안, 넓은 화면에서는 왼쪽(세로
+// 태블릿은 위) 지도 자리에 놓입니다. 그리는 내용은 어느 자리든 같습니다.
+class _MappingPreview extends StatelessWidget {
+  const _MappingPreview({required this.settings, this.fill = false});
+
+  final AppSettings settings;
+
+  /// 높이가 정해진 지도 자리를 채울지. 채우면 지도 판이 남는 높이를 다 쓰고
+  /// 크기 글은 그 아래에 붙습니다.
+  final bool fill;
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = context.watch<SupervisorProvider>().mapPreview;
+
+    if (preview == null) {
+      final waiting = Text(
+        vicaKeepWords(vicaBreakAtSentences(
+          '지도를 띄우는 중입니다. 로봇을 조금 움직이면 그려지기 시작합니다.',
+        )),
+        style: const TextStyle(fontSize: 12, color: VicaColors.muted),
+      );
+      return fill ? Center(child: waiting) : waiting;
+    }
+
+    final frame = ResponsiveMapFrame(
+      map: preview.toVicaMap(),
+      minHeight: 220,
+      maxHeight: 420,
+      child: MapCanvas(
+        map: preview.toVicaMap(),
+        settings: settings,
+        locations: const [],
+        // 로봇 위치는 미리보기 JSON 에 함께 실려 옵니다(map_preview_node 가
+        // Cartographer 의 /tracked_pose 를 동봉). /robot_status 를 넘기면
+        // 매핑 중엔 map_id 가 비어 그려지지 않고, 위치도 /odom 좌표라
+        // 엉뚱한 자리에 찍힙니다(2026-09-04). poseArrow 는 지도 id 를 따지지
+        // 않아 초기위치·홈 화면과 같은 방식으로 씁니다.
+        poseArrow: preview.hasRobotPose
+            ? MapPoseArrow(
+                x: preview.robotX!,
+                y: preview.robotY!,
+                yawDegrees: preview.robotYaw!,
+                label: '로봇 위치',
+                // 회색 지도 위에서 잘 보이게 빨강(2026-09-15).
+                color: VicaColors.red,
+              )
+            : null,
+      ),
+    );
+
+    return Column(
+      crossAxisAlignment:
+          fill ? CrossAxisAlignment.stretch : CrossAxisAlignment.start,
+      mainAxisSize: fill ? MainAxisSize.max : MainAxisSize.min,
+      children: [
+        if (fill) Expanded(child: frame) else frame,
+        const SizedBox(height: 6),
+        Text(
+          '${preview.width}×${preview.height} 칸 · '
+          '${(preview.bytes / 1024).toStringAsFixed(1)} KB · '
+          '${preview.seq}회 갱신'
+          '${preview.hasRobotPose ? '' : ' · 로봇 위치 없음'}',
+          style: const TextStyle(fontSize: 11, color: VicaColors.muted),
         ),
       ],
     );

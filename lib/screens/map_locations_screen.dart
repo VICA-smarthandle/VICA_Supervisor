@@ -12,6 +12,7 @@ import '../widgets/drive_control_bar.dart';
 import '../widgets/drive_map_canvas.dart';
 import '../widgets/map_canvas.dart';
 import '../widgets/map_picker.dart';
+import '../widgets/map_work_layout.dart';
 import '../widgets/vica_ui.dart';
 
 class MapLocationsScreen extends StatefulWidget {
@@ -62,7 +63,8 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     final activity = MissionActivity.of(robot);
     final busy = driving || paused || activity != null;
 
-    return VicaPage(
+    // 넓은 화면은 지도 왼쪽 + 카드 오른쪽, 세로 태블릿은 지도 위 고정(map_work_layout.dart).
+    return MapWorkLayout(
       title: '원격 주행',
       children: [
         MapPickerRow(
