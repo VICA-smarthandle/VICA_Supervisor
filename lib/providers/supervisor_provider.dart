@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../core/app_settings.dart';
 import '../core/json_read.dart';
 import '../core/log_filter.dart';
+import '../core/mode_contract.dart';
 import '../models/delivery_job.dart';
 import '../models/goal_event.dart';
 import '../models/home_position.dart';
@@ -19,6 +20,7 @@ import '../models/robot_health.dart';
 import '../models/map_preview.dart';
 import '../models/pose_check_result.dart';
 import '../models/mapping_status.dart';
+import '../models/mode_status.dart';
 import '../models/patrol.dart';
 import '../models/robot_status.dart';
 import '../models/route_edit.dart';
@@ -437,6 +439,9 @@ class SupervisorProvider extends ChangeNotifier {
     // 떠 있다"고 잘못된 안심을 줄 수 있습니다 — 그래서 '확인 불가'로 되돌립니다.
     _stackStatus = null;
     _stackStatusError = '';
+    // 모드 상태도 현재 사실이 아닙니다. 남기면 끊긴 사이 꺼진 주행을 켜져 있다고 그립니다.
+    _modeStatus = null;
+    _modeStatusAt = null;
     if (_robotsById.isEmpty) {
       return;
     }
@@ -532,7 +537,77 @@ class SupervisorProvider extends ChangeNotifier {
       ..subscribe(
         topic: settings.deliverySmsResultTopic,
         handler: _handleDeliverySmsResult,
+      )
+      // 모드 노드(부팅 자동 기동, 2026-11-16). 없으면 아무것도 안 와서 예전처럼 동작합니다.
+      ..subscribe(
+        topic: kModeStatusTopic,
+        handler: _handleModeStatus,
       );
+  }
+
+  // ---- 모드 노드 (주행 묶음 켜기·끄기, 2026-11-16) ---------------------------------
+
+  ModeStatus? _modeStatus;
+  DateTime? _modeStatusAt;
+
+  /// 모드 노드가 보낸 최근 상태. 8 s 넘게 안 왔으면 null — 모드 노드가 없거나 끊긴 것으로
+  /// 보고 화면은 예전처럼(화면만 바꾸기) 동작합니다.
+  ModeStatus? get modeStatus {
+    final at = _modeStatusAt;
+    if (_modeStatus == null || at == null) {
+      return null;
+    }
+    return DateTime.now().difference(at) > kModeStatusStale ? null : _modeStatus;
+  }
+
+  void _handleModeStatus(Map<String, Object?> message) {
+    final decoded = _decodeJsonString(message);
+    if (decoded == null) {
+      return;
+    }
+    _modeStatus = ModeStatus.fromJson(decoded);
+    _modeStatusAt = DateTime.now();
+    notifyListeners();
+  }
+
+  /// 주행 묶음 켜기. (받아들였는가, 사람에게 보일 문구)
+  Future<(bool, String)> driveStart() =>
+      _callModeService(kDriveStartService, '주행 켜기');
+
+  /// 주행 묶음 끄기. Nav2 가 뜨는 중이면 모드 노드가 다 뜬 뒤로 예약합니다.
+  Future<(bool, String)> driveStop() =>
+      _callModeService(kDriveStopService, '주행 끄기');
+
+  /// Nav2 만 다시 띄우기.
+  Future<(bool, String)> nav2Restart() =>
+      _callModeService(kNav2RestartService, 'Nav2 다시 띄우기');
+
+  // std_srvs/Trigger 는 accepted 가 아니라 success 로 답합니다. 그래서 _callService 를
+  // 쓰지 않습니다(그 도우미는 accepted 만 봅니다).
+  Future<(bool, String)> _callModeService(String service, String what) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return (false, 'ROS Bridge에 연결되지 않았습니다.');
+    }
+    try {
+      final response = await client.callService(service: service);
+      final message =
+          response.message.isEmpty ? '$what 요청을 보냈습니다.' : response.message;
+      _addLog(LogFilter.coordinateTransfer, '$what: $message');
+      return (response.success, message);
+    } catch (error) {
+      final message = '$what 실패: $error';
+      _addLog(LogFilter.coordinateTransfer, message);
+      return (false, message);
+    }
+  }
+
+  /// 모드 노드 없이 화면 규칙만 검증하기 위한 주입 지점입니다.
+  @visibleForTesting
+  void setModeStatusForTest(ModeStatus? status) {
+    _modeStatus = status;
+    _modeStatusAt = status == null ? null : DateTime.now();
+    notifyListeners();
   }
 
   // 앱 비상정지 버튼: app_emergency_node의 activate 서비스를 호출합니다.

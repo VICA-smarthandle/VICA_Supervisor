@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vica_supervisor/app.dart';
+import 'package:vica_supervisor/providers/app_mode_provider.dart';
 import 'package:vica_supervisor/providers/auth_provider.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
@@ -22,6 +23,8 @@ void main() {
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ChangeNotifierProvider(create: (_) => SupervisorProvider()),
         ChangeNotifierProvider.value(value: uiPreferencesProvider),
+        // 실제 앱(main.dart)처럼 둡니다. 주행 화면 틀이 처음 열 탭을 여기서 읽습니다(2026-11-16).
+        ChangeNotifierProvider(create: (_) => AppModeProvider()),
       ],
       child: const MaterialApp(home: SupervisorShell()),
     );

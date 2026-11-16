@@ -280,6 +280,18 @@ class SupervisorShell extends StatefulWidget {
 class _SupervisorShellState extends State<SupervisorShell> {
   int _index = 0;
 
+  @override
+  void initState() {
+    super.initState();
+    // 모드 선택에서 정한 첫 탭(경비 하위 모드 → '경비', 초기 위치 잡기 → '원격 주행',
+    // 2026-11-16). 한 번만 씁니다 — 모드 바꾸기로 다시 들어오면 대시보드부터입니다.
+    final tab = context.read<AppModeProvider>().takeLandingTab();
+    final index = tab == null ? -1 : _titles.indexOf(tab);
+    if (index >= 0) {
+      _index = index;
+    }
+  }
+
   /// 설정 화면의 저장 버튼은 헤더(AppBar)에 있습니다. 화면 밖에서 저장을
   /// 부르려면 그 화면의 State 에 닿아야 해서 key 로 붙잡습니다.
   final _settingsKey = GlobalKey<SettingsScreenState>();
