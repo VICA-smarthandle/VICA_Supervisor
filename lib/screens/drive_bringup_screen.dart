@@ -9,6 +9,7 @@
 //     노드가 강제 종료되기 쉽다 — 11-16 실기). 예약 중 '주행 계속'은 예약 취소입니다.
 //   - 초기 위치 대기: 원격 주행 탭의 초기 위치 카드로 보냅니다(그 카드는 그대로 씁니다).
 //   - 지도로 바꾸기([thenMapping]): 다 꺼지면 지도 모드로 들어갑니다.
+//   - 주행 끄기([stopOnly], 2026-11-17 대시보드 버튼): 다 꺼지면 모드 선택으로 돌아갑니다.
 //   - 주행 지도 바꾸기([mapChange], 2026-11-17 목업 ⑤): 젯슨이 Nav2·미션·음성을 다시 띄우는 동안
 //     진행을 보이고, 초기 위치 대기에 이르면 원격 주행 탭으로 보냅니다.
 import 'dart:async';
@@ -27,6 +28,7 @@ class DriveBringupScreen extends StatefulWidget {
     super.key,
     this.submode = DriveSubmode.guideDelivery,
     this.thenMapping = false,
+    this.stopOnly = false,
     this.mapChange,
   });
 
@@ -35,6 +37,10 @@ class DriveBringupScreen extends StatefulWidget {
 
   /// true 면 주행을 끄는 중이고, 다 꺼지면 지도 모드로 들어갑니다.
   final bool thenMapping;
+
+  /// true 면 주행을 끄는 중이고(대시보드 '주행 끄기'), 다 꺼지면 모드 선택으로 돌아갑니다.
+  /// 끄기 요청은 연 쪽이 이미 보냈습니다.
+  final bool stopOnly;
 
   /// 주행 지도를 바꾸는 중이면 (바꾸기 전 이름, 바꾼 이름).
   final (String, String)? mapChange;
@@ -50,7 +56,7 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
   bool _left = false;
 
   /// 이 화면에서 끄기를 눌렀는가. 꺼지면(idle) 모드 선택으로 돌아갑니다.
-  late bool _stopRequested = widget.thenMapping;
+  late bool _stopRequested = widget.thenMapping || widget.stopOnly;
 
   /// 지도 바꾸기: 유닛이 내려간 것을 봤는가. 요청 직후 상태가 아직 running 일 수 있어, 그 사이에
   /// 화면을 닫지 않게 합니다(젯슨이 2 s 마다 상태를 냄).
@@ -133,6 +139,8 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
         _leave((modes) {
           if (widget.thenMapping) {
             modes.select(AppMode.mapping);
+          } else if (widget.stopOnly) {
+            modes.clear();
           }
         });
       } else if (status.state == ModeState.running && !_stopRequested && _restartSeen()) {
@@ -147,7 +155,9 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
       appBar: AppBar(
         title: Text(widget.thenMapping
             ? '지도로 바꾸기'
-            : (widget.mapChange != null ? '지도 바꾸는 중' : '주행 준비')),
+            : widget.stopOnly
+                ? '주행 끄기'
+                : (widget.mapChange != null ? '지도 바꾸는 중' : '주행 준비')),
       ),
       body: SafeArea(
         child: Padding(
@@ -206,6 +216,8 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
             const _Step('주행 노드 끄기', _StepState.current, 'Nav2·미션·손잡이·감시'),
             if (widget.thenMapping)
               const _Step('지도 그리기로', _StepState.todo, '다 꺼지면 넘어갑니다'),
+            if (widget.stopOnly)
+              const _Step('모드 선택으로', _StepState.todo, '다 꺼지면 돌아갑니다'),
           ],
           note: status.detail.isEmpty ? '보통 5~15초 걸립니다.' : status.detail,
         ),

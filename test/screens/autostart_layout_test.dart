@@ -164,6 +164,17 @@ void main() {
         () => const Scaffold(body: SingleChildScrollView(child: Padding(padding: EdgeInsets.all(16), child: DriveNodesCard()))));
   });
 
+  testWidgets('주행 끄기 — 대시보드 확인 창·끄는 진행 화면', (tester) async {
+    await check(tester, '주행 끄기 확인 창', _status(),
+        () => const Scaffold(body: SingleChildScrollView(child: Padding(padding: EdgeInsets.all(16), child: DriveNodesCard()))),
+        after: (tester) async {
+      await tester.tap(find.widgetWithText(OutlinedButton, '주행 끄기'));
+      await tester.pumpAndSettle();
+    });
+    await check(tester, '주행 끄는 중', _status(state: 'stopping', nav2: 'active'),
+        () => const DriveBringupScreen(stopOnly: true));
+  });
+
   Widget scroll(Widget child) =>
       Scaffold(body: SingleChildScrollView(child: Padding(padding: const EdgeInsets.all(16), child: child)));
 

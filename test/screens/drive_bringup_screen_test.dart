@@ -61,8 +61,13 @@ void main() {
     ModeStatus? initial, {
     DriveSubmode submode = DriveSubmode.guideDelivery,
     bool thenMapping = false,
+    bool stopOnly = false,
   }) async {
     final modes = AppModeProvider();
+    if (stopOnly) {
+      // 대시보드(주행 화면)에서 끄기를 누른 경우입니다.
+      modes.enterDrive(submode);
+    }
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(400, 860);
     addTearDown(() {
@@ -87,6 +92,7 @@ void main() {
                       builder: (_) => DriveBringupScreen(
                         submode: submode,
                         thenMapping: thenMapping,
+                        stopOnly: stopOnly,
                       ),
                     ),
                   ),
@@ -220,6 +226,29 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(modes.mode, AppMode.mapping);
+    expect(find.byType(DriveBringupScreen), findsNothing);
+  });
+
+  testWidgets('대시보드에서 주행만 끄면 다 꺼진 뒤 모드 선택으로 돌아간다', (tester) async {
+    final supervisor = _FakeSupervisor();
+    // 요청 직후엔 상태가 아직 running 일 수 있습니다(2 s 주기). 그래도 끄는 중으로 보여야 합니다.
+    final modes = await open(
+      tester,
+      supervisor,
+      status('drive', ModeState.running, nav2: 'active'),
+      stopOnly: true,
+    );
+
+    expect(find.text('주행 끄는 중'), findsOneWidget);
+    expect(find.text('모드 선택으로'), findsOneWidget);
+    expect(find.text('지도 그리기로'), findsNothing);
+    expect(modes.mode, AppMode.drive);
+    expect(supervisor.calls, isEmpty); // 끄기 요청은 카드가 이미 보냈습니다.
+
+    supervisor.inject(status('idle', ModeState.idle, nav2: 'down'));
+    await tester.pumpAndSettle();
+
+    expect(modes.mode, isNull);
     expect(find.byType(DriveBringupScreen), findsNothing);
   });
 

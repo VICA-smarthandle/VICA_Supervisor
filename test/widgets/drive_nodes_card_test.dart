@@ -5,7 +5,9 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vica_supervisor/models/mode_status.dart';
 import 'package:vica_supervisor/providers/app_mode_provider.dart';
+import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
+import 'package:vica_supervisor/screens/drive_bringup_screen.dart';
 import 'package:vica_supervisor/widgets/drive_nodes_card.dart';
 import 'package:vica_supervisor/widgets/vica_ui.dart';
 
@@ -22,6 +24,12 @@ class _FakeSupervisor extends SupervisorProvider {
   @override
   Future<(bool, String)> setVoice(VoiceChoice choice) async {
     calls.add('voice_${choice.wire}');
+    return reply;
+  }
+
+  @override
+  Future<(bool, String)> driveStop() async {
+    calls.add('drive_stop');
     return reply;
   }
 }
@@ -52,6 +60,7 @@ void main() {
         providers: [
           ChangeNotifierProvider<SupervisorProvider>.value(value: supervisor),
           ChangeNotifierProvider(create: (_) => AppModeProvider()),
+          ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ],
         child: const MaterialApp(home: Scaffold(body: SingleChildScrollView(child: DriveNodesCard()))),
       ),
@@ -126,5 +135,52 @@ void main() {
     await tester.pump();
 
     expect(find.textContaining(vicaKeepWords('외부 API 연결 실패 → 로컬 API 로 전환')), findsOneWidget);
+  });
+
+  // 2026-11-17 사용자: 주행 묶음을 내리는 '주행 끄기'를 대시보드 주행 설정 카드 머리 줄에(목업 ①).
+  final stopButton = find.widgetWithText(OutlinedButton, '주행 끄기');
+  final confirmStop = find.widgetWithText(FilledButton, '주행 끄기');
+
+  testWidgets('주행 끄기는 확인 창을 거쳐서만 주행을 끄고, 끄는 진행 화면을 연다', (tester) async {
+    final supervisor = await pump(tester, drive());
+    expect(stopButton, findsOneWidget);
+
+    await tester.tap(stopButton);
+    await tester.pumpAndSettle();
+    expect(find.text('주행을 끌까요?'), findsOneWidget);
+    await tester.tap(find.text('취소'));
+    await tester.pumpAndSettle();
+    expect(supervisor.calls, isEmpty);
+
+    await tester.tap(stopButton);
+    await tester.pumpAndSettle();
+    await tester.tap(confirmStop);
+    await tester.pumpAndSettle();
+    expect(supervisor.calls, ['drive_stop']);
+    expect(find.byType(DriveBringupScreen), findsOneWidget);
+    expect(find.text('주행 끄는 중'), findsOneWidget);
+  });
+
+  testWidgets('주행 끄기가 거절되면 이유를 띄우고 진행 화면을 열지 않는다', (tester) async {
+    final supervisor = await pump(tester, drive());
+    supervisor.reply = (false, '로봇이 움직이는 중이라 끌 수 없습니다.');
+    await tester.tap(stopButton);
+    await tester.pumpAndSettle();
+    await tester.tap(confirmStop);
+    await tester.pumpAndSettle();
+
+    expect(supervisor.calls, ['drive_stop']);
+    expect(find.text('주행을 끄지 못했습니다'), findsOneWidget);
+    // 대화창 본문은 줄 내림용으로 vicaKeepWords·vicaBreakAtSentences 를 거칩니다.
+    expect(find.text(vicaKeepWords(vicaBreakAtSentences('로봇이 움직이는 중이라 끌 수 없습니다.'))), findsOneWidget);
+    expect(find.byType(DriveBringupScreen), findsNothing);
+  });
+
+  testWidgets('이미 끄는 중이면 주행 끄기를 누를 수 없다', (tester) async {
+    await pump(
+      tester,
+      const ModeStatus(mode: 'drive', state: ModeState.stopping, nav2: 'active', detector: 'active', voice: 'active'),
+    );
+    expect(tester.widget<OutlinedButton>(stopButton).onPressed, isNull);
   });
 }
