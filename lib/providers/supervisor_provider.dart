@@ -4538,10 +4538,12 @@ class SupervisorProvider extends ChangeNotifier {
     // 알림이 진단 화면과 중복되면서 정작 중요한 항목이 묻힙니다.
     if (event.fault.severity.blocksDriving &&
         event.transition != FaultTransition.reminder) {
-      final prefix = event.transition == FaultTransition.cleared ? '해소' : '발생';
+      // 해소는 무엇이 풀렸는지만, 발생은 짧은 한 문장까지(2026-11-17).
       _addLog(
         LogFilter.emergencyStop,
-        '[$prefix] ${event.fault.componentLabelText}: ${event.fault.detail}',
+        event.transition == FaultTransition.cleared
+            ? '[해소] ${event.fault.componentLabelText}'
+            : '[발생] ${event.fault.componentLabelText}: ${event.fault.message}',
       );
     }
 

@@ -226,11 +226,13 @@ class _FaultCard extends StatelessWidget {
                   ),
               ],
             ),
-            if (fault.detail.isNotEmpty) ...[
+            if (fault.message.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(
-                vicaKeepWords(vicaBreakAtSentences(fault.detail)),
-                style: const TextStyle(fontWeight: FontWeight.w700),
+                vicaKeepWords(vicaBreakAtSentences(fault.message)),
+                // 2026-11-17 사용자: 결함 문장 글씨를 줄인다(기본 14 → 13).
+                style:
+                    const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
               ),
             ],
             const SizedBox(height: 8),

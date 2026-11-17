@@ -104,9 +104,12 @@ void main() {
       expect(find.text('주행 불가'), findsWidgets);
       // 코드는 카드 끝 작은 줄에(2026-11-17 A안).
       expect(find.textContaining('LIDAR_SCAN_STALE'), findsOneWidget);
-      expect(find.textContaining(vicaKeepWords('2.1초')), findsOneWidget);
+      // 사유는 로봇 원문 대신 짧은 한 문장(2026-11-17 사용자 '가' 안).
+      expect(
+          find.textContaining(vicaKeepWords('LiDAR 신호가 끊겼으니')), findsOneWidget);
+      expect(find.textContaining(vicaKeepWords('2.1초')), findsNothing);
       // 할 일(suggested_action)은 보이지 않는다(사용자 11-17).
-      expect(find.textContaining(vicaKeepWords('USB 연결')), findsNothing);
+      expect(find.textContaining(vicaKeepWords('rplidar 노드')), findsNothing);
     });
 
     testWidgets('맨 위 한 줄 판정: 상태와 가장 높은 결함 부품', (tester) async {
@@ -282,8 +285,9 @@ void main() {
       await tester.pump();
 
       expect(find.textContaining('주행 불가'), findsOneWidget);
-      expect(find.textContaining('LiDAR'), findsOneWidget);
-      expect(find.textContaining(vicaKeepWords('2.1초')), findsOneWidget);
+      expect(find.textContaining('LiDAR'), findsWidgets);
+      expect(
+          find.textContaining(vicaKeepWords('USB 연결을 확인해주세요')), findsOneWidget);
     });
 
     testWidgets('다른 결함 수를 함께 알린다', (tester) async {

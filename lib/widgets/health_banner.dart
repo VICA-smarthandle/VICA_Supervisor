@@ -49,7 +49,7 @@ class HealthBanner extends StatelessWidget {
       color: fault.severity.color,
       icon: fault.severity.icon,
       title: '${fault.severity.label} · ${fault.componentLabelText}',
-      detail: fault.detail.isEmpty ? fault.faultCode : fault.detail,
+      detail: fault.message.isEmpty ? fault.faultCode : fault.message,
       extraCount: health.activeFaultCount - 1,
       onTap: onTap,
     );

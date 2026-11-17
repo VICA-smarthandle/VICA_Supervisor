@@ -3,9 +3,11 @@
 // rosbridge는 커스텀 메시지를 필드 map으로 직렬화해 보냅니다. JSON String 토픽이 아니므로
 // RosBridgeClient가 raw map을 그대로 handler에 넘깁니다(ros_bridge_client.dart 참조).
 //
-// 문구(detail, suggestedAction)는 로봇의 fault_catalog.py가 만듭니다. 앱은 표시만 합니다.
-// 앱에 문구 테이블을 두면 정본이 두 곳으로 갈라지고 문구 한 줄을 고치려고 앱을 다시
-// 배포해야 합니다.
+// 문구(detail, suggestedAction)는 로봇의 fault_catalog.py가 만듭니다.
+// 2026-11-17 사용자 결정: 화면에는 코드별 짧은 한 문장([message], core/fault_messages.dart)을
+// 씁니다. 로봇 원문(detail)은 그대로 받아 두고, 표에 없는 코드는 원문을 보입니다. 짧은 문장을
+// 고치려면 앱을 다시 배포해야 합니다(로봇 쪽 문장·로그는 그대로).
+import '../core/fault_messages.dart';
 import '../core/fault_severity.dart';
 import '../core/json_read.dart';
 
@@ -52,6 +54,13 @@ class RobotFault {
 
   /// 화면에 보여줄 컴포넌트 이름.
   String get componentLabelText => componentLabel(component);
+
+  /// 화면에 쓸 짧은 한 문장('LiDAR 신호가 끊겼으니 USB 연결을 확인해주세요.').
+  String get message => faultShortMessage(
+        code: faultCode,
+        detail: detail,
+        componentLabel: componentLabelText,
+      );
 
   /// 결함이 이어진 시간. 관리자가 "방금 생긴 것"과 "계속되는 것"을 구분하는 값입니다.
   Duration get duration {
