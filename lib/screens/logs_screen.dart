@@ -13,6 +13,7 @@ import '../models/patrol.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../widgets/patrol_media.dart';
+import '../widgets/log_summary.dart';
 import '../widgets/patrol_ui.dart';
 import '../widgets/vica_ui.dart';
 
@@ -35,6 +36,9 @@ class LogsScreen extends StatefulWidget {
 
 class _LogsScreenState extends State<LogsScreen> {
   late LogFilter _filter = widget.initialFilter;
+
+  // 시간대 막대에서 고른 시(오늘, 0~23). 고르면 목록이 그 시의 기록만 보입니다.
+  int? _hour;
   final _chipScroll = ScrollController();
 
   @override
@@ -71,9 +75,18 @@ class _LogsScreenState extends State<LogsScreen> {
   Widget build(BuildContext context) {
     final supervisor = context.watch<SupervisorProvider>();
     final patrol = _filter == LogFilter.patrol;
-    final logs = _filter == LogFilter.all
-        ? supervisor.logs
-        : supervisor.logs.where((log) => log.filter == _filter).toList();
+    final now = DateTime.now();
+    final logs = supervisor.logs.where((log) {
+      if (_filter != LogFilter.all && log.filter != _filter) {
+        return false;
+      }
+      final hour = _hour;
+      return hour == null ||
+          (log.createdAt.hour == hour &&
+              log.createdAt.year == now.year &&
+              log.createdAt.month == now.month &&
+              log.createdAt.day == now.day);
+    }).toList();
     return VicaPage(
       children: [
         // 제목 줄 오른쪽 끝에 삭제 버튼을 둡니다. 전에는 칩 줄 끝에 있어 마지막
@@ -113,7 +126,12 @@ class _LogsScreenState extends State<LogsScreen> {
                       : null,
                   label: Text(filter.label),
                   onSelected: (_) {
-                    setState(() => _filter = filter);
+                    setState(() {
+                      _filter = filter;
+                      if (filter == LogFilter.patrol) {
+                        _hour = null;
+                      }
+                    });
                     if (filter == LogFilter.patrol) {
                       _refreshPatrol();
                     }
@@ -124,6 +142,41 @@ class _LogsScreenState extends State<LogsScreen> {
           ),
         ),
         const SizedBox(height: 18),
+        // 오늘 숫자 줄·시간대 막대(2026-11-17 사용자 채택 초안 ①). 경비 기록은 로봇 쪽 기록이라 뺍니다.
+        if (!patrol && supervisor.logs.isNotEmpty) ...[
+          LogTodaySummary(
+            logs: supervisor.logs,
+            filter: _filter,
+            hour: _hour,
+            now: now,
+            onHour: (hour) => setState(() => _hour = hour),
+            onFilter: (filter) => setState(
+              () => _filter = _filter == filter ? LogFilter.all : filter,
+            ),
+          ),
+          if (_hour != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '$_hour시 기록',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: VicaColors.muted,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => setState(() => _hour = null),
+                    child: const Text('모든 시간'),
+                  ),
+                ],
+              ),
+            ),
+        ],
         if (patrol)
           ..._patrolRecords(
             supervisor,

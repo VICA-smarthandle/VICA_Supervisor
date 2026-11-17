@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../core/layout_breakpoints.dart';
+import '../core/log_filter.dart';
 import '../models/robot_status.dart';
 import '../models/supervisor_log.dart';
 
@@ -1177,6 +1178,17 @@ class VicaInfoRow extends StatelessWidget {
   }
 }
 
+/// 로그 분류의 색(2026-11-17 알림·로그 시각화). 숫자 줄·시간대 막대·로그 줄 점이 같은 색을 씁니다.
+/// 색만으로 가르지 않게 라벨을 늘 함께 적습니다. 경비 보라는 이 분류에만 씁니다.
+Color vicaLogColor(LogFilter filter) => switch (filter) {
+      LogFilter.emergencyStop => VicaColors.red,
+      LogFilter.connection => VicaColors.muted,
+      LogFilter.delivery => VicaColors.primary,
+      LogFilter.coordinateTransfer => VicaColors.warning,
+      LogFilter.patrol => const Color(0xFF7A5FA0),
+      LogFilter.all => VicaColors.primaryDark,
+    };
+
 class VicaLogTile extends StatelessWidget {
   const VicaLogTile({
     super.key,
@@ -1193,8 +1205,18 @@ class VicaLogTile extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _LogIconBox(
-              icon: Icons.info_outline, color: VicaColors.primaryDark),
+          // 분류색 점(2026-11-17, 시각화 초안 ①). 전에는 모든 줄이 같은 정보 아이콘이었습니다.
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: vicaLogColor(log.filter),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -1232,26 +1254,6 @@ class VicaLogTile extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _LogIconBox extends StatelessWidget {
-  const _LogIconBox({required this.icon, required this.color});
-
-  final IconData icon;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 32,
-      height: 32,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        shape: BoxShape.circle,
-      ),
-      child: Icon(icon, color: color, size: 18),
     );
   }
 }

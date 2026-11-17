@@ -45,7 +45,8 @@ enum DriveSubmode {
     title: '안내·배송',
     // 2026-11-17 사용자 지시. 전: '흰 지팡이 사용자 안내와 물품 배송 · 감지 켬' → '지팡이 안내 · 배송'.
     subtitle: '길안내·물류배송 모드',
-    icon: Icons.accessibility_new,
+    // 2026-11-17 사용자: 사람 아이콘 → 경로(캔버스 후보 A). 길안내·배송 둘 다 '두 곳을 잇는 길'.
+    icon: Icons.route,
   ),
   patrol(
     title: '경비',
