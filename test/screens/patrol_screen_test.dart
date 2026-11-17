@@ -542,7 +542,7 @@ void main() {
       await tester.pumpWidget(_app(const PatrolScreen(), supervisor));
       await tester.pump();
 
-      expect(find.text('로봇 통신 끊김'), findsOneWidget);
+      expect(find.text('로봇 오프라인'), findsOneWidget);
       expect(find.text('경비가 꺼져 있습니다'), findsNothing);
       final start = tester.widget<FilledButton>(
         find.widgetWithText(FilledButton, '경비 시작'),

@@ -1154,11 +1154,11 @@ class _LiveChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (label, color) = switch (state) {
-      RosConnectionState.connected => ('통신 정상', VicaColors.green),
-      RosConnectionState.connecting => ('통신 연결 중', VicaColors.primary),
+      RosConnectionState.connected => ('온라인', VicaColors.green),
+      RosConnectionState.connecting => ('접속 중', VicaColors.primary),
       // 연결 칸(RosConnectionTile)과 같은 회색(2026-10-12 사용자 결정).
-      RosConnectionState.failed => ('통신 실패', VicaColors.muted),
-      RosConnectionState.disconnected => ('통신 끊김', VicaColors.muted),
+      RosConnectionState.failed => ('접속 실패', VicaColors.muted),
+      RosConnectionState.disconnected => ('오프라인', VicaColors.muted),
     };
     return VicaStatusChip(label: label, color: color);
   }

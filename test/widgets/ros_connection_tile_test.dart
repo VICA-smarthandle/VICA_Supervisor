@@ -62,7 +62,7 @@ void main() {
       state: RosConnectionState.disconnected,
       connectedUrl: '',
     );
-    expect(find.text('통신 끊김'), findsOneWidget);
+    expect(find.text('오프라인'), findsOneWidget);
     expect(find.textContaining('ws://127.0.0.1:9090'), findsOneWidget);
   });
 
@@ -72,8 +72,9 @@ void main() {
       state: RosConnectionState.connected,
       connectedUrl: 'ws://127.0.0.1:9090',
     );
-    // 상태 줄과 버튼 라벨 두 곳에 나옵니다.
-    expect(find.text('통신 정상'), findsNWidgets(2));
+    // 상태 줄은 상태, 버튼은 누르면 하는 일(2026-11-17).
+    expect(find.text('온라인'), findsOneWidget);
+    expect(find.text('연결 끊기'), findsOneWidget);
     expect(find.textContaining('주소가 바뀌었습니다'), findsNothing);
   });
 

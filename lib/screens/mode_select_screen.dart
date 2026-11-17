@@ -894,8 +894,8 @@ class _UnknownNotice extends StatelessWidget {
               // 문장 끝에서 줄을 바꾸고(2026-09-14 규칙), 그 안은 어절 단위로
               // 폭에 맞춰 접힙니다. 글자는 그대로입니다.
               vicaKeepWords(vicaBreakAtSentences(
-                // 2026-11-17 사용자: '연결' → '통신' 묶음.
-                '통신 끊김 · 상태·중복 실행 확인 불가',
+                // 2026-11-17 사용자: 온라인/오프라인 묶음.
+                '오프라인 · 상태·중복 실행 확인 불가',
               )),
               style: const TextStyle(fontSize: 12),
             ),

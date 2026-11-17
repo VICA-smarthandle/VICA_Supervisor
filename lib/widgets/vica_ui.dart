@@ -847,9 +847,9 @@ class VicaDisconnectedNotice extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 2026-11-17 사용자: 'ROS 연결 안 됨' → '로봇 통신 끊김'.
+                // 2026-11-17 사용자: 'ROS 연결 안 됨' → '로봇 오프라인'.
                 const Text(
-                  '로봇 통신 끊김',
+                  '로봇 오프라인',
                   style: TextStyle(
                     fontWeight: FontWeight.w800,
                     color: VicaColors.red,
