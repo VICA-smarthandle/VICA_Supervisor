@@ -24,6 +24,7 @@ import 'providers/ui_preferences_provider.dart';
 import 'ros/ros_bridge_client.dart';
 import 'widgets/confirm_logout.dart';
 import 'widgets/delivery_notice_dialog.dart';
+import 'widgets/duplicate_run_banner.dart';
 import 'widgets/goal_alert_dialog.dart';
 import 'widgets/help_alert_dialog.dart';
 import 'widgets/patrol_alarm_dialog.dart';
@@ -549,13 +550,20 @@ class _SupervisorShellState extends State<SupervisorShell> {
                                     settings: settings,
                                     supervisor: supervisor,
                                   ),
+                                  // 어느 탭이든 위쪽에(2026-11-17 목업 ② 띠).
+                                  const DuplicateRunBanner(),
                                   Expanded(child: _screens[index]),
                                 ],
                               ),
                             ),
                           ],
                         )
-                      : _screens[index],
+                      : Column(
+                          children: [
+                            const DuplicateRunBanner(),
+                            Expanded(child: _screens[index]),
+                          ],
+                        ),
                 ),
                 bottomNavigationBar:
                     useSidebar ? null : _buildBottomNavigation(index),

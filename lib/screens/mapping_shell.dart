@@ -19,6 +19,7 @@ import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import 'settings_screen.dart';
 import '../widgets/confirm_logout.dart';
+import '../widgets/duplicate_run_banner.dart';
 import '../widgets/map_canvas.dart';
 import '../widgets/map_work_layout.dart';
 import '../widgets/ros_connection_tile.dart';
@@ -106,80 +107,88 @@ class _MappingShellState extends State<MappingShell> {
         ],
       ),
       body: SafeArea(
-        // 넓은 화면에서 ② 작성 중이면 미리보기 지도를 단계 칸 밖으로 꺼내 왼쪽(세로
-        // 태블릿은 위)에 고정합니다. 단계·조작판·버튼은 그대로입니다(map_work_layout.dart).
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final liftPreview = step == 1 &&
-                MapWorkLayout.arrangementFor(constraints) !=
-                    MapWorkArrangement.stacked;
-            return MapWorkLayout(
-              title: '새 지도 그리기',
-              showTitleWhenWide: true,
-              children: [
-                if (liftPreview)
-                  MapWorkMap(
-                    child: _MappingPreview(settings: settings, fill: true),
-                  ),
-                const VicaRosConnectionTile(),
-                const _EmergencyResetCard(),
-                if (status == null) const _WaitingForSupervisor(),
-                _Step(
-                  index: 0,
-                  current: step,
-                  title: '준비 확인',
-                  child: _PrepareStep(
-                    status: status,
-                    estopConfirmed: _estopConfirmed,
-                    onEstopChanged: (value) =>
-                        setState(() => _estopConfirmed = value ?? false),
-                    onStart: () => _start(context, settings),
-                  ),
-                ),
-                _Step(
-                  index: 1,
-                  current: step,
-                  title: '작성 중',
-                  child: _MappingStep(
-                    settings: settings,
-                    showPreview: !liftPreview,
-                    onStop: () => _stop(context, settings),
-                    onGoSave: () => setState(() => _readyToSave = true),
-                  ),
-                ),
-                _Step(
-                  index: 2,
-                  current: step,
-                  title: '저장',
-                  child: _SaveStep(
-                    controller: _nameController,
-                    status: status,
-                    onSave: () => _save(context, settings),
-                  ),
-                ),
-                _Step(
-                  index: 3,
-                  current: step,
-                  title: '완료',
-                  child: _DoneStep(
-                    mapId: savedMapId,
-                    mapName: status != null &&
-                            status.mapId == savedMapId &&
-                            status.mapName.isNotEmpty
-                        ? status.mapName
-                        : savedMapId,
-                    // 바르게 세웠는지 결과 한 줄(2026-10-07, 목업 14번). 감독 노드가
-                    // 저장을 마치며 save_align 으로 보냅니다. 옛 노드면 없습니다.
-                    alignSentence: status != null && status.mapId == savedMapId
-                        ? status.saveAlign?.sentence
-                        : null,
-                    onRefreshMaps: () => supervisor.requestMapList(settings),
-                    onFinish: () => _stop(context, settings, thenIdle: true),
-                  ),
-                ),
-              ],
-            );
-          },
+        // 위쪽 '중복 실행 중' 띠(2026-11-17 목업 ②) 아래에 본문을 둡니다.
+        child: Column(
+          children: [
+            const DuplicateRunBanner(),
+            Expanded(
+              // 넓은 화면에서 ② 작성 중이면 미리보기 지도를 단계 칸 밖으로 꺼내 왼쪽(세로
+              // 태블릿은 위)에 고정합니다. 단계·조작판·버튼은 그대로입니다(map_work_layout.dart).
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final liftPreview = step == 1 &&
+                      MapWorkLayout.arrangementFor(constraints) !=
+                          MapWorkArrangement.stacked;
+                  return MapWorkLayout(
+                    title: '새 지도 그리기',
+                    showTitleWhenWide: true,
+                    children: [
+                      if (liftPreview)
+                        MapWorkMap(
+                          child: _MappingPreview(settings: settings, fill: true),
+                        ),
+                      const VicaRosConnectionTile(),
+                      const _EmergencyResetCard(),
+                      if (status == null) const _WaitingForSupervisor(),
+                      _Step(
+                        index: 0,
+                        current: step,
+                        title: '준비 확인',
+                        child: _PrepareStep(
+                          status: status,
+                          estopConfirmed: _estopConfirmed,
+                          onEstopChanged: (value) =>
+                              setState(() => _estopConfirmed = value ?? false),
+                          onStart: () => _start(context, settings),
+                        ),
+                      ),
+                      _Step(
+                        index: 1,
+                        current: step,
+                        title: '작성 중',
+                        child: _MappingStep(
+                          settings: settings,
+                          showPreview: !liftPreview,
+                          onStop: () => _stop(context, settings),
+                          onGoSave: () => setState(() => _readyToSave = true),
+                        ),
+                      ),
+                      _Step(
+                        index: 2,
+                        current: step,
+                        title: '저장',
+                        child: _SaveStep(
+                          controller: _nameController,
+                          status: status,
+                          onSave: () => _save(context, settings),
+                        ),
+                      ),
+                      _Step(
+                        index: 3,
+                        current: step,
+                        title: '완료',
+                        child: _DoneStep(
+                          mapId: savedMapId,
+                          mapName: status != null &&
+                                  status.mapId == savedMapId &&
+                                  status.mapName.isNotEmpty
+                              ? status.mapName
+                              : savedMapId,
+                          // 바르게 세웠는지 결과 한 줄(2026-10-07, 목업 14번). 감독 노드가
+                          // 저장을 마치며 save_align 으로 보냅니다. 옛 노드면 없습니다.
+                          alignSentence: status != null && status.mapId == savedMapId
+                              ? status.saveAlign?.sentence
+                              : null,
+                          onRefreshMaps: () => supervisor.requestMapList(settings),
+                          onFinish: () => _stop(context, settings, thenIdle: true),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );

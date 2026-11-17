@@ -141,6 +141,7 @@ class ModeStatus {
     this.resetNeeded = false,
     this.failedUnits = const [],
     this.missingNodes = const [],
+    this.duplicated = const [],
     this.stopTimeouts = const [],
     this.stopInSec,
     this.detector = 'none',
@@ -167,6 +168,10 @@ class ModeStatus {
   final bool resetNeeded;
   final List<String> failedUnits;
   final List<String> missingNodes;
+
+  /// 두 개 이상 떠 있는 감시 프로세스 이름(comm 15자) 또는 유닛 키(명령줄로 알아보는 유닛).
+  /// 모드 노드가 1초마다 셉니다. 앱·부팅 유닛과 터미널 칸이 같은 노드를 함께 띄웠을 때 찹니다.
+  final List<String> duplicated;
 
   /// 지난 정지에서 시한을 넘겨 강제 종료된 주행 유닛. 다음에 켜면 사라집니다.
   final List<String> stopTimeouts;
@@ -238,6 +243,7 @@ class ModeStatus {
       resetNeeded: json['reset_needed'] == true,
       failedUnits: strings(json['failed_units']),
       missingNodes: strings(json['missing_nodes']),
+      duplicated: strings(json['duplicated']),
       stopTimeouts: strings(json['stop_timeouts']),
       stopInSec: stopIn is num ? stopIn.round() : null,
       detector: json['detector'] as String? ?? 'none',

@@ -18,6 +18,7 @@ import 'package:vica_supervisor/screens/drive_bringup_screen.dart';
 import 'package:vica_supervisor/screens/mode_select_screen.dart';
 import 'package:vica_supervisor/widgets/drive_map_change.dart';
 import 'package:vica_supervisor/widgets/drive_nodes_card.dart';
+import 'package:vica_supervisor/widgets/duplicate_run_banner.dart';
 import 'package:vica_supervisor/widgets/voice_alert_snack.dart';
 
 const _widths = <double>[320, 360, 390, 600, 900];
@@ -173,6 +174,14 @@ void main() {
     });
     await check(tester, '주행 끄는 중', _status(state: 'stopping', nav2: 'active'),
         () => const DriveBringupScreen(stopOnly: true));
+  });
+
+  testWidgets('중복 실행 띠', (tester) async {
+    await check(
+        tester,
+        '중복 실행 띠',
+        {..._status(), 'duplicated': ['ekf_node', 'vica_mission_ma', 'turn_guide_node', 'vica_llm_node', 'rplidar_node']},
+        () => const Scaffold(body: DuplicateRunBanner()));
   });
 
   Widget scroll(Widget child) =>
