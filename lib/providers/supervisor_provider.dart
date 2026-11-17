@@ -607,7 +607,43 @@ class SupervisorProvider extends ChangeNotifier {
     _modeStatusAt = DateTime.now();
     _ingestVoiceEvents(_modeStatus!);
     _settleMapRequest(_modeStatus!);
+    _followDriveMap(_modeStatus!);
     notifyListeners();
+  }
+
+  // 마지막으로 따라간 로봇 지도(Nav2 가 띄운 지도, 모르면 CURRENT_MAP).
+  String _followedDriveMapId = '';
+
+  /// 로봇이 쓰는 지도가 바뀌면 지도 고르기를 그 지도로 맞춥니다(2026-11-17 사용자).
+  ///
+  /// 원격 주행·물류 배송·지도 설정이 같은 고른 지도를 씁니다. 종전에는 앱을 켤 때만
+  /// '(현재)' 지도를 골라, 주행 지도를 바꾸면 화면이 옛 지도에 머물렀습니다.
+  /// - 바뀌는 순간에만 따라갑니다. 관리자가 일부러 고른 다른 지도는 그대로 둡니다.
+  /// - 레일·금지구역 편집 중이거나 장소 초안이 있으면 따라가지 않습니다(편집이 날아감) —
+  ///   그때는 지도 칸 아래 빨간 안내(CurrentMapNotice)가 다름을 알립니다.
+  /// - 지도 목록에 아직 없거나 '(현재)' 표시가 다르면 목록을 다시 받습니다(앱 밖에서 바꾼 경우).
+  void _followDriveMap(ModeStatus status) {
+    final drive = status.driveMapId.trim();
+    final settings = _lastSettings;
+    if (drive.isEmpty || drive == _followedDriveMapId || settings == null) {
+      return;
+    }
+    final listed = _maps.any((map) => map.mapId == drive);
+    if (!listed || _currentMapId != drive) {
+      requestMapList(settings);
+    }
+    if (_maps.isNotEmpty && !listed) {
+      // 목록에 없는 지도는 고를 수 없습니다. 목록이 오면 다음 방송(2초)에서 다시 봅니다.
+      return;
+    }
+    _followedDriveMapId = drive;
+    if (_selectedMapId == drive) {
+      return;
+    }
+    if (_keepoutEditing || _routeEditing || _draftLocation != null) {
+      return;
+    }
+    selectMap(settings, drive);
   }
 
   @visibleForTesting
