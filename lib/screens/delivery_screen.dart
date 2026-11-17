@@ -738,14 +738,15 @@ class _ContactsCard extends StatelessWidget {
                         child: Text(
                           location.name,
                           overflow: TextOverflow.ellipsis,
+                          // 2026-11-17 사용자: 연락처 관리 글자를 조금 작게(15 → 14, 번호 13 → 12).
                           style: const TextStyle(
-                              fontSize: 15, fontWeight: FontWeight.w700, color: VicaColors.text),
+                              fontSize: 14, fontWeight: FontWeight.w700, color: VicaColors.text),
                         ),
                       ),
                       Text(
                         location.canReceiveDelivery ? maskContactPhone(location.contactPhone) : '없음',
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: 12,
                           fontWeight: location.canReceiveDelivery ? FontWeight.w400 : FontWeight.w700,
                           color: location.canReceiveDelivery ? VicaColors.muted : const Color(0xFF8A5F1C),
                         ),
