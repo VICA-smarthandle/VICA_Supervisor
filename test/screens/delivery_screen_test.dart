@@ -218,7 +218,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.widgetWithText(MenuItemButton, '305호'), findsWidgets);
     expect(find.widgetWithText(MenuItemButton, '409호'), findsWidgets);
-    await tester.enterText(find.widgetWithText(TextField, '배송 받을 곳'), '40');
+    await tester.enterText(find.widgetWithText(TextField, '배송 장소'), '40');
     await tester.pumpAndSettle();
     expect(find.widgetWithText(MenuItemButton, '305호'), findsNothing);
     expect(find.widgetWithText(MenuItemButton, '409호'), findsWidgets);

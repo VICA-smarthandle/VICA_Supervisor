@@ -149,7 +149,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
             initialSelection: selected?.locationId,
             enabled: !busy && candidates.isNotEmpty,
             expandedInsets: EdgeInsets.zero,
-            label: const Text('배송 받을 곳'),
+            label: const Text('배송 장소'), // 2026-11-17 사용자: '배송 받을 곳' → '배송 장소'
             hintText: candidates.isEmpty ? '장소 없음' : '장소 검색',
             leadingIcon: const Icon(Icons.search),
             enableFilter: true,
