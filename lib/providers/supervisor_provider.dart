@@ -672,18 +672,26 @@ class SupervisorProvider extends ChangeNotifier {
     final done = Completer<(bool, String)>();
     _mapRequestId = id;
     _mapRequestDone = done;
-    client
-      ..advertise(topic: kModeMapRequestTopic, type: 'std_msgs/String')
-      ..publishJsonString(
-        topic: kModeMapRequestTopic,
-        payload: {'request_id': id, 'map_id': mapId},
-      );
+    client.advertise(topic: kModeMapRequestTopic, type: 'std_msgs/String');
+    void send() => client.publishJsonString(
+          topic: kModeMapRequestTopic,
+          payload: {'request_id': id, 'map_id': mapId},
+        );
+    // 토픽 한 번은 DDS 연결이 맺어지기 전이면 사라집니다(11-17 실기). 결과가 올 때까지 같은 ID 로
+    // 다시 보냅니다 — 모드 노드는 처리한 ID 를 다시 처리하지 않고 결과만 다시 냅니다.
+    send();
+    final retry = Timer.periodic(kModeMapRequestRetry, (_) {
+      if (!done.isCompleted) {
+        send();
+      }
+    });
     _addLog(LogFilter.coordinateTransfer, '주행 지도 바꾸기 요청: $mapId');
     try {
       return await done.future.timeout(kModeMapRequestTimeout);
     } on TimeoutException {
       return (false, '로봇이 답하지 않음 · 모드 노드 확인');
     } finally {
+      retry.cancel();
       if (_mapRequestId == id) {
         _mapRequestId = null;
         _mapRequestDone = null;

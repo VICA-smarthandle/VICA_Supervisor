@@ -33,5 +33,8 @@ const String kModeMapRequestTopic = '/vica/mode/map_request';
 /// 지도 바꾸기 요청에 모드 노드가 답하기를 기다리는 시간. 노드는 받자마자 상태를 다시 낸다.
 const Duration kModeMapRequestTimeout = Duration(seconds: 8);
 
+/// 답이 없으면 같은 request_id 로 다시 보내는 간격(첫 발행이 DDS 연결 전에 사라질 수 있다, 11-17 실기).
+const Duration kModeMapRequestRetry = Duration(milliseconds: 1500);
+
 /// 모드 상태가 이보다 오래 안 오면 모드 노드가 없다고 본다. 노드는 2 s 마다 낸다.
 const Duration kModeStatusStale = Duration(seconds: 8);
