@@ -78,6 +78,26 @@ def map_poll_action(in_flight: bool, sent_at: float, now: float, ready: bool) ->
     return "ask" if ready else "skip"
 
 
+def location_label(localized: bool, moving: bool, nearest: str, place_here: str) -> str:
+    """앱의 '현재 위치' 칸(2026-11-17 사용자 승인 수리).
+
+    종전에는 등록 장소 0.5 m 안이 아니면 무조건 '이동 중'이었다 — 초기 위치 전(지도 위 위치 없음)에도,
+    복도에 멈춰 서 있어도 '이동 중'으로 보였다. 이제:
+      위치를 모름(AMCL 위치 없음)       → '위치 모름'   (오도메트리 좌표로 장소를 찾지 않는다)
+      장소 0.5 m 안                      → 그 장소 이름
+      그 밖에 실제로 움직이는 중          → '이동 중'
+      그 밖에 멈춤 · 미션이 아는 자리     → 미션의 place_here('407호 앞', '407호와 화장실 사이')
+      그 밖                              → '장소 밖'
+    """
+    if not localized:
+        return "위치 모름"
+    if nearest:
+        return nearest
+    if moving:
+        return "이동 중"
+    return place_here or "장소 밖"
+
+
 def mission_activity_fields(snapshot: dict[str, Any] | None, received_at: float | None,
                             now: float) -> dict[str, Any]:
     """/robot_status 에 싣는 미션 활동 네 칸(2026-10-29, 원격 주행 대기·접근 중 취소).
@@ -233,6 +253,8 @@ class VicaStatusAppNode(Node):
         self.detected_map_yaml = ""
         self._map_param_in_flight = False
         self._map_param_sent_at = 0.0
+        # map_server 가 연달아 안 보인 횟수. 한 번은 DDS 가 잠깐 흔들린 것일 수 있어 두 번(약 4 s)부터 위치를 버린다.
+        self._map_server_missing = 0
         self._map_param_future: Any = None
 
         # destinations.yaml 캐시 (10Hz 발행마다 파일을 읽지 않도록).
@@ -397,6 +419,14 @@ class VicaStatusAppNode(Node):
             self._map_param_in_flight = False
             self._map_param_future = None
             return
+        if action == "skip":
+            # map_server 가 없다 = Nav2 가 꺼졌거나 다시 뜨는 중. 그 전 위치는 버린다(두 번 연달아일 때).
+            # 멈춘 로봇은 AMCL 이 위치를 다시 내지 않으므로, 잠깐 흔들린 것으로 지우면 '위치 모름'에 갇힌다.
+            self._map_server_missing += 1
+            if self._map_server_missing >= 2:
+                self._forget_map_pose("Nav2(map_server) 없음")
+            return
+        self._map_server_missing = 0
         if action != "ask":
             return
         request = GetParameters.Request()
@@ -428,6 +458,8 @@ class VicaStatusAppNode(Node):
         # 남아 장소 조회(destinations.yaml) 경로까지 어긋나기 때문입니다.
         if value.type == ParameterType.PARAMETER_STRING and value.string_value:
             if value.string_value != self.detected_map_yaml:
+                if self.detected_map_yaml:
+                    self._forget_map_pose("지도가 바뀜")
                 self.detected_map_yaml = value.string_value
                 self.get_logger().info(f"map yaml 감지: {self.detected_map_yaml}")
 
@@ -467,7 +499,7 @@ class VicaStatusAppNode(Node):
             "x": round(x, 3),
             "y": round(y, 3),
             "yaw": round(yaw, 2),
-            "current_location": self._nearest_location_name(map_id, x, y),
+            "current_location": self._location_label(map_id, x, y, linear_x, angular_z),
             "current_goal": self.current_goal,
             "error_reason": error_reason,
             "waiting_reason": waiting_reason,
@@ -692,6 +724,8 @@ class VicaStatusAppNode(Node):
         """Mission Manager가 1 Hz로 알려주는 일시정지 여부와 지금 하는 일을 반영합니다."""
         self.navigation_paused = bool(msg.is_paused)
         self._mission_activity = {
+            # place_here 는 /robot_status 에 따로 싣지 않고 '현재 위치' 칸에만 쓴다(location_label).
+            "place_here": msg.place_here,
             "dialog_state": msg.dialog_state,
             "wait_place": msg.wait_place,
             "wait_left_sec": msg.wait_left_sec,
@@ -860,7 +894,33 @@ class VicaStatusAppNode(Node):
                 nearest_name = str(
                     location.get("name") or location.get("id") or ""
                 )
-        return nearest_name or "이동 중"
+        return nearest_name
+
+    def _location_label(self, map_id: str, x: float, y: float,
+                        linear_x: float, angular_z: float) -> str:
+        """'현재 위치' 칸. 지도 위 위치(AMCL)가 있을 때만 장소를 찾는다 — x·y 가 오도메트리 좌표일 수 있다."""
+        localized = self.map_pose is not None and self._nav2_pose_available()
+        place_here = ""
+        if (self._mission_activity is not None and self._mission_activity_at is not None
+                and time.monotonic() - self._mission_activity_at <= MISSION_ACTIVITY_STALE_SEC):
+            place_here = str(self._mission_activity.get("place_here", ""))
+        return location_label(
+            localized,
+            self._is_moving(linear_x, angular_z),
+            self._nearest_location_name(map_id, x, y) if localized else "",
+            place_here,
+        )
+
+    def _forget_map_pose(self, why: str) -> None:
+        """AMCL 위치를 버린다 — Nav2 가 내려갔거나 지도가 바뀌면 그 위치는 더는 맞지 않는다.
+
+        2026-11-17: 위치를 한 번 받으면 Nav2 를 다시 띄워도(지도 바꾸기 포함) 지우지 않아, 초기 위치 전에도
+        옛 위치로 장소를 찾았다. 새 AMCL 위치(/amcl_pose)는 초기 위치를 잡으면 다시 온다.
+        """
+        if self.map_pose is not None:
+            self.get_logger().info(f"지도 위 위치를 지웁니다: {why}")
+        self.map_pose = None
+        self.last_map_pose_time = None
 
     def _read_locations(self, map_id: str) -> list[dict[str, Any]]:
         """지도별 destinations.yaml을 읽습니다(2초 캐시).
