@@ -621,3 +621,51 @@ String patrolStoppedNotice({
   }
   return '$kPatrolStoppedText\n$reason';
 }
+
+
+// ---- 영상 창 실패 문구(2026-11-17) ---------------------------------------------
+//
+// 전에는 어떤 경우든 "영상을 불러오지 못했습니다." 하나였다. 11-16 저녁 핫스팟에 붙은 노트북에서
+// 브라우저가 mp4 를 아예 요청하지 않았는데(서버 기록 0건) 화면으로는 까닭을 알 수 없었다.
+// 받지 못함(시간 초과) / 받았지만 못 품(브라우저 오류) / 로봇에 없음 을 나눠 보인다.
+
+/// 영상을 기다리는 시간. 문구의 "(20초)"와 같은 값이어야 한다.
+const Duration kPatrolClipOpenTimeout = Duration(seconds: 20);
+
+enum PatrolClipFailureKind { timeout, browser, missing }
+
+/// 영상 창이 영상을 열지 못한 까닭. [code] 는 브라우저 오류 코드(MEDIA_ERR_*)다.
+class PatrolClipFailure implements Exception {
+  const PatrolClipFailure(this.kind, {this.code = ''});
+
+  final PatrolClipFailureKind kind;
+  final String code;
+
+  /// 주소를 보여 줄지 — 로봇에 없는 영상은 열 주소가 없다.
+  bool get showsUrl => kind != PatrolClipFailureKind.missing;
+
+  @override
+  String toString() => 'PatrolClipFailure($kind, $code)';
+}
+
+const String kPatrolClipOpenHint = '아래 주소를 브라우저 주소창에 직접 열어 보세요.';
+
+/// 브라우저 오류 코드(HTMLMediaElement.error) → 화면에 쓰는 말.
+String patrolClipErrorCause(String code) => switch (code) {
+      'MEDIA_ERR_ABORTED' => '중단됨',
+      'MEDIA_ERR_NETWORK' => '네트워크 오류',
+      'MEDIA_ERR_DECODE' => '영상 해독 실패',
+      'MEDIA_ERR_SRC_NOT_SUPPORTED' => '지원하지 않는 형식',
+      _ => '알 수 없는 오류',
+    };
+
+/// 영상 창 검은 화면에 뜨는 문구. 문장 사이는 줄을 바꾼다.
+String patrolClipFailureText(PatrolClipFailure failure) => switch (failure.kind) {
+      PatrolClipFailureKind.timeout =>
+        '영상을 받지 못했습니다(${kPatrolClipOpenTimeout.inSeconds}초).\n$kPatrolClipOpenHint',
+      PatrolClipFailureKind.browser =>
+        '브라우저가 영상을 재생하지 못했습니다'
+            '(오류: ${patrolClipErrorCause(failure.code)}).\n$kPatrolClipOpenHint',
+      PatrolClipFailureKind.missing =>
+        '로봇에 이 영상이 없습니다.\n지워졌거나 저장되지 않았습니다.',
+    };
