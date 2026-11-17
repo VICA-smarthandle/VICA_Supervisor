@@ -102,8 +102,8 @@ class _PatrolScreenState extends State<PatrolScreen> {
     } else {
       body = _offBody(supervisor, settings, map, route, connected);
     }
+    // 본문 제목은 뺐습니다 — 제목줄과 같은 말입니다(2026-11-17 제목·문구 간결화, 사용자 승인).
     return MapWorkLayout(
-      title: '경비',
       children: [
         if (!connected)
           VicaDisconnectedNotice(detail: supervisor.connectionDetail),

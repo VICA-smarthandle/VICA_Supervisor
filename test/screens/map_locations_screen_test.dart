@@ -360,11 +360,12 @@ void main() {
     await tester.pump();
     await tester.tap(entry);
     await tester.pump();
-    expect(find.text('초기 위치 잡기'), findsOneWidget);
-    expect(find.text('여기가 맞는지 확인'), findsOneWidget);
+    // 카드 제목·확인 버튼은 2026-11-17 간결화(사용자 승인)로 '초기 위치'·'확인'.
+    expect(find.text('초기 위치'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '확인'), findsOneWidget);
     // 아직 안 짚었으므로 잠겨 있어야 합니다.
     final check = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, '여기가 맞는지 확인'),
+      find.widgetWithText(FilledButton, '확인'),
     );
     expect(check.onPressed, isNull);
   });

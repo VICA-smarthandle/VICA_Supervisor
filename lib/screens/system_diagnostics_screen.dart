@@ -30,9 +30,8 @@ class SystemDiagnosticsScreen extends StatelessWidget {
     final connected =
         supervisor.connectionState == RosConnectionState.connected;
 
+    // 본문 제목·설명은 뺐습니다 — 제목줄에 이미 있습니다(2026-11-17 제목·문구 간결화, 사용자 승인).
     return VicaPage(
-      title: '시스템 진단',
-      subtitle: '로봇이 보고한 결함과 상태 변화입니다.',
       children: [
         if (!connected)
           VicaDisconnectedNotice(detail: supervisor.connectionDetail),

@@ -76,8 +76,21 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('모드를 선택해주세요'),
+        // 2026-11-17 제목·문구 간결화(사용자 승인): 제목은 '모드 선택' 하나, 계정은 오른쪽 작은 글씨.
+        title: const Text('모드 선택'),
         actions: [
+          if (username.isNotEmpty)
+            Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 96),
+                child: Text(
+                  username,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, color: VicaColors.muted),
+                ),
+              ),
+            ),
           IconButton(
             onPressed: supervisor.stackStatusLoading
                 ? null
@@ -102,7 +115,6 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
       ),
       body: SafeArea(
         child: VicaPage(
-          title: '$username 님, 모드를 선택해주세요',
           children: [
             const VicaRosConnectionTile(),
             if (status != null && (status.duplicated || status.conflicting))
@@ -475,11 +487,10 @@ Future<(DriveSubmode, VoiceChoice?)?> showDriveSubmodeSheet(
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  voice == null
-                      ? '고르면 주행 노드를 켭니다(약 40초).'
-                      : '고르면 주행 노드·사람 감지·음성을 켭니다(약 40초).',
-                  style: const TextStyle(fontSize: 13, color: VicaColors.muted),
+                // 2026-11-17 제목·문구 간결화(사용자 승인).
+                const Text(
+                  '켜는 데 약 40초',
+                  style: TextStyle(fontSize: 13, color: VicaColors.muted),
                 ),
                 const SizedBox(height: 14),
                 if (picked != null) ...[

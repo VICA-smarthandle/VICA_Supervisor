@@ -340,8 +340,8 @@ void main() {
       await tester.pump();
       await _answerRoute(tester, server, 6);
 
+      // 본문 큰 제목 '경비'는 뺐습니다 — 제목줄과 같은 말입니다(2026-11-17 사용자 승인).
       for (final text in [
-        '경비',
         '경비가 꺼져 있습니다',
         '순찰 경로',
         '장소 6곳',
@@ -1498,7 +1498,8 @@ void main() {
       final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
       expect(
         bar.destinations.map((d) => (d as NavigationDestination).label),
-        ['대시보드', '지도 설정', '원격 주행', '물류 배송', '경비', '더보기'],
+        // 2026-11-17 탭 라벨 간결화(사용자 승인). 제목줄은 '지도 설정'·'원격 주행'·'물류 배송' 그대로.
+        ['대시보드', '지도', '주행', '배송', '경비', '더보기'],
       );
       await tester.tap(find.descendant(
         of: find.byType(NavigationBar),

@@ -69,7 +69,8 @@ void main() {
 
   testWidgets('사람 감지 스위치를 끄면 감지기만 끄라고 보낸다', (tester) async {
     final supervisor = await pump(tester, drive());
-    expect(find.textContaining(vicaKeepWords('켜짐 · 지팡이 사용자')), findsOneWidget);
+    // 2026-11-17 간결화(사용자 승인): 감지기 'active' 는 '켜짐' 한 단어. 음성 줄도 '켜짐'이라 둘입니다.
+    expect(find.text(vicaKeepWords('켜짐')), findsNWidgets(2));
 
     await tester.tap(find.byType(Switch));
     await tester.pump();
@@ -79,7 +80,10 @@ void main() {
   testWidgets('잠시 꺼진 감지기는 이유와 함께 보이고, 다시 켤 수 있다', (tester) async {
     final supervisor = await pump(tester, drive(detector: 'inactive'));
     expect(find.text(vicaKeepWords('잠시 꺼짐')), findsOneWidget);
-    expect(find.textContaining(vicaKeepWords('주행을 껐다 켜면 자동으로 켜집니다')), findsOneWidget);
+    expect(
+      find.text(vicaKeepWords('감지 꺼짐 · 접근 요청·경비 알림 없음 · 다시 켜면 10~20초')),
+      findsOneWidget,
+    );
 
     await tester.tap(find.byType(Switch));
     await tester.pump();

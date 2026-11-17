@@ -602,7 +602,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('지금 로봇이 있는 위치로'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('여기가 맞는지 확인'));
+    await tester.tap(find.text('위치 확인'));
     await tester.pump();
   }
 

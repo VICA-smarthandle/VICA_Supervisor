@@ -107,10 +107,10 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
           ),
           if (detectorOff) ...[
             const SizedBox(height: 10),
+            // 2026-11-17 제목·문구 간결화(사용자 승인).
             const _Note(
               warning: true,
-              text: '지팡이 사용자·사람을 찾지 않습니다. 접근 요청과 경비 알림도 오지 않습니다. '
-                  '다시 켜면 엔진을 올리는 데 10~20초 걸리고, 주행을 껐다 켜면 자동으로 켜집니다.',
+              text: '감지 꺼짐 · 접근 요청·경비 알림 없음 · 다시 켜면 10~20초',
             ),
           ],
           const Divider(height: 28, color: VicaColors.border),
@@ -149,18 +149,15 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
             ),
           ),
           const SizedBox(height: 10),
-          _Note(
-            text:
-                '${status.voiceChoice.hint}. 음성을 바꾸면 음성을 다시 띄웁니다(약 10초, 말하던 것이 '
-                '끊김). 로봇이 움직이는 중에는 바꿀 수 없습니다.',
-          ),
+          // 2026-11-17 제목·문구 간결화(사용자 승인). 음성 종류 설명(hint)은 뺐습니다.
+          const _Note(text: '바꾸면 약 10초 재시작 · 주행 중엔 불가'),
         ],
       ),
     );
   }
 
   static (String, Color) _detectorText(String state) => switch (state) {
-        'active' => ('켜짐 · 지팡이 사용자·사람을 찾는 중', VicaColors.green),
+        'active' => ('켜짐', VicaColors.green), // 2026-11-17 간결화(사용자 승인)
         'activating' => ('켜는 중(10~20초)', VicaColors.primary),
         'deactivating' => ('끄는 중', VicaColors.warning),
         'inactive' => ('잠시 꺼짐', const Color(0xFF8A5F1C)),

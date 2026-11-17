@@ -5,8 +5,10 @@
 //     2026-11-14 경비 탭이 더보기 앞에 들어가 6개가 됐다(목업 PatrolHome).
 //     나머지 네 화면(현재 위치·시스템 진단·알림 및 로그·설정)과 모드 바꾸기·로그아웃은
 //     '더보기' 탭 안 목록으로 간다. 갈 수 있는 곳은 전과 같다 — 가는 길만 바뀌었다.
-//   - 태블릿·데스크톱: 어두운 사이드바 + 본문 위 페이지 헤더(제목·설명·실시간 수신 칩·
+//   - 태블릿·데스크톱: 어두운 사이드바 + 본문 위 페이지 헤더(제목·실시간 수신 칩·
 //     모드 바꾸기·비상정지). 접고 펼치기는 그대로 둔다.
+//   2026-11-17 제목·문구 간결화(사용자 승인): 제목은 하나만 — 폰 부제·넓은 창 설명문·경로를
+//   뺐고, 하단 탭·사이드바 라벨은 짧게('지도'·'주행'·'배송'). 제목줄(_titles)은 그대로다.
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -358,34 +360,6 @@ class _SupervisorShellState extends State<SupervisorShell> {
     '더보기',
   ];
 
-  /// 폰 AppBar 제목 아래 한 줄. 짧아야 합니다 — 오른쪽에 버튼 두 개가 섭니다.
-  static const _subtitles = [
-    '로봇 현황',
-    '장소 · 홈 · 금지구역',
-    '목적지 지정 · 주행 제어',
-    '도착 문자 · 자동 복귀',
-    '순찰 경로 · 감시 항목',
-    '상태 원본값',
-    '결함 · 준비 상태',
-    '종류별 알림',
-    '계정 · 네트워크 · ROS',
-    '나머지 메뉴',
-  ];
-
-  /// 넓은 창 페이지 헤더의 설명문. 폰보다 자리가 넓어 문장으로 적습니다.
-  static const _descriptions = [
-    '로봇 현황과 최근 알림을 한눈에 확인합니다',
-    '장소 · 홈 위치 · 금지구역을 지도 위에서 설정합니다',
-    '목적지를 지정해 로봇을 보내고 주행을 제어합니다',
-    '연락처가 저장된 장소로 물건을 보내고 도착 문자를 발송합니다',
-    '순찰 경로 · 감시 항목',
-    '로봇이 보고하는 위치와 상태 원본값을 확인합니다',
-    '로봇이 보고한 상태와 결함, 항목별 준비 상태입니다',
-    '로봇과 앱에서 발생한 알림을 종류별로 확인합니다',
-    '계정, 네트워크, ROS 토픽과 좌표 보정값을 관리합니다',
-    '나머지 메뉴',
-  ];
-
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>().settings;
@@ -608,10 +582,8 @@ class _SupervisorShellState extends State<SupervisorShell> {
     return AppBar(
       toolbarHeight: 66,
       titleSpacing: 20,
-      title: _PageTitle(
-        title: _titles[index],
-        subtitle: _subtitles[index],
-      ),
+      // 제목만 둡니다(2026-11-17 제목·문구 간결화, 사용자 승인 — 부제 줄 뺌).
+      title: _PageTitle(title: _titles[index]),
       actions: [
         if (index == _settingsIndex) ...[
           SettingsSaveButton(
@@ -695,14 +667,10 @@ class _SupervisorShellState extends State<SupervisorShell> {
       primary: false,
       automaticallyImplyLeading: false,
       backgroundColor: VicaColors.background,
-      toolbarHeight: 108,
+      toolbarHeight: 76, // 제목 한 줄만 남아 108 → 76(2026-11-17)
       titleSpacing: 32,
-      title: _PageTitle(
-        title: _titles[index],
-        subtitle: _descriptions[index],
-        breadcrumb: '주행 모드',
-        large: true,
-      ),
+      // 제목만 둡니다(2026-11-17 제목·문구 간결화, 사용자 승인 — 경로·설명문 뺌).
+      title: _PageTitle(title: _titles[index], large: true),
       actions: [
         if (index == _settingsIndex) ...[
           SettingsSaveButton(
@@ -1078,7 +1046,8 @@ class _SupervisorShellState extends State<SupervisorShell> {
   }
 
   /// 사이드바(전부)와 하단 탭(앞 다섯 개)이 같은 목록을 씁니다. 순서는 _titles 와
-  /// 같아야 합니다 — supervisor_shell_test 가 잠급니다.
+  /// 같아야 합니다 — supervisor_shell_test 가 잠급니다. 라벨은 제목보다 짧을 수
+  /// 있습니다('지도'→제목 '지도 설정', 2026-11-17 제목·문구 간결화, 사용자 승인).
   static const _navigationItems = [
     _NavigationItem(
       icon: Icons.grid_view_outlined,
@@ -1088,17 +1057,17 @@ class _SupervisorShellState extends State<SupervisorShell> {
     _NavigationItem(
       icon: Icons.place_outlined,
       selectedIcon: Icons.place,
-      label: '지도 설정',
+      label: '지도',
     ),
     _NavigationItem(
       icon: Icons.near_me_outlined,
       selectedIcon: Icons.near_me,
-      label: '원격 주행',
+      label: '주행',
     ),
     _NavigationItem(
       icon: Icons.inventory_2_outlined,
       selectedIcon: Icons.inventory_2,
-      label: '물류 배송',
+      label: '배송',
     ),
     _NavigationItem(
       icon: Icons.shield_outlined,
@@ -1160,80 +1129,27 @@ class _BrandMark extends StatelessWidget {
   }
 }
 
-/// AppBar 안의 제목 묶음. 폰은 제목+짧은 부제, 넓은 창은 경로+큰 제목+설명.
+/// AppBar 안의 제목. 폰은 20, 넓은 창은 26.
+///
+/// 2026-11-17 제목·문구 간결화(사용자 승인): 부제·설명문·경로를 빼고 제목 한 줄만 둡니다.
 class _PageTitle extends StatelessWidget {
-  const _PageTitle({
-    required this.title,
-    required this.subtitle,
-    this.breadcrumb,
-    this.large = false,
-  });
+  const _PageTitle({required this.title, this.large = false});
 
   final String title;
-  final String subtitle;
-  final String? breadcrumb;
   final bool large;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // 경로는 Text 하나로 그립니다. 제목 글자를 따로 Text 로 두면 AppBar 안에
-        // 같은 글자가 둘이 되어 find.widgetWithText(AppBar, 제목) 이 둘을 셉니다.
-        if (breadcrumb != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(
-                    text: '$breadcrumb  ›  ',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: VicaColors.textTertiary,
-                    ),
-                  ),
-                  TextSpan(
-                    text: title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: VicaColors.muted,
-                    ),
-                  ),
-                ],
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, height: 1.2),
-            ),
-          ),
-        Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: large ? 26 : 20,
-            fontWeight: FontWeight.w900,
-            color: VicaColors.text,
-            height: 1.15,
-          ),
-        ),
-        const SizedBox(height: 3),
-        Text(
-          subtitle,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: large ? 13 : 12,
-            fontWeight: FontWeight.w500,
-            color: VicaColors.muted,
-            height: 1.2,
-          ),
-        ),
-      ],
+    return Text(
+      title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: large ? 26 : 20,
+        fontWeight: FontWeight.w900,
+        color: VicaColors.text,
+        height: 1.15,
+      ),
     );
   }
 }
