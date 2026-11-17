@@ -246,7 +246,7 @@ class MapListNode(Node):
             3. PNG 헤더에서 width/height를 읽습니다.
             4. 앱이 이해하는 JSON 목록으로 묶어 /map_list에 publish합니다.
         """
-        payload = build_map_list(self.maps_root, self._current_map_id())
+        payload = build_map_list(self.maps_root, self._current_map_id(), self.destination_root)
         msg = String()
         msg.data = json.dumps(payload, ensure_ascii=False)
         self.publisher.publish(msg)
@@ -258,7 +258,9 @@ class MapListNode(Node):
         return png_size(path)
 
 
-def build_map_list(maps_root: Path, current_map_id: str) -> dict[str, Any]:
+def build_map_list(
+    maps_root: Path, current_map_id: str, destinations_root: Path | None = None
+) -> dict[str, Any]:
     """앱이 이해하는 지도 목록 JSON. 노드 없이도 부를 수 있게 함수로 뺐다.
 
     ``current_map_id`` 는 maps/CURRENT_MAP 의 지도 이름이다. 목록의 각 지도에
@@ -266,6 +268,9 @@ def build_map_list(maps_root: Path, current_map_id: str) -> dict[str, Any]:
     이 지도를 먼저 고르고 드롭다운에 '(현재)'를 붙인다 — 그전에는 이름순 첫
     지도를 골라, 새로 그린 지도가 앞에 오면 로봇이 달리는 지도와 다른 지도를
     보고 있었다. 터미네이터에서 지도를 잘못 띄웠을 때도 앱에서 바로 보인다.
+
+    지도마다 준비 상태도 싣는다(2026-11-17 주행 지도 바꾸기 목록): 레일(_route.geojson)·
+    금지구역(_keepout.yaml) 파일이 있는가, 목적지 수(destinations_root 를 넘길 때만), 저장 시각.
     """
     maps = []
     for image_path in sorted(maps_root.glob("*.png")):
@@ -289,6 +294,13 @@ def build_map_list(maps_root: Path, current_map_id: str) -> dict[str, Any]:
                 "width": width,
                 "height": height,
                 "is_current": image_path.stem == current_map_id,
+                "has_route": (maps_root / f"{image_path.stem}{ROUTE_SUFFIX}.geojson").is_file(),
+                "has_keepout": (maps_root / f"{image_path.stem}_keepout.yaml").is_file(),
+                "destination_count": (
+                    count_destinations(destinations_root / image_path.stem / "destinations.yaml")
+                    if destinations_root is not None else None
+                ),
+                "saved_at": read_saved_at(image_path.with_suffix(".meta.json")),
             }
         )
     return {"maps": maps, "current_map_id": current_map_id}
@@ -358,6 +370,40 @@ def apply_display_name(maps_root: Path, map_id: str, display_name: str) -> tuple
     except OSError as error:
         return False, f"{meta_path} 를 쓰지 못했습니다: {error}"
     return True, f"'{map_id}' 의 이름을 '{name}' 으로 바꿨습니다."
+
+
+def count_destinations(path: Path) -> int:
+    """destinations.yaml 의 목적지 수. 파일이 없으면 0(미션이 모든 목적지 요청을 막는다).
+
+    YAML 패키지 없이 센다 — 목적지 관리자가 쓰는 꼴은 'destinations:' 아래 맨 앞 '- ' 한 줄이 한 곳이다.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return 0
+    count = 0
+    inside = False
+    for line in text.splitlines():
+        if line.startswith("destinations:"):
+            inside = "[]" not in line
+            continue
+        if not inside:
+            continue
+        if line.startswith("- "):
+            count += 1
+        elif line and not line.startswith((" ", "#")):
+            inside = False
+    return count
+
+
+def read_saved_at(path: Path) -> str:
+    """maps/<id>.meta.json 의 saved_at(ISO 문자열). 없으면 빈 문자열."""
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    value = document.get("saved_at") if isinstance(document, dict) else None
+    return value if isinstance(value, str) else ""
 
 
 def read_display_name(path: Path) -> str:
