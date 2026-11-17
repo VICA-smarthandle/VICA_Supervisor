@@ -63,6 +63,20 @@ HEALTH_SEVERITY_STOP = 3
 # 미션은 1 Hz 로 낸다. 미션이 꺼진 뒤 앱에 낡은 '대기 취소'·'접근 취소'가 남지 않게 합니다.
 MISSION_ACTIVITY_STALE_SEC = 3.0
 
+# map_server 에 지도 경로를 물은 뒤 이만큼 답이 없으면 그 요청을 버리고 다시 묻습니다.
+# 2026-11-17 실기: 앱에서 주행 지도를 바꿔 Nav2 를 다시 띄우자, 묻던 중에 옛 map_server 가 내려가
+# 답이 영영 오지 않았고 '묻는 중' 표시가 남아 다시 묻지 않았습니다 — /robot_status 의 map_id 가 옛 지도로
+# 굳었습니다(새 map_server 는 새 지도였다). 보통 답은 수십 ms 안에 옵니다.
+MAP_PARAM_TIMEOUT_SEC = 3.0
+
+
+def map_poll_action(in_flight: bool, sent_at: float, now: float, ready: bool) -> str:
+    """지도 경로 조회를 이번 주기에 어떻게 할지: 'wait'(답을 기다림) · 'drop'(시한 넘음, 버리고 다시 물음)
+    · 'ask'(새로 물음) · 'skip'(map_server 없음)."""
+    if in_flight:
+        return "drop" if now - sent_at >= MAP_PARAM_TIMEOUT_SEC else "wait"
+    return "ask" if ready else "skip"
+
 
 def mission_activity_fields(snapshot: dict[str, Any] | None, received_at: float | None,
                             now: float) -> dict[str, Any]:
@@ -218,6 +232,8 @@ class VicaStatusAppNode(Node):
         # map_server yaml_filename 자동 감지 상태.
         self.detected_map_yaml = ""
         self._map_param_in_flight = False
+        self._map_param_sent_at = 0.0
+        self._map_param_future: Any = None
 
         # destinations.yaml 캐시 (10Hz 발행마다 파일을 읽지 않도록).
         self._loc_cache: list[dict[str, Any]] = []
@@ -370,16 +386,32 @@ class VicaStatusAppNode(Node):
         """
         if str(self.get_parameter("map_yaml").value).strip():
             return
-        if self._map_param_in_flight or not self.map_param_client.service_is_ready():
+        action = map_poll_action(
+            self._map_param_in_flight, self._map_param_sent_at, time.monotonic(),
+            self.map_param_client.service_is_ready(),
+        )
+        if action == "drop":
+            # 묻는 사이 map_server 가 내려갔다(지도 바꾸기·Nav2 재기동). 버리고 다음 주기에 다시 묻는다.
+            if self._map_param_future is not None:
+                self.map_param_client.remove_pending_request(self._map_param_future)
+            self._map_param_in_flight = False
+            self._map_param_future = None
+            return
+        if action != "ask":
             return
         request = GetParameters.Request()
         request.names = ["yaml_filename"]
         self._map_param_in_flight = True
+        self._map_param_sent_at = time.monotonic()
         future = self.map_param_client.call_async(request)
+        self._map_param_future = future
         future.add_done_callback(self._on_map_yaml_result)
 
     def _on_map_yaml_result(self, future: Any) -> None:
+        if future is not self._map_param_future:
+            return    # 시한이 지나 버린 요청의 늦은 답
         self._map_param_in_flight = False
+        self._map_param_future = None
         try:
             response = future.result()
         except Exception as exc:  # ROS future 예외는 배포판마다 다릅니다.
