@@ -1179,13 +1179,14 @@ class VicaInfoRow extends StatelessWidget {
 }
 
 /// 로그 분류의 색(2026-11-17 알림·로그 시각화). 숫자 줄·시간대 막대·로그 줄 점이 같은 색을 씁니다.
-/// 색만으로 가르지 않게 라벨을 늘 함께 적습니다. 경비 보라는 이 분류에만 씁니다.
+///
+/// 2026-11-17 사용자 채택 '색 G': 색약 배려 Okabe–Ito 조합. 색만으로 가르지 않게 라벨을 늘 함께 적습니다.
 Color vicaLogColor(LogFilter filter) => switch (filter) {
-      LogFilter.emergencyStop => VicaColors.red,
-      LogFilter.connection => VicaColors.muted,
-      LogFilter.delivery => VicaColors.primary,
-      LogFilter.coordinateTransfer => VicaColors.warning,
-      LogFilter.patrol => const Color(0xFF7A5FA0),
+      LogFilter.emergencyStop => const Color(0xFFD55E00), // 주홍
+      LogFilter.connection => const Color(0xFF0072B2), // 파랑
+      LogFilter.delivery => const Color(0xFF009E73), // 청록
+      LogFilter.coordinateTransfer => const Color(0xFFE69F00), // 주황
+      LogFilter.patrol => const Color(0xFFCC79A7), // 분홍보라
       LogFilter.all => VicaColors.primaryDark,
     };
 

@@ -9,6 +9,7 @@ import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/screens/logs_screen.dart';
 import 'package:vica_supervisor/widgets/log_summary.dart';
+import 'package:vica_supervisor/widgets/vica_ui.dart';
 
 class _LogsSupervisor extends SupervisorProvider {
   _LogsSupervisor(this.fake);
@@ -56,6 +57,19 @@ Future<void> _pumpScreen(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  test('분류색은 사용자가 고른 색 G(Okabe–Ito) 다섯 가지다', () {
+    expect(
+      [for (final f in kLogSummaryFilters) vicaLogColor(f)],
+      const [
+        Color(0xFFD55E00), // 긴급 정지 주홍
+        Color(0xFF0072B2), // 연결 파랑
+        Color(0xFF009E73), // 배송 청록
+        Color(0xFFE69F00), // 좌표 전송 주황
+        Color(0xFFCC79A7), // 경비 분홍보라
+      ],
+    );
+  });
 
   testWidgets('오늘 기록만 분류별로 세고 시간대 막대에 쌓는다', (tester) async {
     final now = DateTime(2026, 11, 17, 14, 50);
