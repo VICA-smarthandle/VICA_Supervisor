@@ -329,22 +329,23 @@ void main() {
     }
   });
 
-  testWidgets('지표 카드의 숫자는 좁은 카드에서도 한 줄을 지킨다', (tester) async {
-    // 폭 320일 때 2열 그리드의 셀 폭입니다. 좌우 여백 32, 열 간격 12를 뺀 값입니다.
-    const narrowCellWidth = 138.0;
+  // 2026-11-17 지표 카드 넷 → 카드 하나 안의 칸 넷(VicaCountStrip). 의도는 같습니다 — 가장 좁은
+  // 창(320, 좌우 여백 32)에서도 숫자가 두 줄로 접히거나 잘리지 않습니다.
+  testWidgets('숫자 줄의 숫자는 좁은 창에서도 한 줄을 지킨다', (tester) async {
+    const narrowWidth = 288.0;
     await tester.pumpWidget(
       const MaterialApp(
         home: Scaffold(
           body: Center(
             child: SizedBox(
-              width: narrowCellWidth,
-              height: VicaMetricCard.baseHeight,
-              child: VicaMetricCard(
-                icon: Icons.smart_toy,
-                label: '전체 로봇',
-                value: '12',
-                color: Colors.blue,
-                labelFontSize: 14,
+              width: narrowWidth,
+              child: VicaCountStrip(
+                items: [
+                  VicaCount(label: '로봇', value: '12'),
+                  VicaCount(label: '운행', value: '10'),
+                  VicaCount(label: '대기', value: '2'),
+                  VicaCount(label: '오류', value: '0'),
+                ],
               ),
             ),
           ),
@@ -356,15 +357,21 @@ void main() {
     expect(
       value.didExceedMaxLines,
       isFalse,
-      reason: '지표 숫자가 잘렸습니다.',
+      reason: '숫자가 잘렸습니다.',
     );
-    // 두 줄로 접히면 높이가 두 배가 되고 카드 아래로 넘칩니다.
-    final single = tester.renderObject<RenderParagraph>(find.text('전체 로봇'));
+    // 두 줄로 접히면 높이가 두 배가 됩니다.
+    final single = tester.renderObject<RenderParagraph>(find.text('로봇'));
     expect(
       value.size.height,
       lessThan(single.size.height * 2.6),
-      reason: '지표 숫자가 두 줄로 접혔습니다.',
+      reason: '숫자가 두 줄로 접혔습니다.',
     );
+    // 네 칸이 한 줄입니다.
+    expect(
+      tester.getTopLeft(find.text('오류')).dy,
+      tester.getTopLeft(find.text('로봇')).dy,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('좁은 창에서는 연결 버튼 두 개를 위아래로 놓는다', (tester) async {
@@ -376,7 +383,7 @@ void main() {
         _wrap(const DashboardScreen(), supervisor, 1.0),
       );
       await tester.pump();
-      final ros = tester.getTopLeft(find.text('ROS 연결'));
+      final ros = tester.getTopLeft(find.text('연결하기'));
       final map = tester.getTopLeft(find.text('지도 미연결'));
       return Offset(map.dx - ros.dx, map.dy - ros.dy);
     }

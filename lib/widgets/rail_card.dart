@@ -376,7 +376,7 @@ class RailCard extends StatelessWidget {
   Widget _badgeRow() {
     final Widget badge;
     if (!connected) {
-      badge = const VicaStateBadge(text: 'ROS 연결 없음', color: VicaColors.red);
+      badge = const VicaStateBadge(text: '오프라인', color: VicaColors.red);
     } else if (drivingHold && info?.status != 'apply_pending') {
       badge =
           const VicaStateBadge(text: '주행 중 · 편집 잠김', color: VicaColors.muted);

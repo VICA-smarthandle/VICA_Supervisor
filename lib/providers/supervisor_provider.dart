@@ -7,8 +7,10 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/app_settings.dart';
+import '../core/contact_phone.dart';
 import '../core/json_read.dart';
 import '../core/log_filter.dart';
+import '../core/mode_contract.dart';
 import '../models/delivery_job.dart';
 import '../models/goal_event.dart';
 import '../models/home_position.dart';
@@ -19,6 +21,7 @@ import '../models/robot_health.dart';
 import '../models/map_preview.dart';
 import '../models/pose_check_result.dart';
 import '../models/mapping_status.dart';
+import '../models/mode_status.dart';
 import '../models/patrol.dart';
 import '../models/robot_status.dart';
 import '../models/route_edit.dart';
@@ -108,8 +111,11 @@ class SupervisorProvider extends ChangeNotifier {
     RosChannelConnector? rosChannelConnector,
     bool? showOtherScreenDeliveryNotices,
     PatrolLogLoader? patrolLogLoader,
-  })  : _deliveryNotifier = deliveryNotifier ?? createDeliveryNotifier(),
-        _showOtherScreenDeliveryNotices = showOtherScreenDeliveryNotices ?? kIsWeb,
+    DateTime Function()? now,
+  })  : _now = now ?? DateTime.now,
+        _deliveryNotifier = deliveryNotifier ?? createDeliveryNotifier(),
+        _showOtherScreenDeliveryNotices =
+            showOtherScreenDeliveryNotices ?? kIsWeb,
         _deliveryStore =
             deliveryJobStore ?? const SharedPreferencesDeliveryJobStore(),
         _routeGraphLoader = routeGraphLoader ?? const RouteGraphLoader(),
@@ -121,6 +127,9 @@ class SupervisorProvider extends ChangeNotifier {
   /// rosbridge 소켓을 여는 함수. null 이면 실제 WebSocket 을 엽니다. 시험은 가짜
   /// 채널을 끼워 끊김·재연결을 젯슨 없이 재현합니다.
   final RosChannelConnector? _rosChannelConnector;
+
+  /// 시각. 시험은 가짜 시계를 끼웁니다([rosSilent]).
+  final DateTime Function() _now;
 
   static const _nav2UnavailableReason = 'Nav2/AMCL 미실행';
   static const _nav2UnavailableMessage =
@@ -232,6 +241,22 @@ class SupervisorProvider extends ChangeNotifier {
   String get connectedUrl => _lastSettings?.rosBridgeUrl ?? '';
 
   RosConnectionState get connectionState => _connectionState;
+
+  /// 소켓은 붙었는데 이만큼 받은 것이 없으면 '응답 없음'. 평소에는 /robot_status 만으로 초당 2개가 옵니다.
+  static const rosSilentAfter = Duration(seconds: 5);
+
+  /// 소켓은 붙어 있는데 [rosSilentAfter] 넘게 받은 것이 없음 — 화면은 '온라인' 대신 '응답 없음'.
+  ///
+  /// 부를 때마다 시각으로 계산합니다(타이머 없음). 1초마다 다시 보는 일은 화면 위젯
+  /// [RosSilenceBuilder] 가 합니다 — 화면이 닫히면 그 타이머도 함께 정리됩니다.
+  bool get rosSilent {
+    final at = _client?.lastReceivedAt;
+    if (_connectionState != RosConnectionState.connected || at == null) {
+      return false;
+    }
+    return _now().difference(at) >= rosSilentAfter;
+  }
+
   String get connectionDetail => _connectionDetail;
   EmergencyStopState get emergencyStopState => _emergencyStopState;
   String get emergencyStopMessage => _emergencyStopMessage;
@@ -313,6 +338,7 @@ class SupervisorProvider extends ChangeNotifier {
       onState: (state, detail) =>
           _handleClientState(client, settings, state, detail),
       connector: _rosChannelConnector,
+      now: _now,
     );
     _client = client;
     await client.connect(settings.rosBridgeUrl);
@@ -437,6 +463,11 @@ class SupervisorProvider extends ChangeNotifier {
     // 떠 있다"고 잘못된 안심을 줄 수 있습니다 — 그래서 '확인 불가'로 되돌립니다.
     _stackStatus = null;
     _stackStatusError = '';
+    // 모드 상태도 현재 사실이 아닙니다. 남기면 끊긴 사이 꺼진 주행을 켜져 있다고 그립니다.
+    _modeStatus = null;
+    _modeStatusAt = null;
+    // 다시 붙은 뒤 처음 받는 음성 알림은 끊긴 사이 일이라 기록만 합니다(띄우지 않음).
+    _voiceFirstAfterConnect = true;
     if (_robotsById.isEmpty) {
       return;
     }
@@ -532,7 +563,223 @@ class SupervisorProvider extends ChangeNotifier {
       ..subscribe(
         topic: settings.deliverySmsResultTopic,
         handler: _handleDeliverySmsResult,
+      )
+      // 다른 화면이 배송을 보내며 남긴 받는 분께 메시지(2026-11-17). 대신 보낼 때 씁니다.
+      ..subscribe(
+        topic: settings.deliveryNoteTopic,
+        handler: _handleDeliveryNote,
+      )
+      // 모드 노드(부팅 자동 기동, 2026-11-16). 없으면 아무것도 안 와서 예전처럼 동작합니다.
+      ..subscribe(
+        topic: kModeStatusTopic,
+        handler: _handleModeStatus,
       );
+  }
+
+  // ---- 모드 노드 (주행 묶음 켜기·끄기, 2026-11-16) ---------------------------------
+
+  ModeStatus? _modeStatus;
+  DateTime? _modeStatusAt;
+
+  /// 모드 노드가 보낸 최근 상태. 8 s 넘게 안 왔으면 null — 모드 노드가 없거나 끊긴 것으로
+  /// 보고 화면은 예전처럼(화면만 바꾸기) 동작합니다.
+  ModeStatus? get modeStatus {
+    final at = _modeStatusAt;
+    if (_modeStatus == null || at == null) {
+      return null;
+    }
+    return DateTime.now().difference(at) > kModeStatusStale
+        ? null
+        : _modeStatus;
+  }
+
+  void _handleModeStatus(Map<String, Object?> message) {
+    final decoded = _decodeJsonString(message);
+    if (decoded == null) {
+      return;
+    }
+    _modeStatus = ModeStatus.fromJson(decoded);
+    _modeStatusAt = DateTime.now();
+    _ingestVoiceEvents(_modeStatus!);
+    _settleMapRequest(_modeStatus!);
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  void handleModeStatusForTest(Map<String, Object?> message) =>
+      _handleModeStatus(message);
+
+  // ---- 음성 연결 알림(사용자 11-16, 목업 D·E) ------------------------------------
+  //
+  // 모드 노드가 상태에 최근 알림 5건을 번호와 함께 싣습니다. 번호로 이미 본 것을 거르고,
+  // 새것은 '알림 및 로그 › 연결 상태'에 남기고 화면 아래 알림 띠로 띄웁니다.
+  // 연결 직후 처음 받은 상태의 알림은 끊긴 사이 일이라 기록만 하고 띄우지 않습니다 — 로봇과
+  // 앱 기기의 시계가 달라도 틀리지 않게 시각이 아니라 '연결 뒤 첫 상태인가'로 가립니다.
+
+  double _voiceEpochSeen = -1;
+  int _voiceIdSeen = 0;
+  bool _voiceFirstAfterConnect = true;
+  final List<VoiceEvent> _voiceAlerts = [];
+  int _voiceAlertSeq = 0;
+  VoiceEvent? _lastVoiceEvent;
+
+  /// 띄우지 않은 알림이 생길 때마다 늘어납니다. 화면은 이 값이 바뀌면 [takeVoiceAlerts] 로 꺼냅니다.
+  int get voiceAlertSeq => _voiceAlertSeq;
+
+  /// 가장 최근 음성 연결 알림(주행 노드 카드의 음성 줄).
+  VoiceEvent? get lastVoiceEvent => _lastVoiceEvent;
+
+  /// 띄울 알림을 꺼내고 비웁니다.
+  List<VoiceEvent> takeVoiceAlerts() {
+    final out = List<VoiceEvent>.of(_voiceAlerts);
+    _voiceAlerts.clear();
+    return out;
+  }
+
+  void _ingestVoiceEvents(ModeStatus status) {
+    final firstAfterConnect = _voiceFirstAfterConnect;
+    _voiceFirstAfterConnect = false;
+    if (status.voiceEventsEpoch != _voiceEpochSeen) {
+      // 모드 노드가 다시 떴다. 번호가 1 부터 다시 시작한다.
+      _voiceEpochSeen = status.voiceEventsEpoch;
+      _voiceIdSeen = 0;
+    }
+    for (final event in status.voiceEvents) {
+      if (event.id <= _voiceIdSeen) {
+        continue;
+      }
+      _voiceIdSeen = event.id;
+      _lastVoiceEvent = event;
+      _addLog(LogFilter.connection, '음성: ${event.text} (${_clock(event.at)})');
+      if (!firstAfterConnect) {
+        _voiceAlerts.add(event);
+        _voiceAlertSeq += 1;
+      }
+    }
+  }
+
+  static String _clock(DateTime at) =>
+      '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}:'
+      '${at.second.toString().padLeft(2, '0')}';
+
+  /// 주행 묶음 켜기. (받아들였는가, 사람에게 보일 문구)
+  Future<(bool, String)> driveStart() =>
+      _callModeService(kDriveStartService, '주행 켜기');
+
+  /// 주행 묶음 끄기. Nav2 가 뜨는 중이면 모드 노드가 다 뜬 뒤로 예약합니다.
+  Future<(bool, String)> driveStop() =>
+      _callModeService(kDriveStopService, '주행 끄기');
+
+  /// Nav2 만 다시 띄우기.
+  Future<(bool, String)> nav2Restart() =>
+      _callModeService(kNav2RestartService, 'Nav2 다시 띄우기');
+
+  /// ⑮ 감지기만 켜고 끄기(잠시 끄기). 주행을 다시 켜면 켜진 상태로 돌아갑니다.
+  Future<(bool, String)> setDetector(bool on) => on
+      ? _callModeService(kDetectorOnService, '사람 감지 켜기')
+      : _callModeService(kDetectorOffService, '사람 감지 끄기');
+
+  /// 음성을 로컬 / 외부 API 로. 음성이 떠 있으면 젯슨이 다시 띄웁니다(말이 끊김).
+  Future<(bool, String)> setVoice(VoiceChoice choice) => switch (choice) {
+        VoiceChoice.local => _callModeService(kVoiceLocalService, '음성 로컬'),
+        VoiceChoice.api => _callModeService(kVoiceApiService, '음성 외부 API'),
+      };
+
+  // ---- 주행 지도 바꾸기(사용자 11-17) -------------------------------------------
+  //
+  // Trigger 는 인자가 없어 토픽으로 보냅니다. 모드 노드는 받자마자 상태를 다시 내며, 그 안의
+  // map_change 가 같은 request_id 면 결과입니다. 젯슨은 maps/CURRENT_MAP 을 쓰고, 주행이 떠
+  // 있으면 Nav2·미션·음성·위치 확인을 다시 띄웁니다(약 1분) — 진행은 모드 상태로 봅니다.
+
+  String? _mapRequestId;
+  Completer<(bool, String)>? _mapRequestDone;
+
+  /// 주행 지도를 [mapId] 로 바꾸기. (받아들였는가, 사람에게 보일 문구)
+  Future<(bool, String)> requestMapChange(String mapId) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return (false, 'ROS Bridge에 연결되지 않았습니다.');
+    }
+    final id = _uuid.v4();
+    final done = Completer<(bool, String)>();
+    _mapRequestId = id;
+    _mapRequestDone = done;
+    client.advertise(topic: kModeMapRequestTopic, type: 'std_msgs/String');
+    void send() => client.publishJsonString(
+          topic: kModeMapRequestTopic,
+          payload: {'request_id': id, 'map_id': mapId},
+        );
+    // 토픽 한 번은 DDS 연결이 맺어지기 전이면 사라집니다(11-17 실기). 결과가 올 때까지 같은 ID 로
+    // 다시 보냅니다 — 모드 노드는 처리한 ID 를 다시 처리하지 않고 결과만 다시 냅니다.
+    send();
+    final retry = Timer.periodic(kModeMapRequestRetry, (_) {
+      if (!done.isCompleted) {
+        send();
+      }
+    });
+    try {
+      return await done.future.timeout(kModeMapRequestTimeout);
+    } on TimeoutException {
+      return (false, '로봇이 답하지 않음 · 모드 노드 확인');
+    } finally {
+      retry.cancel();
+      if (_mapRequestId == id) {
+        _mapRequestId = null;
+        _mapRequestDone = null;
+      }
+    }
+  }
+
+  void _settleMapRequest(ModeStatus status) {
+    final change = status.mapChange;
+    final done = _mapRequestDone;
+    if (change == null ||
+        done == null ||
+        done.isCompleted ||
+        change.requestId != _mapRequestId) {
+      return;
+    }
+    done.complete((change.applied, change.message));
+    if (!change.applied) {
+      _addLog(LogFilter.coordinateTransfer,
+          '주행 지도 ${change.from} → ${change.mapId}: ${change.message}');
+    }
+    // '(현재)' 표시와 지도별 준비 상태를 새로 받습니다.
+    final settings = _lastSettings;
+    if (change.applied && settings != null) {
+      requestMapList(settings);
+    }
+  }
+
+  // std_srvs/Trigger 는 accepted 가 아니라 success 로 답합니다. 그래서 _callService 를
+  // 쓰지 않습니다(그 도우미는 accepted 만 봅니다).
+  Future<(bool, String)> _callModeService(String service, String what) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return (false, 'ROS Bridge에 연결되지 않았습니다.');
+    }
+    try {
+      final response = await client.callService(service: service);
+      final message =
+          response.message.isEmpty ? '$what 요청을 보냈습니다.' : response.message;
+      // 모드 노드 요청(주행·음성·감지)은 지도 설정이 아니다 — 실패만 '연결 상태'에(2026-11-17).
+      if (!response.success) {
+        _addLog(LogFilter.connection, '$what: $message');
+      }
+      return (response.success, message);
+    } catch (error) {
+      final message = '$what 실패: $error';
+      _addLog(LogFilter.connection, message);
+      return (false, message);
+    }
+  }
+
+  /// 모드 노드 없이 화면 규칙만 검증하기 위한 주입 지점입니다.
+  @visibleForTesting
+  void setModeStatusForTest(ModeStatus? status) {
+    _modeStatus = status;
+    _modeStatusAt = status == null ? null : DateTime.now();
+    notifyListeners();
   }
 
   // 앱 비상정지 버튼: app_emergency_node의 activate 서비스를 호출합니다.
@@ -742,7 +989,6 @@ class SupervisorProvider extends ChangeNotifier {
         'timestamp': DateTime.now().toIso8601String(),
       },
     );
-    _addLog(LogFilter.coordinateTransfer, '$mapId 장소 목록 요청 전송');
   }
 
   void selectMap(AppSettings settings, String? mapId) {
@@ -796,7 +1042,6 @@ class SupervisorProvider extends ChangeNotifier {
       topic: settings.saveLocationTopic,
       payload: _locationPayload(draft),
     );
-    _addLog(LogFilter.coordinateTransfer, '${draft.name} 장소 저장 요청 전송');
     _draftLocation = null;
     notifyListeners();
   }
@@ -816,7 +1061,6 @@ class SupervisorProvider extends ChangeNotifier {
       topic: settings.saveLocationTopic,
       payload: _locationPayload(location),
     );
-    _addLog(LogFilter.coordinateTransfer, '${location.name} 수정 저장 요청 전송');
     notifyListeners();
     return (true, '${location.name} 수정을 저장했습니다.');
   }
@@ -853,7 +1097,6 @@ class SupervisorProvider extends ChangeNotifier {
         'timestamp': DateTime.now().toIso8601String(),
       },
     );
-    _addLog(LogFilter.coordinateTransfer, '${location.name} 장소 삭제 요청 전송');
   }
 
   // 앱은 vica_goto_goal, LLM과 같은 경로로 요청만 보냅니다. 지도·접근 권한·Safety·
@@ -933,6 +1176,7 @@ class SupervisorProvider extends ChangeNotifier {
           ? (response.accepted ? '주행 요청을 수락했습니다.' : '주행 요청이 거부되었습니다.')
           : _localizeGateReason(response.message, gateMessages),
       failurePrefix: 'Mission Manager 목적지 요청 실패',
+      logAs: LogFilter.emergencyStop,
     );
     return (reply.accepted, reply.message);
   }
@@ -1222,6 +1466,7 @@ class SupervisorProvider extends ChangeNotifier {
           ? (response.accepted ? '홈으로 복귀합니다.' : '홈 복귀 요청이 거부되었습니다.')
           : _localizeGateReason(response.message),
       failurePrefix: '홈 복귀 요청 실패',
+      logAs: LogFilter.emergencyStop,
     );
     return (reply.accepted, reply.message);
   }
@@ -1394,12 +1639,24 @@ class SupervisorProvider extends ChangeNotifier {
   ///
   /// 거부된 요청을 기억해 두면 다음에 누가 그 장소로 안내 주행을 해서 도착했을
   /// 때 엉뚱하게 배송 문자가 나갑니다.
+  /// [note] 는 받는 분께 남길 메시지입니다(2026-11-17). 도착 문자에 실려 45자 안으로 나갑니다.
+  /// [phone] 을 주면 이번 배송만 그 번호로 보냅니다(2026-11-17 B안: 번호 없는 장소도 배송). 장소에
+  /// 저장된 번호는 바꾸지 않습니다.
   Future<String> startDelivery(
     AppSettings settings,
-    LocationPoint location,
-  ) async {
+    LocationPoint location, {
+    String note = '',
+    String phone = '',
+  }) async {
+    final typed = phone.trim().isEmpty ? '' : normalizeContactPhone(phone);
+    if (typed == null) {
+      return '연락처가 휴대폰 번호 모양이 아닙니다.';
+    }
+    if (typed.isNotEmpty && typed != location.contactPhone) {
+      location = location.copyWith(contactPhone: typed);
+    }
     if (!location.canReceiveDelivery) {
-      return '${location.name}에는 도착 문자 연락처가 없습니다. 지도 설정에서 넣어 주세요.';
+      return '${location.name}에 연락처가 없습니다. 연락처를 쓰세요.';
     }
     final current = _delivery;
     if (current != null && !current.phase.isFinished) {
@@ -1417,9 +1674,19 @@ class SupervisorProvider extends ChangeNotifier {
       return message;
     }
     _cancelDeliveryReturnTimer();
-    _setDelivery(DeliveryJob(destination: location, startedAt: DateTime.now()));
+    final cleanNote = deliveryNoteClean(note);
+    _setDelivery(DeliveryJob(
+      destination: location,
+      startedAt: DateTime.now(),
+      note: cleanNote,
+    ));
+    // 비어 있어도 냅니다 — 대신 보내는 폰이 같은 장소의 지난 메시지를 다시 쓰지 않게. 번호는 바꿨을
+    // 때만 싣습니다(저장된 번호는 유심 폰이 제 장소 목록에서 압니다).
+    _publishDeliveryNote(settings, location, cleanNote,
+        phone: typed.isNotEmpty ? location.contactPhone : '');
     _pendingDeliveryNotice = null;
-    _addLog(LogFilter.delivery, '${location.name} 배송 출발');
+    _addLog(LogFilter.delivery,
+        '${location.name} 배송 출발${cleanNote.isEmpty ? '' : ' · 메시지 ${cleanNote.length}자'}');
     notifyListeners();
     return '${location.name}(으)로 배송을 시작합니다.';
   }
@@ -1620,7 +1887,7 @@ class SupervisorProvider extends ChangeNotifier {
     DeliveryJob job, {
     GoalEvent? arrival,
   }) async {
-    final text = deliveryArrivalMessage(job.destination.name);
+    final text = deliveryArrivalMessage(job.destination.name, note: job.note);
     final key = arrival == null ? null : _arrivalKey(arrival);
     DeliveryNotifyResult result;
     try {
@@ -1653,6 +1920,8 @@ class SupervisorProvider extends ChangeNotifier {
     );
     _pendingDeliveryNotice =
         DeliveryNotice(job: job, text: text, result: result);
+    // 출발 때 낸 메시지·번호 래치를 지웁니다(대신 보낸 폰은 이미 썼고, 남기면 번호가 계속 보입니다).
+    _clearDeliveryNote(job.destination.mapId, job.destination.locationId);
     notifyListeners();
   }
 
@@ -1722,7 +1991,9 @@ class SupervisorProvider extends ChangeNotifier {
     // 남으므로 장소만 보면 폰 앱이 같은 장소로 보낸 배송의 팝업을 막았습니다(10-29 검토).
     final job = _delivery;
     final mine = _ownSmsKeys.contains(key) ||
-        (job != null && job.isActive && job.destination.locationId == locationId);
+        (job != null &&
+            job.isActive &&
+            job.destination.locationId == locationId);
     if (_showOtherScreenDeliveryNotices && !mine) {
       _showOtherScreenDeliveryNotice(
         mapId: (message['map_id'] as String?)?.trim() ?? '',
@@ -1769,13 +2040,17 @@ class SupervisorProvider extends ChangeNotifier {
     }
     _addLog(LogFilter.delivery,
         '${location.name} 도착 문자 $state(다른 화면에서 보낸 배송): ${result.detail}');
+    final (note, typedPhone) =
+        _peekDeliveryNote(location.mapId, location.locationId);
     _pendingDeliveryNotice = DeliveryNotice(
       job: DeliveryJob(
-        destination: location,
+        destination: typedPhone.isEmpty
+            ? location
+            : location.copyWith(contactPhone: typedPhone),
         startedAt: DateTime.now(),
         phase: DeliveryPhase.arrived,
       ),
-      text: deliveryArrivalMessage(location.name),
+      text: deliveryArrivalMessage(location.name, note: note),
       result: result,
     );
     notifyListeners();
@@ -1804,8 +2079,12 @@ class SupervisorProvider extends ChangeNotifier {
       }
     }
     final name = location?.name ?? event.destinationName;
+    // 보낸 화면이 남긴 메시지·바꾼 번호(있으면). 한 번 쓰면 지웁니다 — 다음 배송에 섞이지 않게.
+    final (note, typedPhone) = _takeDeliveryNote(event.mapId, event.locationId);
+    final phone =
+        typedPhone.isNotEmpty ? typedPhone : (location?.contactPhone ?? '');
     DeliveryNotifyResult result;
-    if (location == null || !location.canReceiveDelivery) {
+    if (phone.isEmpty) {
       result = const DeliveryNotifyResult(
         sent: false,
         detail: '배송지 연락처를 찾지 못했습니다. 직접 연락하세요.',
@@ -1813,12 +2092,15 @@ class SupervisorProvider extends ChangeNotifier {
     } else {
       try {
         result = await _deliveryNotifier.send(
-          phone: location.contactPhone,
-          text: deliveryArrivalMessage(location.name),
+          phone: phone,
+          text: deliveryArrivalMessage(name, note: note),
         );
       } catch (error) {
         result = DeliveryNotifyResult(sent: false, detail: '발송 오류: $error');
       }
+    }
+    if (note.isNotEmpty || typedPhone.isNotEmpty) {
+      _clearDeliveryNote(event.mapId, event.locationId);
     }
     if (_disposed) {
       return;
@@ -1831,6 +2113,107 @@ class SupervisorProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- 받는 분께 메시지(2026-11-17 사용자 승인) --------------------------------------
+  //
+  // 배송을 보낸 화면이 출발 때 래치 토픽으로 메시지를 냅니다. 문자를 대신 보내는 관리자 유심 폰은
+  // 지도·장소별로 기억했다가 그 장소의 도착 문자에 넣고 지웁니다. 로봇(미션)은 메시지를 모릅니다.
+
+  /// '지도|장소' → (메시지, 바꾼 번호, 받은 시각). 번호는 이번 배송에만 쓴 것이고 비면 장소 번호.
+  final Map<String, (String, String, DateTime)> _deliveryNotes = {};
+
+  /// 이보다 오래된 메시지는 쓰지 않습니다(배송 한 건은 길어야 수십 분).
+  static const Duration _deliveryNoteTtl = Duration(hours: 3);
+
+  void _publishDeliveryNote(
+    AppSettings settings,
+    LocationPoint location,
+    String note, {
+    String phone = '',
+  }) {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return;
+    }
+    client
+      ..advertise(
+          topic: settings.deliveryNoteTopic,
+          type: 'std_msgs/String',
+          latch: true)
+      ..publishJsonString(
+        topic: settings.deliveryNoteTopic,
+        payload: {
+          'map_id': location.mapId,
+          'location_id': location.locationId,
+          'note': note,
+          if (phone.isNotEmpty) 'phone': phone,
+          'sent_at': DateTime.now().toIso8601String(),
+        },
+      );
+  }
+
+  /// 도착 문자를 보낸 뒤 래치에 남은 메시지·번호를 빈 값으로 덮습니다. rosbridge(9090)는 인증이 없어
+  /// 래치에 남은 번호는 같은 망의 누구나 읽을 수 있습니다 — 쓴 뒤에는 남기지 않습니다(2026-11-17).
+  void _clearDeliveryNote(String mapId, String locationId) {
+    final settings = _lastSettings;
+    final client = _client;
+    if (settings == null ||
+        client == null ||
+        _connectionState != RosConnectionState.connected) {
+      return;
+    }
+    client
+      ..advertise(
+          topic: settings.deliveryNoteTopic,
+          type: 'std_msgs/String',
+          latch: true)
+      ..publishJsonString(
+        topic: settings.deliveryNoteTopic,
+        payload: {'map_id': mapId, 'location_id': locationId, 'note': ''},
+      );
+  }
+
+  void _handleDeliveryNote(Map<String, Object?> message) {
+    final decoded = _decodeJsonString(message);
+    if (decoded == null) {
+      return;
+    }
+    final mapId = '${decoded['map_id'] ?? ''}';
+    final locationId = '${decoded['location_id'] ?? ''}';
+    if (mapId.isEmpty || locationId.isEmpty) {
+      return;
+    }
+    final note = deliveryNoteClean('${decoded['note'] ?? ''}');
+    final phone = normalizeContactPhone('${decoded['phone'] ?? ''}') ?? '';
+    if (note.isEmpty && phone.isEmpty) {
+      _deliveryNotes.remove('$mapId|$locationId');
+      return;
+    }
+    _deliveryNotes['$mapId|$locationId'] = (note, phone, DateTime.now());
+    while (_deliveryNotes.length > 20) {
+      _deliveryNotes.remove(_deliveryNotes.keys.first);
+    }
+  }
+
+  @visibleForTesting
+  void handleDeliveryNoteForTest(Map<String, Object?> message) =>
+      _handleDeliveryNote(message);
+
+  /// (메시지, 바꾼 번호). 없거나 오래됐으면 둘 다 빈 값.
+  (String, String) _peekDeliveryNote(String mapId, String locationId) {
+    final entry = _deliveryNotes['$mapId|$locationId'];
+    if (entry == null ||
+        DateTime.now().difference(entry.$3) > _deliveryNoteTtl) {
+      return ('', '');
+    }
+    return (entry.$1, entry.$2);
+  }
+
+  (String, String) _takeDeliveryNote(String mapId, String locationId) {
+    final taken = _peekDeliveryNote(mapId, locationId);
+    _deliveryNotes.remove('$mapId|$locationId');
+    return taken;
+  }
+
   void _publishRelayedSmsResult(GoalEvent event, DeliveryNotifyResult result) {
     final client = _client;
     final settings = _lastSettings;
@@ -1840,7 +2223,8 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     client
-      ..advertise(topic: settings.deliverySmsResultTopic, type: 'std_msgs/String')
+      ..advertise(
+          topic: settings.deliverySmsResultTopic, type: 'std_msgs/String')
       ..publishJsonString(
         topic: settings.deliverySmsResultTopic,
         payload: {
@@ -1936,8 +2320,9 @@ class SupervisorProvider extends ChangeNotifier {
         _activeHelp = event;
         if (isNew) {
           final stamp = event.robotStamp;
-          _helpRequestedAt =
-              stamp.contains('T') ? stamp.substring(stamp.indexOf('T') + 1) : stamp;
+          _helpRequestedAt = stamp.contains('T')
+              ? stamp.substring(stamp.indexOf('T') + 1)
+              : stamp;
           final where = event.place.isEmpty ? '' : ' (${event.place})';
           _addLog(LogFilter.emergencyStop, '도움 요청$where');
         }
@@ -1945,12 +2330,12 @@ class SupervisorProvider extends ChangeNotifier {
         if (_activeHelp?.helpId == event.helpId) {
           _activeHelp = null;
           _acknowledgedHelpId = event.helpId;
-          _addLog(LogFilter.coordinateTransfer, '도움 요청을 관리자가 확인했습니다.');
+          _addLog(LogFilter.emergencyStop, '도움 요청을 관리자가 확인했습니다.');
         }
       case GoalEventKind.helpCanceled:
         if (_activeHelp?.helpId == event.helpId) {
           _activeHelp = null;
-          _addLog(LogFilter.coordinateTransfer, '도움 요청이 끝났습니다.');
+          _addLog(LogFilter.emergencyStop, '도움 요청이 끝났습니다.');
         } else if (_acknowledgedHelpId == event.helpId) {
           // 확인 뒤의 취소는 사용자가 직접 한 것뿐입니다(미션은 그 밖의 끝에는 알리지 않습니다).
           _acknowledgedHelpId = null;
@@ -1992,11 +2377,13 @@ class SupervisorProvider extends ChangeNotifier {
         }
       },
       failurePrefix: '도움 요청 확인 실패',
+      logAs: LogFilter.emergencyStop,
     );
     if (reply.accepted) {
       _acknowledgedHelpId = help.helpId;
     }
-    if ((reply.accepted || alreadyEnded) && _activeHelp?.helpId == help.helpId) {
+    if ((reply.accepted || alreadyEnded) &&
+        _activeHelp?.helpId == help.helpId) {
       _activeHelp = null;
       notifyListeners();
     }
@@ -2455,6 +2842,7 @@ class SupervisorProvider extends ChangeNotifier {
             : response.message;
       },
       failurePrefix: 'Mission Manager 요청 실패',
+      logAs: LogFilter.patrol,
       onAccepted: (_) {
         if (hint != null) {
           _hintPatrol(hint);
@@ -2502,6 +2890,7 @@ class SupervisorProvider extends ChangeNotifier {
         return missionMessage.isEmpty ? '요청이 거부되었습니다.' : missionMessage;
       },
       failurePrefix: 'Mission Manager 요청 실패',
+      logAs: LogFilter.patrol,
       onAccepted: (_) {
         _hintPatrol(PatrolPhase.off);
         _clearPatrolAlarm();
@@ -2524,7 +2913,7 @@ class SupervisorProvider extends ChangeNotifier {
     );
     if (!returnHome && notice != kPatrolStoppedText && !_disposed) {
       // 못 돌아간 까닭은 알림 목록에도 남깁니다(종료 문장은 위에서 이미 남았습니다).
-      _addLog(LogFilter.coordinateTransfer, notice);
+      _addLog(LogFilter.patrol, notice); // 경비 종료 사유는 경비로(2026-11-17)
     }
     return notice;
   }
@@ -2727,12 +3116,10 @@ class SupervisorProvider extends ChangeNotifier {
       final where =
           event.destinationName.isEmpty ? '' : '${event.destinationName}: ';
       final detail = event.reason.isEmpty ? '' : ' (${event.reason})';
-      _addLog(
-        event.isFailure
-            ? LogFilter.emergencyStop
-            : LogFilter.coordinateTransfer,
-        '$where${event.title}$detail',
-      );
+      // 실패만 남긴다(출발·도착 같은 평상시 알림은 지도 설정이 아니다, 2026-11-17).
+      if (event.isFailure) {
+        _addLog(LogFilter.emergencyStop, '$where${event.title}$detail');
+      }
     }
     notifyListeners();
   }
@@ -2866,7 +3253,9 @@ class SupervisorProvider extends ChangeNotifier {
       final message = response.message.isEmpty
           ? (response.accepted ? '초기 위치를 반영했습니다.' : '반영이 거부되었습니다.')
           : response.message;
-      _addLog(LogFilter.coordinateTransfer, message);
+      if (!response.accepted) {
+        _addLog(LogFilter.coordinateTransfer, message);
+      }
       if (response.accepted) {
         // 반영이 끝나면 화면을 1단계로 되돌립니다. 남겨 두면 이미 반영한 값을
         // 다시 확정할 수 있게 보입니다.
@@ -2953,7 +3342,6 @@ class SupervisorProvider extends ChangeNotifier {
       _keepoutMaskApplied = response.values['mask_exists'] == true;
       _keepoutState = KeepoutSaveState.idle;
       _keepoutMessage = '';
-      _addLog(LogFilter.coordinateTransfer, '$mapId 금지구역 ${zones.length}개 조회');
     } catch (error) {
       _keepoutState = KeepoutSaveState.failed;
       _keepoutMessage = '금지구역을 불러오지 못했습니다: $error';
@@ -3115,7 +3503,9 @@ class SupervisorProvider extends ChangeNotifier {
       } else {
         _keepoutState = KeepoutSaveState.failed;
       }
-      _addLog(LogFilter.coordinateTransfer, '금지구역 저장: $_keepoutMessage');
+      if (_keepoutState == KeepoutSaveState.failed) {
+        _addLog(LogFilter.coordinateTransfer, '금지구역 저장: $_keepoutMessage');
+      }
     } catch (error) {
       _keepoutState = KeepoutSaveState.failed;
       _keepoutMessage = '금지구역 저장 실패: $error';
@@ -3153,7 +3543,9 @@ class SupervisorProvider extends ChangeNotifier {
     _keepoutMessage = text;
     _keepoutState =
         applied ? KeepoutSaveState.succeeded : KeepoutSaveState.failed;
-    _addLog(LogFilter.coordinateTransfer, '금지구역 상태: $text');
+    if (!applied) {
+      _addLog(LogFilter.coordinateTransfer, '금지구역 상태: $text');
+    }
     notifyListeners();
   }
 
@@ -3586,7 +3978,6 @@ class SupervisorProvider extends ChangeNotifier {
       _routePreview = null;
       _routeChecks = RouteChecks.none;
       _routeState = RouteEditState.succeeded;
-      _addLog(LogFilter.coordinateTransfer, '레일 저장: $_routeMessage');
       notifyListeners();
       await requestRouteInfo(settings, mapId);
       await loadRouteGraph(settings, mapId);
@@ -3627,7 +4018,9 @@ class SupervisorProvider extends ChangeNotifier {
     } else {
       _pendingRouteAlert = text.isEmpty ? '레일을 적용하지 못했습니다.' : text;
     }
-    _addLog(LogFilter.coordinateTransfer, '레일 상태: $text');
+    if (!applied) {
+      _addLog(LogFilter.coordinateTransfer, '레일 상태: $text');
+    }
     notifyListeners();
   }
 
@@ -3706,7 +4099,9 @@ class SupervisorProvider extends ChangeNotifier {
       final message = response.message.isEmpty
           ? (response.accepted ? '저장을 시작했습니다.' : '저장이 거부되었습니다.')
           : response.message;
-      _addLog(LogFilter.coordinateTransfer, message);
+      if (!response.accepted) {
+        _addLog(LogFilter.coordinateTransfer, message);
+      }
       return message;
     } catch (error) {
       // rosbridge 가 요청을 거부하면 StateError 로 옵니다. 정렬 요청이 거부됐다면
@@ -3852,6 +4247,7 @@ class SupervisorProvider extends ChangeNotifier {
               ? '요청이 거부되었습니다.'
               : _localizeGateReason(response.message),
       failurePrefix: 'Mission Manager 요청 실패',
+      logAs: LogFilter.emergencyStop,
     );
     return reply.message;
   }
@@ -3859,7 +4255,8 @@ class SupervisorProvider extends ChangeNotifier {
   /// 미션·지도·홈 서비스 한 번 부르기의 공통 틀입니다.
   ///
   /// 연결을 확인하고(없으면 부르지 않고 'ROS Bridge에 연결되지 않았습니다.'), 부르고,
-  /// [describe] 가 응답으로 화면 문구를 고르고, 그 문구를 '좌표 전송' 알림에 남깁니다.
+  /// [describe] 가 응답으로 화면 문구를 고릅니다. 거부되거나 호출이 실패했을 때만 [logAs] 분류
+  /// (기본 '지도 설정')에 남깁니다 — 2026-11-17 사용자: 반영 안 된 것만 기록.
   /// 호출이 실패하면(시간 초과·서비스 없음·연결 끊김) '[failurePrefix]: 오류' 입니다.
   /// 자리마다 기본 문구와 거부 사유를 읽는 법이 달라 [describe] 로 받습니다.
   ///
@@ -3872,6 +4269,7 @@ class SupervisorProvider extends ChangeNotifier {
     Duration timeout = RosBridgeClient.defaultServiceTimeout,
     required String Function(RosServiceResponse response) describe,
     required String failurePrefix,
+    LogFilter logAs = LogFilter.coordinateTransfer,
     void Function(RosServiceResponse response)? onAccepted,
     void Function(bool calling)? busy,
   }) async {
@@ -3888,14 +4286,17 @@ class SupervisorProvider extends ChangeNotifier {
         timeout: timeout,
       );
       final message = describe(response);
-      _addLog(LogFilter.coordinateTransfer, message);
+      // 2026-11-17 사용자: 거부(반영 안 됨)만 남긴다. 수락은 화면 문구로 충분하다.
+      if (!response.accepted) {
+        _addLog(logAs, message);
+      }
       if (response.accepted) {
         onAccepted?.call(response);
       }
       return (accepted: response.accepted, message: message);
     } catch (error) {
       final message = '$failurePrefix: $error';
-      _addLog(LogFilter.coordinateTransfer, message);
+      _addLog(logAs, message);
       return (accepted: false, message: message);
     } finally {
       busy?.call(false);
@@ -3994,8 +4395,6 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     _locationsByMap[mapId] = nextLocations;
-    _addLog(
-        LogFilter.coordinateTransfer, '$mapId 장소 ${nextLocations.length}개 수신');
     notifyListeners();
   }
 

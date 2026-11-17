@@ -53,14 +53,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        const Icon(
-                          Icons.admin_panel_settings_outlined,
-                          size: 58,
-                          color: VicaColors.primaryDark,
-                        ),
+                        // 2026-11-17 사용자: 앱 이름 옆에도 로고(관리자 방패 아이콘 대신).
+                        const Center(child: VicaLogo(size: 72)),
                         const SizedBox(height: 18),
                         Text(
-                          'VICA_Supervisor',
+                          'VICA_SUPERVISOR',
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.headlineSmall,
                         ),

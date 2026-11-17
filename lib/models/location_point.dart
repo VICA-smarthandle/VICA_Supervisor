@@ -186,6 +186,7 @@ class LocationPoint {
     double? doorYaw,
     WaitSpot? waitSpot,
     bool clearWaitSpot = false,
+    String? contactPhone,
   }) {
     return LocationPoint(
       locationId: locationId,
@@ -206,7 +207,7 @@ class LocationPoint {
       frameId: frameId,
       confirmPrompt: confirmPrompt,
       arrivalMessage: arrivalMessage,
-      contactPhone: contactPhone,
+      contactPhone: contactPhone ?? this.contactPhone,
       doorYaw: doorYaw ?? this.doorYaw,
       waitSpot: clearWaitSpot ? null : (waitSpot ?? this.waitSpot),
     );

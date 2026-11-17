@@ -7,6 +7,8 @@ import '../models/robot_status.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../ros/ros_bridge_client.dart';
+import '../widgets/drive_map_change.dart';
+import '../widgets/drive_nodes_card.dart';
 import '../widgets/health_banner.dart';
 import '../widgets/ros_connection_tile.dart';
 import '../widgets/vica_ui.dart';
@@ -17,9 +19,6 @@ class DashboardScreen extends StatelessWidget {
   /// 상단 배너를 탭하면 시스템 진단 화면으로 보냅니다.
   final VoidCallback? onOpenDiagnostics;
 
-  static const double metricLabelFontSize = 14;
-  static const double errorMetricLabelFontSize = 12;
-
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>().settings;
@@ -29,7 +28,7 @@ class DashboardScreen extends StatelessWidget {
     final robots = supervisor.robots;
     final moving = robots.where((robot) => robot.status == 'moving').length;
     final errorRobots = robots.where((robot) => robot.hasError).length;
-    // 카드 라벨이 '오류/긴급 정지'인데 /robot_status에는 E-stop이 담기지 않습니다.
+    // '오류' 칸은 긴급정지도 셉니다. /robot_status에는 E-stop이 담기지 않으므로
     // 중앙 래치가 활성이면 로봇 진단에 오류가 없어도 최소 1건으로 셉니다.
     final emergencyActive =
         supervisor.emergencyStopState == EmergencyStopState.active;
@@ -39,59 +38,30 @@ class DashboardScreen extends StatelessWidget {
         .where((robot) => robot.status != 'moving' && !robot.hasError)
         .length;
     final robot = supervisor.primaryRobot ?? _waitingRobot();
-    // 카드 색은 상태색 하나로 정합니다. 배경 틴트·숫자·아이콘·배지가 전부
-    // 그 색을 따르므로(VicaMetricCard.tintFor) 여기서는 색 이름만 고릅니다.
-    final metricCards = [
-      VicaMetricCard(
-        icon: Icons.smart_toy,
-        label: '전체 로봇',
-        value: robots.length.toString(),
-        color: VicaColors.primary,
-        labelFontSize: metricLabelFontSize,
-        badge: '정상',
-        unit: '대',
-      ),
-      VicaMetricCard(
-        icon: Icons.navigation,
-        label: '운행 중',
-        value: moving.toString(),
-        color: VicaColors.green,
-        labelFontSize: metricLabelFontSize,
-        badge: '주행',
-        unit: '대',
-      ),
-      VicaMetricCard(
-        icon: Icons.hourglass_empty,
-        label: '대기 중',
-        value: waiting.toString(),
-        color: VicaColors.muted,
-        labelFontSize: metricLabelFontSize,
-        badge: '대기',
-        unit: '대',
-      ),
-      VicaMetricCard(
-        icon: Icons.warning,
-        // 라벨이 카드 폭을 다 쓰므로 한 줄로 둡니다(2026-09-14 시안). 아주 좁은
-        // 창에서만 두 줄로 접힙니다.
-        label: '오류 · 긴급정지',
+    // 2026-11-17 제목·문구 간결화(사용자 승인): 지표 카드 넷 → 카드 하나 안의 칸 넷. 색은
+    // 오류 칸 숫자만 씁니다(0 초록·1 이상 빨강).
+    final counts = [
+      VicaCount(label: '로봇', value: robots.length.toString()),
+      VicaCount(label: '운행', value: moving.toString()),
+      VicaCount(label: '대기', value: waiting.toString()),
+      VicaCount(
+        label: '오류',
         value: errors.toString(),
-        color: VicaColors.red,
-        labelMaxLines: 2,
-        labelFontSize: errorMetricLabelFontSize,
-        // 이 배지만 건수를 따라 바뀝니다. 0건인데 '이상 없음'이 아니면 거짓말이고,
-        // 1건인데 '이상 없음'이면 더 나쁜 거짓말입니다.
-        badge: errors == 0 ? '이상 없음' : '이상 있음',
-        unit: '건',
+        color: errors == 0 ? VicaColors.green : VicaColors.red,
       ),
     ];
 
+    // 본문 제목('로봇 현황')은 뺐습니다 — 제목줄이 '대시보드'입니다(2026-11-17 사용자 승인).
     return VicaPage(
-      title: '로봇 현황',
       children: [
         if (!connected)
           VicaDisconnectedNotice(detail: supervisor.connectionDetail),
         // 최고 등급 결함을 한 줄로 알립니다. 결함이 없으면 아무것도 그리지 않습니다.
         HealthBanner(onTap: onOpenDiagnostics),
+        // 주행 노드(사람 감지 켜기·끄기, 음성 고르기). 모드 노드가 켠 주행일 때만 보입니다(2026-11-16).
+        // 터미널에서 CURRENT_MAP 만 바뀌어 Nav2 와 지도가 어긋나면(2026-11-17 목업 ⑦).
+        const DriveMapMismatchCard(),
+        const DriveNodesCard(),
         // 좁은 창에서는 두 버튼을 나란히 두면 각 버튼이 130px까지 줄어 라벨이
         // 잘립니다. 그때는 위아래로 쌓아 문구를 그대로 보여줍니다.
         _ConnectionButtons(
@@ -106,37 +76,12 @@ class DashboardScreen extends StatelessWidget {
             constraints: const BoxConstraints(
               maxWidth: VicaBreakpoints.metricGridMaxWidth,
             ),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final columnCount =
-                    constraints.maxWidth >= VicaBreakpoints.metricGridWide
-                        ? 4
-                        : 2;
-                // 셀 높이를 116으로 고정하면 글자 배율을 올린 기기에서 카드 아래가
-                // 잘립니다. 안의 글자와 같은 비율로 셀도 늘립니다.
-                final cellHeight = MediaQuery.textScalerOf(context)
-                    .scale(VicaMetricCard.baseHeight);
-                return GridView.builder(
-                  itemCount: metricCards.length,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: columnCount,
-                    crossAxisSpacing: 12,
-                    // 카드가 자기 여백을 갖지 않으므로 줄 간격도 열 간격과 같게 둡니다.
-                    mainAxisSpacing: 12,
-                    mainAxisExtent: cellHeight,
-                  ),
-                  itemBuilder: (context, index) => metricCards[index],
-                );
-              },
-            ),
+            child: VicaCountStrip(items: counts),
           ),
         ),
-        const SizedBox(height: 12),
-        const VicaSectionTitle('로봇 상태'),
+        const VicaSectionTitle('로봇'),
         VicaRobotCard(robot: robot),
-        const VicaSectionTitle('최근 알림'),
+        const VicaSectionTitle('알림'),
         if (supervisor.logs.isEmpty)
           const VicaCard(child: Text('최근 알림이 없습니다.'))
         else

@@ -73,7 +73,7 @@ void main() {
   testWidgets('자리를 짚기 전에는 확인 버튼이 잠긴다', (tester) async {
     await pump(tester, picked: null);
     final button = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, '여기가 맞는지 확인'),
+      find.widgetWithText(FilledButton, '확인'),
     );
     expect(button.onPressed, isNull);
   });
@@ -81,7 +81,7 @@ void main() {
   testWidgets('자리를 짚으면 확인 버튼이 열린다', (tester) async {
     final calls = <String>[];
     await pump(tester, picked: const Offset(1.2, 3.4), calls: calls);
-    await tester.tap(find.widgetWithText(FilledButton, '여기가 맞는지 확인'));
+    await tester.tap(find.widgetWithText(FilledButton, '확인'));
     expect(calls, contains('check'));
   });
 
@@ -150,7 +150,7 @@ void main() {
     expect(calls, contains('direction:left'));
   });
 
-  testWidgets('방향을 모르겠음으로 두면 대가를 알려준다', (tester) async {
+  testWidgets('방향을 모름으로 두면 대가를 알려준다', (tester) async {
     await pump(tester, picked: const Offset(1, 2), direction: null);
     expect(find.textContaining(vicaKeepWords('360°')), findsOneWidget);
   });

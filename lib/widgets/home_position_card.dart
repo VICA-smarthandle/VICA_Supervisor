@@ -130,10 +130,8 @@ class HomePositionCard extends StatelessWidget {
           const SizedBox(height: 4),
         ],
         Text(
-          // 마침표에서 줄을 나누고 그 안은 어절 단위로 접힙니다(2026-09-15).
-          vicaKeepWords(vicaBreakAtSentences(
-            '안내가 끝나면 로봇이 이 자리로 돌아옵니다. 지도당 하나만 설정 가능합니다.',
-          )),
+          // 2026-11-17 제목·문구 간결화(사용자 승인). 어절 단위로 접힙니다.
+          vicaKeepWords('안내 뒤 돌아오는 자리 · 지도당 1개'),
           style: const TextStyle(color: VicaColors.muted, fontSize: 13),
         ),
         const SizedBox(height: 14),
@@ -164,7 +162,7 @@ class HomePositionCard extends StatelessWidget {
       return [
         const _InfoBox(
           icon: Icons.info_outline,
-          text: '아직 지정되지 않았습니다. 지정하지 않아도 안내는 정상 동작하며, 자동 복귀만 꺼집니다.',
+          text: '미지정 · 자동 복귀 꺼짐',
         ),
         const SizedBox(height: 14),
         _pickButtons(context),
@@ -176,8 +174,7 @@ class HomePositionCard extends StatelessWidget {
       if (!saved.visitedOk) ...[
         const SizedBox(height: 12),
         const _WarnBox(
-          text: '아직 가 본 적이 없습니다. 좌표를 정한 것과 그 자리에 실제로 갈 수 있는 것은 '
-              '다른 사실입니다. 아래 \'홈으로 가보기\'로 한 번 확인하세요.',
+          text: '아직 가 보지 않음 · 아래 홈으로 주행',
         ),
       ],
       const SizedBox(height: 14),
@@ -229,21 +226,20 @@ class HomePositionCard extends StatelessWidget {
     return [
       const _InfoBox(
         icon: Icons.touch_app_outlined,
-        text: '지도에서 홈 위치를 선택하고, 로봇이 바라볼 방향을 고르세요. '
-            '저장한 뒤 \'홈으로 주행\'으로 실제로 갈 수 있는지 확인합니다.',
+        text: '지도에서 위치 누르기 → 방향 → 저장',
       ),
       const SizedBox(height: 14),
       _Step(
         number: '1',
         title: spot == null
-            ? '지도에서 홈 위치를 선택하세요'
-            : '선택한 위치 (${spot.dx.toStringAsFixed(2)}, ${spot.dy.toStringAsFixed(2)})',
+            ? '지도에서 위치 누르기'
+            : '(${spot.dx.toStringAsFixed(2)}, ${spot.dy.toStringAsFixed(2)})',
         done: spot != null,
       ),
       const SizedBox(height: 12),
       _Step(
         number: '2',
-        title: '로봇이 바라볼 방향 (지도 그림 기준)',
+        title: '방향', // 지도 그림 기준
         done: direction != null,
       ),
       const SizedBox(height: 8),
@@ -256,7 +252,7 @@ class HomePositionCard extends StatelessWidget {
       FilledButton.icon(
         onPressed: busy || spot == null || direction == null ? null : onSave,
         icon: const Icon(Icons.save_outlined),
-        label: const Text('이 자리를 홈으로 저장'),
+        label: const Text('홈으로 저장'),
       ),
     ];
   }
@@ -270,9 +266,8 @@ class HomePositionCard extends StatelessWidget {
     return [
       const _InfoBox(
         icon: Icons.adjust,
-        text: '로봇을 홈으로 쓸 자리에 세운 뒤 확인을 누르세요. 라이다가 보는 것과 지도를 '
-            '맞춰 점수를 냅니다. 저장되는 값은 로봇이 선 자리가 아니라 그 채점이 '
-            '바로잡은 자세입니다.',
+        // 저장되는 값은 로봇이 선 자리가 아니라 채점이 바로잡은 자세입니다.
+        text: '로봇을 홈 자리에 세우고 확인 · 라이다로 채점',
       ),
       const SizedBox(height: 14),
       if (!canSendRobot && blockedReason.isNotEmpty) ...[
@@ -285,7 +280,7 @@ class HomePositionCard extends StatelessWidget {
       OutlinedButton.icon(
         onPressed: busy ? null : onCheckStanding,
         icon: const Icon(Icons.search),
-        label: Text(result == null ? '여기가 맞는지 확인' : '다시 확인'),
+        label: Text(result == null ? '위치 확인' : '다시 확인'),
       ),
       if (result != null) ...[
         const SizedBox(height: 12),
@@ -296,7 +291,7 @@ class HomePositionCard extends StatelessWidget {
           // 씁니다 — 앱에서 다시 계산하면 두 기준이 갈립니다.
           onPressed: busy || !result.ok ? null : onSave,
           icon: const Icon(Icons.save_outlined),
-          label: const Text('이 자리를 홈으로 저장'),
+          label: const Text('홈으로 저장'),
         ),
       ],
     ];
