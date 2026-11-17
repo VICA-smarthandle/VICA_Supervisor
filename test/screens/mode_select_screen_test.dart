@@ -49,7 +49,7 @@ ModeStatus mode(String m, ModeState state, {List<String> stopTimeouts = const []
 Future<void> chooseSubmode(WidgetTester tester, String title) async {
   await tester.tap(find.text('주행'));
   await tester.pumpAndSettle();
-  expect(find.text('어떤 일을 할까요?'), findsOneWidget);
+  expect(find.text('주행 모드 선택'), findsOneWidget);
   await tester.tap(find.text(title));
   await tester.pumpAndSettle();
 }
@@ -306,7 +306,7 @@ void main() {
     await pump(tester, _FakeSupervisor());
     await tester.tap(find.text('주행'));
     await tester.pumpAndSettle();
-    expect(find.text('어떤 일을 할까요?'), findsOneWidget);
+    expect(find.text('주행 모드 선택'), findsOneWidget);
     expect(find.text('로컬(LOCAL)'), findsNothing);
   });
 }

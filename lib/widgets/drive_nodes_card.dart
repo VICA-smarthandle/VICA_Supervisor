@@ -141,7 +141,8 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
                       child: Text(
                         choice.label,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w700),
+                        // 글자를 한 단계 줄임(2026-11-17 사용자 지시).
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
                       ),
                     ),
                 ],

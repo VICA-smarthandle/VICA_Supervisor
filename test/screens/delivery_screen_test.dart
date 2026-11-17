@@ -83,7 +83,19 @@ void main() {
   FilledButton startButton(WidgetTester tester) =>
       tester.widget<FilledButton>(find.widgetWithText(FilledButton, '배송 출발'));
 
-  testWidgets('연락처 없는 장소는 배송 대상에 나오지 않는다', (tester) async {
+  // 2026-11-17 사용자 지시: 장소 칩 버튼을 지우고 '배송 받을 곳'·'연락처'·'메시지' 세 칸(B안: 모든 장소).
+  Future<void> pickPlace(WidgetTester tester, String name) async {
+    // 지도 선택 드롭다운이 앞에 있다. 배송 받을 곳은 뒤쪽이다.
+    await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(name).last);
+    await tester.pumpAndSettle();
+  }
+
+  Finder phoneField() => find.byType(TextField).first;
+  Finder noteField() => find.byType(TextField).last;
+
+  testWidgets('번호 없는 장소도 고를 수 있고, 연락처를 써야 출발이 열린다', (tester) async {
     const lobby = LocationPoint(
       locationId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
       mapId: 'starlight_1f',
@@ -93,59 +105,71 @@ void main() {
       yaw: 0,
     );
     await pump(tester, locations: [lobby]);
-    expect(find.text('연락처가 저장된 장소가 아직 없습니다.'), findsOneWidget);
-    expect(find.textContaining('로비'), findsNothing);
+    await pickPlace(tester, '로비');
+    await tester.tap(find.text('물건을 실었습니다'));
+    await tester.pump();
+    expect(startButton(tester).onPressed, isNull, reason: '연락처 없음');
+    expect(find.text('저장된 번호 없음 · 써 주세요(이번 배송만)'), findsOneWidget);
+    await tester.enterText(phoneField(), '010-12');
+    await tester.pump();
+    expect(find.text('휴대폰 번호 모양이 아님'), findsOneWidget);
+    expect(startButton(tester).onPressed, isNull);
+    await tester.enterText(phoneField(), '010-9876-5432');
+    await tester.pump();
+    expect(find.text('직접 입력 · 이번 배송만 씀'), findsOneWidget);
+    expect(startButton(tester).onPressed, isNotNull);
   });
 
-  testWidgets('번호는 가려서 보인다', (tester) async {
+  testWidgets('장소를 고르기 전에는 번호가 보이지 않고, 고르면 저장된 번호가 연락처 칸에 채워진다', (tester) async {
     await pump(tester, locations: [_office]);
-    expect(find.textContaining('010-****-5678'), findsOneWidget);
-    expect(find.textContaining('01012345678'), findsNothing);
-    expect(find.textContaining('1234'), findsNothing);
+    expect(find.textContaining('5678'), findsNothing);
+    await pickPlace(tester, '305호');
+    expect(find.text('010-1234-5678'), findsOneWidget, reason: '편집 칸이라 전체를 보인다');
+    expect(find.text('저장된 번호 · 바꾸면 이번 배송만'), findsOneWidget);
   });
 
   testWidgets('장소를 고르고 적재를 확인해야 출발이 열린다', (tester) async {
     await pump(tester, locations: [_office]);
     expect(startButton(tester).onPressed, isNull);
-
-    await tester.tap(find.textContaining('305호'));
-    await tester.pump();
+    await pickPlace(tester, '305호');
     expect(startButton(tester).onPressed, isNull, reason: '적재 확인 전');
-
     await tester.tap(find.text('물건을 실었습니다'));
     await tester.pump();
     expect(startButton(tester).onPressed, isNotNull);
   });
 
-  // 받는 분께 메시지(2026-11-17 사용자 승인, 목업 ①②④). 문자 전체 45자 안.
-  testWidgets('장소를 고르면 메시지 칸과 도착 문자 미리보기가 뜬다', (tester) async {
+  testWidgets('메시지를 쓰면 도착 문자 미리보기가 바뀐다', (tester) async {
     await pump(tester, locations: [_office]);
-    expect(find.text('받는 분께 메시지 (선택)'), findsNothing, reason: '장소를 고르기 전');
-    await tester.tap(find.textContaining('305호'));
-    await tester.pump();
-    expect(find.text('받는 분께 메시지 (선택)'), findsOneWidget);
+    await pickPlace(tester, '305호');
     expect(find.text(vicaKeepWords(deliveryArrivalMessage('305호'))), findsOneWidget,
         reason: '메시지가 없으면 예전 문구');
-    await tester.enterText(find.byType(TextField), '서류 두 장');
+    await tester.enterText(noteField(), '서류 두 장');
     await tester.pump();
     expect(find.text('6/31'), findsOneWidget, reason: '305호면 45 - "[305호] 비카 도착: " = 31');
     expect(find.text(vicaKeepWords('[305호] 비카 도착: 서류 두 장')), findsOneWidget);
   });
 
-  testWidgets('출발 확인 창에 메시지가 보이고 한도를 넘겨 쓸 수 없다', (tester) async {
+  testWidgets('출발 확인 창 — 저장된 번호는 가리고, 바꾼 번호는 전체와 직접 입력', (tester) async {
     await pump(tester, locations: [_office]);
-    await tester.tap(find.textContaining('305호'));
+    await pickPlace(tester, '305호');
+    await tester.enterText(noteField(), 'ㄱ' * 50);
     await tester.pump();
-    await tester.enterText(find.byType(TextField), 'ㄱ' * 50);
-    await tester.pump();
-    expect(find.text('31/31'), findsOneWidget);
+    expect(find.text('31/31'), findsOneWidget, reason: '한도를 넘겨 쓸 수 없다');
     await tester.tap(find.text('물건을 실었습니다'));
     await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, '배송 출발'));
     await tester.pumpAndSettle();
     expect(find.text('305호(으)로 배송 출발'), findsOneWidget);
-    expect(find.text('메시지'), findsOneWidget);
+    expect(find.text('010-****-5678'), findsOneWidget);
     expect(find.text('ㄱ' * 31), findsWidgets);
+    await tester.tap(find.text('취소'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(phoneField(), '01098765432');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, '배송 출발'));
+    await tester.pumpAndSettle();
+    expect(find.text('010-9876-5432 · 직접 입력'), findsOneWidget);
     await tester.tap(find.text('취소'));
     await tester.pumpAndSettle();
   });

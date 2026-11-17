@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/app_settings.dart';
+import '../core/contact_phone.dart';
 import '../core/json_read.dart';
 import '../core/log_filter.dart';
 import '../core/mode_contract.dart';
@@ -1608,13 +1609,23 @@ class SupervisorProvider extends ChangeNotifier {
   /// 거부된 요청을 기억해 두면 다음에 누가 그 장소로 안내 주행을 해서 도착했을
   /// 때 엉뚱하게 배송 문자가 나갑니다.
   /// [note] 는 받는 분께 남길 메시지입니다(2026-11-17). 도착 문자에 실려 45자 안으로 나갑니다.
+  /// [phone] 을 주면 이번 배송만 그 번호로 보냅니다(2026-11-17 B안: 번호 없는 장소도 배송). 장소에
+  /// 저장된 번호는 바꾸지 않습니다.
   Future<String> startDelivery(
     AppSettings settings,
     LocationPoint location, {
     String note = '',
+    String phone = '',
   }) async {
+    final typed = phone.trim().isEmpty ? '' : normalizeContactPhone(phone);
+    if (typed == null) {
+      return '연락처가 휴대폰 번호 모양이 아닙니다.';
+    }
+    if (typed.isNotEmpty && typed != location.contactPhone) {
+      location = location.copyWith(contactPhone: typed);
+    }
     if (!location.canReceiveDelivery) {
-      return '${location.name}에는 도착 문자 연락처가 없습니다. 지도 설정에서 넣어 주세요.';
+      return '${location.name}에 연락처가 없습니다. 연락처를 쓰세요.';
     }
     final current = _delivery;
     if (current != null && !current.phase.isFinished) {
@@ -1638,8 +1649,9 @@ class SupervisorProvider extends ChangeNotifier {
       startedAt: DateTime.now(),
       note: cleanNote,
     ));
-    // 비어 있어도 냅니다 — 대신 보내는 폰이 같은 장소의 지난 메시지를 다시 쓰지 않게.
-    _publishDeliveryNote(settings, location, cleanNote);
+    // 비어 있어도 냅니다 — 대신 보내는 폰이 같은 장소의 지난 메시지를 다시 쓰지 않게. 번호는 바꿨을
+    // 때만 싣습니다(저장된 번호는 유심 폰이 제 장소 목록에서 압니다).
+    _publishDeliveryNote(settings, location, cleanNote, phone: typed.isNotEmpty ? location.contactPhone : '');
     _pendingDeliveryNotice = null;
     _addLog(LogFilter.delivery,
         '${location.name} 배송 출발${cleanNote.isEmpty ? '' : ' · 메시지 ${cleanNote.length}자'}');
@@ -1876,6 +1888,8 @@ class SupervisorProvider extends ChangeNotifier {
     );
     _pendingDeliveryNotice =
         DeliveryNotice(job: job, text: text, result: result);
+    // 출발 때 낸 메시지·번호 래치를 지웁니다(대신 보낸 폰은 이미 썼고, 남기면 번호가 계속 보입니다).
+    _clearDeliveryNote(job.destination.mapId, job.destination.locationId);
     notifyListeners();
   }
 
@@ -1992,16 +2006,14 @@ class SupervisorProvider extends ChangeNotifier {
     }
     _addLog(LogFilter.delivery,
         '${location.name} 도착 문자 $state(다른 화면에서 보낸 배송): ${result.detail}');
+    final (note, typedPhone) = _peekDeliveryNote(location.mapId, location.locationId);
     _pendingDeliveryNotice = DeliveryNotice(
       job: DeliveryJob(
-        destination: location,
+        destination: typedPhone.isEmpty ? location : location.copyWith(contactPhone: typedPhone),
         startedAt: DateTime.now(),
         phase: DeliveryPhase.arrived,
       ),
-      text: deliveryArrivalMessage(
-        location.name,
-        note: _peekDeliveryNote(location.mapId, location.locationId),
-      ),
+      text: deliveryArrivalMessage(location.name, note: note),
       result: result,
     );
     notifyListeners();
@@ -2030,8 +2042,11 @@ class SupervisorProvider extends ChangeNotifier {
       }
     }
     final name = location?.name ?? event.destinationName;
+    // 보낸 화면이 남긴 메시지·바꾼 번호(있으면). 한 번 쓰면 지웁니다 — 다음 배송에 섞이지 않게.
+    final (note, typedPhone) = _takeDeliveryNote(event.mapId, event.locationId);
+    final phone = typedPhone.isNotEmpty ? typedPhone : (location?.contactPhone ?? '');
     DeliveryNotifyResult result;
-    if (location == null || !location.canReceiveDelivery) {
+    if (phone.isEmpty) {
       result = const DeliveryNotifyResult(
         sent: false,
         detail: '배송지 연락처를 찾지 못했습니다. 직접 연락하세요.',
@@ -2039,16 +2054,15 @@ class SupervisorProvider extends ChangeNotifier {
     } else {
       try {
         result = await _deliveryNotifier.send(
-          phone: location.contactPhone,
-          // 보낸 화면이 남긴 메시지(있으면). 한 번 쓰면 지웁니다 — 다음 배송에 섞이지 않게.
-          text: deliveryArrivalMessage(
-            location.name,
-            note: _takeDeliveryNote(event.mapId, event.locationId),
-          ),
+          phone: phone,
+          text: deliveryArrivalMessage(name, note: note),
         );
       } catch (error) {
         result = DeliveryNotifyResult(sent: false, detail: '발송 오류: $error');
       }
+    }
+    if (note.isNotEmpty || typedPhone.isNotEmpty) {
+      _clearDeliveryNote(event.mapId, event.locationId);
     }
     if (_disposed) {
       return;
@@ -2066,13 +2080,18 @@ class SupervisorProvider extends ChangeNotifier {
   // 배송을 보낸 화면이 출발 때 래치 토픽으로 메시지를 냅니다. 문자를 대신 보내는 관리자 유심 폰은
   // 지도·장소별로 기억했다가 그 장소의 도착 문자에 넣고 지웁니다. 로봇(미션)은 메시지를 모릅니다.
 
-  /// '지도|장소' → (메시지, 받은 시각).
-  final Map<String, (String, DateTime)> _deliveryNotes = {};
+  /// '지도|장소' → (메시지, 바꾼 번호, 받은 시각). 번호는 이번 배송에만 쓴 것이고 비면 장소 번호.
+  final Map<String, (String, String, DateTime)> _deliveryNotes = {};
 
   /// 이보다 오래된 메시지는 쓰지 않습니다(배송 한 건은 길어야 수십 분).
   static const Duration _deliveryNoteTtl = Duration(hours: 3);
 
-  void _publishDeliveryNote(AppSettings settings, LocationPoint location, String note) {
+  void _publishDeliveryNote(
+    AppSettings settings,
+    LocationPoint location,
+    String note, {
+    String phone = '',
+  }) {
     final client = _client;
     if (client == null || _connectionState != RosConnectionState.connected) {
       return;
@@ -2085,8 +2104,25 @@ class SupervisorProvider extends ChangeNotifier {
           'map_id': location.mapId,
           'location_id': location.locationId,
           'note': note,
+          if (phone.isNotEmpty) 'phone': phone,
           'sent_at': DateTime.now().toIso8601String(),
         },
+      );
+  }
+
+  /// 도착 문자를 보낸 뒤 래치에 남은 메시지·번호를 빈 값으로 덮습니다. rosbridge(9090)는 인증이 없어
+  /// 래치에 남은 번호는 같은 망의 누구나 읽을 수 있습니다 — 쓴 뒤에는 남기지 않습니다(2026-11-17).
+  void _clearDeliveryNote(String mapId, String locationId) {
+    final settings = _lastSettings;
+    final client = _client;
+    if (settings == null || client == null || _connectionState != RosConnectionState.connected) {
+      return;
+    }
+    client
+      ..advertise(topic: settings.deliveryNoteTopic, type: 'std_msgs/String', latch: true)
+      ..publishJsonString(
+        topic: settings.deliveryNoteTopic,
+        payload: {'map_id': mapId, 'location_id': locationId, 'note': ''},
       );
   }
 
@@ -2100,7 +2136,13 @@ class SupervisorProvider extends ChangeNotifier {
     if (mapId.isEmpty || locationId.isEmpty) {
       return;
     }
-    _deliveryNotes['$mapId|$locationId'] = (deliveryNoteClean('${decoded['note'] ?? ''}'), DateTime.now());
+    final note = deliveryNoteClean('${decoded['note'] ?? ''}');
+    final phone = normalizeContactPhone('${decoded['phone'] ?? ''}') ?? '';
+    if (note.isEmpty && phone.isEmpty) {
+      _deliveryNotes.remove('$mapId|$locationId');
+      return;
+    }
+    _deliveryNotes['$mapId|$locationId'] = (note, phone, DateTime.now());
     while (_deliveryNotes.length > 20) {
       _deliveryNotes.remove(_deliveryNotes.keys.first);
     }
@@ -2109,18 +2151,19 @@ class SupervisorProvider extends ChangeNotifier {
   @visibleForTesting
   void handleDeliveryNoteForTest(Map<String, Object?> message) => _handleDeliveryNote(message);
 
-  String _peekDeliveryNote(String mapId, String locationId) {
+  /// (메시지, 바꾼 번호). 없거나 오래됐으면 둘 다 빈 값.
+  (String, String) _peekDeliveryNote(String mapId, String locationId) {
     final entry = _deliveryNotes['$mapId|$locationId'];
-    if (entry == null || DateTime.now().difference(entry.$2) > _deliveryNoteTtl) {
-      return '';
+    if (entry == null || DateTime.now().difference(entry.$3) > _deliveryNoteTtl) {
+      return ('', '');
     }
-    return entry.$1;
+    return (entry.$1, entry.$2);
   }
 
-  String _takeDeliveryNote(String mapId, String locationId) {
-    final note = _peekDeliveryNote(mapId, locationId);
+  (String, String) _takeDeliveryNote(String mapId, String locationId) {
+    final taken = _peekDeliveryNote(mapId, locationId);
     _deliveryNotes.remove('$mapId|$locationId');
-    return note;
+    return taken;
   }
 
   void _publishRelayedSmsResult(GoalEvent event, DeliveryNotifyResult result) {

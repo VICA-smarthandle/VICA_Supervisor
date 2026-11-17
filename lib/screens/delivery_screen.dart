@@ -2,7 +2,8 @@
 //
 // 주행 요청은 원격 주행과 같은 Mission Manager 서비스로 나가며 Safety 를
 // 우회하지 않습니다. 이 화면이 원격 주행과 다른 것은 셋뿐입니다.
-//   1. 연락처가 저장된 장소만 고를 수 있다.
+//   1. 받는 번호가 있어야 출발한다. 2026-11-17(사용자 B안)부터 모든 장소를 고를 수 있고, 저장된
+//      번호가 없거나 다른 번호로 보내려면 '받는 번호'에 직접 쓴다(이번 배송에만, 장소에 저장 안 함).
 //   2. 출발 전에 "물건을 실었다"를 한 번 확인한다 — 로봇은 적재 센서가 없어
 //      물건이 있는지 모른다. 이 확인은 사람의 선언이다.
 //   3. 도착하면 문자를 보내고 결과를 팝업으로 알린다. 팝업은 이 화면이 아니라
@@ -42,10 +43,26 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
   /// 받는 분께 메시지. 출발하면 비웁니다(다음 배송에 남지 않게).
   final TextEditingController _note = TextEditingController();
 
+  /// 받는 번호. 장소를 고르면 저장된 번호로 채우고, 바꾸면 이번 배송에만 씁니다.
+  final TextEditingController _phone = TextEditingController();
+
   @override
   void dispose() {
     _note.dispose();
+    _phone.dispose();
     super.dispose();
+  }
+
+  void _pick(LocationPoint location) {
+    _selectedId = location.locationId;
+    _fitNote(location);
+    _phone.text = location.contactPhone.isEmpty ? '' : formatContactPhone(location.contactPhone);
+  }
+
+  /// 쓴 번호를 숫자로. 비었거나 모양이 틀리면 null.
+  String? get _typedPhone {
+    final digits = normalizeContactPhone(_phone.text);
+    return digits == null || digits.isEmpty ? null : digits;
   }
 
   @override
@@ -54,10 +71,8 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
     final supervisor = context.watch<SupervisorProvider>();
 
     final map = supervisor.selectedMap;
-    final candidates = supervisor
-        .locationsFor(map?.mapId)
-        .where((location) => location.canReceiveDelivery)
-        .toList(growable: false);
+    // 모든 장소(2026-11-17 B안). 번호가 없는 곳은 '받는 번호'에 쓰면 됩니다.
+    final candidates = supervisor.locationsFor(map?.mapId).toList(growable: false);
     final selected = _find(candidates, _selectedId);
     final job = supervisor.delivery;
     final busy = job != null && job.isActive;
@@ -93,12 +108,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
             supervisor: supervisor,
             locations: candidates,
             selectedLocationId: _selectedId,
-            onSelectLocation: busy
-                ? null
-                : (location) => setState(() {
-                      _selectedId = location.locationId;
-                      _fitNote(location);
-                    }),
+            onSelectLocation: busy ? null : (location) => setState(() => _pick(location)),
           ),
           const SizedBox(height: 20),
           if (job != null) ...[
@@ -118,72 +128,49 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
     LocationPoint? selected,
     bool busy,
   ) {
+    // 2026-11-17 사용자 지시: 장소 칩 버튼들을 지우고 '배송 받을 곳'·'연락처'·'메시지' 세 칸으로 지정.
     return VicaCard(
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '배송 받을 곳',
-                  style: Theme.of(context).textTheme.titleMedium,
+          DropdownButtonFormField<String>(
+            key: ValueKey('delivery-place-${selected?.locationId}'),
+            initialValue: selected?.locationId,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: '배송 받을 곳'),
+            hint: Text(candidates.isEmpty ? '장소 없음' : '장소를 고르세요'),
+            items: [
+              for (final location in candidates)
+                DropdownMenuItem(
+                  value: location.locationId,
+                  child: Text(location.name, overflow: TextOverflow.ellipsis),
                 ),
-              ),
-              OutlinedButton(
-                onPressed: null,
-                // 개수 배지라 내용 폭만 씁니다(map_locations 의 '개' 배지와 같은 이유).
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(0, 36),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                ),
-                child: Text('${candidates.length}곳'),
-              ),
             ],
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            '연락처 있는 장소만',
-            style: TextStyle(color: VicaColors.muted, fontSize: 13),
+            onChanged: busy || candidates.isEmpty
+                ? null
+                : (id) {
+                    final location = _find(candidates, id);
+                    if (location != null) {
+                      setState(() => _pick(location));
+                    }
+                  },
           ),
           const SizedBox(height: 14),
-          if (candidates.isEmpty)
-            const Text('연락처가 저장된 장소가 아직 없습니다.')
-          else
-            Wrap(
-              spacing: 8,
-              runSpacing: 10,
-              children: candidates.map((location) {
-                final isSelected = _selectedId == location.locationId;
-                return ChoiceChip(
-                  selected: isSelected,
-                  avatar: Icon(
-                    isSelected ? Icons.check_circle : Icons.local_shipping,
-                    color:
-                        isSelected ? VicaColors.text : VicaColors.primaryDark,
-                    size: 18,
-                  ),
-                  label: Text(
-                    '${location.name} · ${maskContactPhone(location.contactPhone)}',
-                  ),
-                  onSelected: busy
-                      ? null
-                      : (_) => setState(() {
-                            _selectedId = location.locationId;
-                            _fitNote(location);
-                          }),
-                );
-              }).toList(),
-            ),
+          _PhoneField(
+            controller: _phone,
+            saved: selected?.contactPhone ?? '',
+            enabled: !busy && selected != null,
+            onChanged: () => setState(() {}),
+          ),
+          const SizedBox(height: 12),
+          _NoteField(
+            controller: _note,
+            limit: deliveryNoteLimit(selected?.name ?? ''),
+            enabled: !busy && selected != null,
+            onChanged: () => setState(() {}),
+          ),
           if (selected != null) ...[
-            const SizedBox(height: 16),
-            _NoteField(
-              controller: _note,
-              limit: deliveryNoteLimit(selected.name),
-              enabled: !busy,
-              onChanged: () => setState(() {}),
-            ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 4),
             _SmsPreview(
               text: deliveryArrivalMessage(selected.name, note: _note.text),
             ),
@@ -204,7 +191,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
           const SizedBox(height: 6),
           FilledButton.icon(
             // 요청 가능 여부(권한·접근성·E-stop·Nav2)는 Mission Manager가 판정합니다.
-            onPressed: selected == null || !_loaded || busy
+            onPressed: selected == null || !_loaded || busy || _typedPhone == null
                 ? null
                 : () => _confirmStart(context, supervisor, selected),
             icon: Icon(busy ? Icons.local_shipping : Icons.send),
@@ -222,12 +209,18 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
   ) async {
     final settings = context.read<SettingsProvider>().settings;
     final note = deliveryNoteClean(_note.text);
+    final phone = _typedPhone ?? '';
+    // 직접 쓴 번호는 오타를 잡도록 전체를 보입니다. 저장된 번호 그대로면 지금처럼 가립니다.
+    final typed = phone != location.contactPhone;
     final confirmed = await showVicaConfirm(
       context,
       icon: Icons.play_arrow_outlined,
       title: '${location.name}(으)로 배송 출발',
       rows: [
-        VicaDialogRow(label: '문자', value: maskContactPhone(location.contactPhone)),
+        VicaDialogRow(
+          label: '문자',
+          value: typed ? '${formatContactPhone(phone)} · 직접 입력' : maskContactPhone(phone),
+        ),
         if (note.isNotEmpty) VicaDialogRow(label: '메시지', value: note),
       ],
       body: '로봇 주변 사람·장애물 확인',
@@ -236,7 +229,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
     if (!confirmed || !context.mounted) {
       return;
     }
-    final message = await supervisor.startDelivery(settings, location, note: note);
+    final message = await supervisor.startDelivery(settings, location, note: note, phone: phone);
     if (!context.mounted) {
       return;
     }
@@ -246,6 +239,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
       setState(() {
         _loaded = false;
         _note.clear();
+        _phone.text = location.contactPhone.isEmpty ? '' : formatContactPhone(location.contactPhone);
       });
     }
     ScaffoldMessenger.of(context)
@@ -559,8 +553,8 @@ class _NoteField extends StatelessWidget {
       textInputAction: TextInputAction.done,
       onChanged: (_) => onChanged(),
       decoration: const InputDecoration(
-        labelText: '받는 분께 메시지 (선택)',
-        hintText: '예: 서류 두 장입니다',
+        labelText: '메시지 (선택)',
+        hintText: '받는 분께 · 예: 서류 두 장입니다',
       ),
     );
   }
@@ -594,6 +588,55 @@ class _SmsPreview extends StatelessWidget {
             style: const TextStyle(fontSize: 13, height: 1.5, color: VicaColors.text),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 받는 번호 칸(2026-11-17 B안). 저장된 번호가 있으면 채워 두고, 없으면 꼭 써야 합니다.
+class _PhoneField extends StatelessWidget {
+  const _PhoneField({
+    required this.controller,
+    required this.saved,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final TextEditingController controller;
+
+  /// 장소에 저장된 번호(숫자). 비면 번호 없는 장소.
+  final String saved;
+  final bool enabled;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final digits = normalizeContactPhone(controller.text);
+    final String helper;
+    String? error;
+    if (!enabled) {
+      helper = '';
+    } else if (controller.text.trim().isEmpty) {
+      helper = '';
+      error = saved.isEmpty ? '저장된 번호 없음 · 써 주세요(이번 배송만)' : '번호를 쓰세요';
+    } else if (digits == null) {
+      helper = '';
+      error = '휴대폰 번호 모양이 아님';
+    } else if (saved.isNotEmpty && digits == saved) {
+      helper = '저장된 번호 · 바꾸면 이번 배송만';
+    } else {
+      helper = '직접 입력 · 이번 배송만 씀';
+    }
+    return TextField(
+      controller: controller,
+      enabled: enabled,
+      keyboardType: TextInputType.phone,
+      onChanged: (_) => onChanged(),
+      decoration: InputDecoration(
+        labelText: '연락처',
+        hintText: '010-0000-0000',
+        helperText: helper.isEmpty ? null : helper,
+        errorText: error,
       ),
     );
   }

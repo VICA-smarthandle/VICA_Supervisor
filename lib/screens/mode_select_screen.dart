@@ -478,8 +478,9 @@ Future<(DriveSubmode, VoiceChoice?)?> showDriveSubmodeSheet(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // 2026-11-17 사용자 지시: '어떤 일을 할까요?' → '주행 모드 선택'.
                 const Text(
-                  '어떤 일을 할까요?',
+                  '주행 모드 선택',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
@@ -568,7 +569,8 @@ class _VoicePicker extends StatelessWidget {
                     child: Text(
                       choice.label,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
+                      // 글자를 한 단계 줄임(2026-11-17 사용자 지시).
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
                     ),
                   ),
               ],

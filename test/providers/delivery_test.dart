@@ -121,6 +121,14 @@ void main() {
       expect(provider.delivery, isNull);
     });
 
+    test('번호 없는 장소도 연락처를 쓰면 문턱을 넘는다 — 모양이 틀리면 막는다(2026-11-17 B안)', () async {
+      expect(await provider.startDelivery(const AppSettings(), _noPhone, phone: '010-12'),
+          contains('모양이 아닙니다'));
+      final message = await provider.startDelivery(const AppSettings(), _noPhone, phone: '010-9876-5432');
+      expect(message, isNot(contains('연락처가 없습니다')), reason: '번호 문턱은 넘고 연결 문턱에서 멈춘다');
+      expect(provider.delivery, isNull);
+    });
+
     test('연결이 없으면 요청이 안 나가고 배송도 기억하지 않는다', () async {
       final message = await provider.startDelivery(const AppSettings(), _office);
       expect(message, contains('연결'));
@@ -390,6 +398,19 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       await Future<void>.delayed(Duration.zero);
       expect(notifier.calls, 2);
+      expect(notifier.lastText, deliveryArrivalMessage('305호'));
+    });
+
+    test('다른 화면이 바꾼 번호로 대신 보낸다', () async {
+      injectOffice();
+      provider.handleDeliveryNoteForTest({
+        'data': '{"map_id": "m1", "location_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", '
+            '"note": "", "phone": "010-9876-5432"}',
+      });
+      provider.handleGoalEventForTest(arrival());
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(notifier.lastPhone, '01098765432');
       expect(notifier.lastText, deliveryArrivalMessage('305호'));
     });
 
