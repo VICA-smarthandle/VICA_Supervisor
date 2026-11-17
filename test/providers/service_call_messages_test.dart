@@ -56,11 +56,12 @@ void main() {
     return (message, provider);
   }
 
-  String lastLog(SupervisorProvider provider) {
-    final log = provider.logs.first;
-    expect(log.filter, LogFilter.coordinateTransfer);
-    return log.message;
-  }
+  /// [filter] 분류의 기록 문장(최신 먼저). 2026-11-17: 수락은 남기지 않고 거부·실패만 남긴다.
+  /// 지도 작업은 '지도 설정', 주행 요청(목적지·홈 복귀)은 '비상정지' 분류입니다.
+  List<String> logsOf(SupervisorProvider provider, LogFilter filter) => [
+        for (final log in provider.logs)
+          if (log.filter == filter) log.message,
+      ];
 
   test('연결이 없으면 부르지 않고 연결 안 됨이라고 답한다', () async {
     final provider = SupervisorProvider();
@@ -82,14 +83,25 @@ void main() {
   });
 
   group('목적지 요청', () {
-    test('로봇 문구를 그대로 보이고 기록한다', () {
+    test('로봇 문구를 그대로 보이고, 수락은 기록하지 않는다', () {
       final (message, provider) = run(
         (p) => p.requestDestination(_settings, _place),
         _settings.missionRequestService,
         {'accepted': true, 'message': '목적지 요청을 수락했습니다: 화장실'},
       );
       expect(message, '목적지 요청을 수락했습니다: 화장실');
-      expect(lastLog(provider), message);
+      expect(logsOf(provider, LogFilter.emergencyStop), isEmpty);
+      expect(logsOf(provider, LogFilter.coordinateTransfer), isEmpty);
+    });
+
+    test('거부는 비상정지 분류에 남긴다(지도 설정이 아니다)', () {
+      final (message, provider) = run(
+        (p) => p.requestDestination(_settings, _place),
+        _settings.missionRequestService,
+        {'accepted': false, 'message': '목적지 요청 거부: 이미 안내 중'},
+      );
+      expect(logsOf(provider, LogFilter.emergencyStop), [message]);
+      expect(logsOf(provider, LogFilter.coordinateTransfer), isEmpty);
     });
 
     test('문구가 비면 수락·거부 기본 문구', () {
@@ -122,7 +134,7 @@ void main() {
         result: false,
       );
       expect(message, startsWith('Mission Manager 목적지 요청 실패: '));
-      expect(lastLog(provider), message);
+      expect(logsOf(provider, LogFilter.emergencyStop), [message]);
     });
   });
 
@@ -266,10 +278,15 @@ void main() {
       expect(provider.homeBusy, isFalse);
       expect(message, '홈 위치가 삭제되었습니다.');
       expect(provider.home, isNull);
-      expect(lastLog(provider), message);
+      // 반영된 것은 기록하지 않는다(2026-11-17 사용자). 거부만 '지도 설정'에.
+      expect(logsOf(provider, LogFilter.coordinateTransfer), isEmpty);
+      final (refused, refusedProvider) = run(
+          (p) => p.deleteHome(_settings, 'm1'),
+          _settings.homeDeleteService,
+          {'accepted': false});
+      expect(logsOf(refusedProvider, LogFilter.coordinateTransfer), [refused]);
       expect(
-        run((p) => p.deleteHome(_settings, 'm1'), _settings.homeDeleteService,
-            {'accepted': false}).$1,
+        refused,
         '홈 위치 삭제가 거부되었습니다.',
       );
       expect(

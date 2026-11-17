@@ -717,7 +717,6 @@ class SupervisorProvider extends ChangeNotifier {
         send();
       }
     });
-    _addLog(LogFilter.coordinateTransfer, '주행 지도 바꾸기 요청: $mapId');
     try {
       return await done.future.timeout(kModeMapRequestTimeout);
     } on TimeoutException {
@@ -741,8 +740,10 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     done.complete((change.applied, change.message));
-    _addLog(LogFilter.coordinateTransfer,
-        '주행 지도 ${change.from} → ${change.mapId}: ${change.message}');
+    if (!change.applied) {
+      _addLog(LogFilter.coordinateTransfer,
+          '주행 지도 ${change.from} → ${change.mapId}: ${change.message}');
+    }
     // '(현재)' 표시와 지도별 준비 상태를 새로 받습니다.
     final settings = _lastSettings;
     if (change.applied && settings != null) {
@@ -761,11 +762,14 @@ class SupervisorProvider extends ChangeNotifier {
       final response = await client.callService(service: service);
       final message =
           response.message.isEmpty ? '$what 요청을 보냈습니다.' : response.message;
-      _addLog(LogFilter.coordinateTransfer, '$what: $message');
+      // 모드 노드 요청(주행·음성·감지)은 지도 설정이 아니다 — 실패만 '연결 상태'에(2026-11-17).
+      if (!response.success) {
+        _addLog(LogFilter.connection, '$what: $message');
+      }
       return (response.success, message);
     } catch (error) {
       final message = '$what 실패: $error';
-      _addLog(LogFilter.coordinateTransfer, message);
+      _addLog(LogFilter.connection, message);
       return (false, message);
     }
   }
@@ -985,7 +989,6 @@ class SupervisorProvider extends ChangeNotifier {
         'timestamp': DateTime.now().toIso8601String(),
       },
     );
-    _addLog(LogFilter.coordinateTransfer, '$mapId 장소 목록 요청 전송');
   }
 
   void selectMap(AppSettings settings, String? mapId) {
@@ -1039,7 +1042,6 @@ class SupervisorProvider extends ChangeNotifier {
       topic: settings.saveLocationTopic,
       payload: _locationPayload(draft),
     );
-    _addLog(LogFilter.coordinateTransfer, '${draft.name} 장소 저장 요청 전송');
     _draftLocation = null;
     notifyListeners();
   }
@@ -1059,7 +1061,6 @@ class SupervisorProvider extends ChangeNotifier {
       topic: settings.saveLocationTopic,
       payload: _locationPayload(location),
     );
-    _addLog(LogFilter.coordinateTransfer, '${location.name} 수정 저장 요청 전송');
     notifyListeners();
     return (true, '${location.name} 수정을 저장했습니다.');
   }
@@ -1096,7 +1097,6 @@ class SupervisorProvider extends ChangeNotifier {
         'timestamp': DateTime.now().toIso8601String(),
       },
     );
-    _addLog(LogFilter.coordinateTransfer, '${location.name} 장소 삭제 요청 전송');
   }
 
   // 앱은 vica_goto_goal, LLM과 같은 경로로 요청만 보냅니다. 지도·접근 권한·Safety·
@@ -1176,6 +1176,7 @@ class SupervisorProvider extends ChangeNotifier {
           ? (response.accepted ? '주행 요청을 수락했습니다.' : '주행 요청이 거부되었습니다.')
           : _localizeGateReason(response.message, gateMessages),
       failurePrefix: 'Mission Manager 목적지 요청 실패',
+      logAs: LogFilter.emergencyStop,
     );
     return (reply.accepted, reply.message);
   }
@@ -1465,6 +1466,7 @@ class SupervisorProvider extends ChangeNotifier {
           ? (response.accepted ? '홈으로 복귀합니다.' : '홈 복귀 요청이 거부되었습니다.')
           : _localizeGateReason(response.message),
       failurePrefix: '홈 복귀 요청 실패',
+      logAs: LogFilter.emergencyStop,
     );
     return (reply.accepted, reply.message);
   }
@@ -2328,12 +2330,12 @@ class SupervisorProvider extends ChangeNotifier {
         if (_activeHelp?.helpId == event.helpId) {
           _activeHelp = null;
           _acknowledgedHelpId = event.helpId;
-          _addLog(LogFilter.coordinateTransfer, '도움 요청을 관리자가 확인했습니다.');
+          _addLog(LogFilter.emergencyStop, '도움 요청을 관리자가 확인했습니다.');
         }
       case GoalEventKind.helpCanceled:
         if (_activeHelp?.helpId == event.helpId) {
           _activeHelp = null;
-          _addLog(LogFilter.coordinateTransfer, '도움 요청이 끝났습니다.');
+          _addLog(LogFilter.emergencyStop, '도움 요청이 끝났습니다.');
         } else if (_acknowledgedHelpId == event.helpId) {
           // 확인 뒤의 취소는 사용자가 직접 한 것뿐입니다(미션은 그 밖의 끝에는 알리지 않습니다).
           _acknowledgedHelpId = null;
@@ -2375,6 +2377,7 @@ class SupervisorProvider extends ChangeNotifier {
         }
       },
       failurePrefix: '도움 요청 확인 실패',
+      logAs: LogFilter.emergencyStop,
     );
     if (reply.accepted) {
       _acknowledgedHelpId = help.helpId;
@@ -2839,6 +2842,7 @@ class SupervisorProvider extends ChangeNotifier {
             : response.message;
       },
       failurePrefix: 'Mission Manager 요청 실패',
+      logAs: LogFilter.patrol,
       onAccepted: (_) {
         if (hint != null) {
           _hintPatrol(hint);
@@ -2886,6 +2890,7 @@ class SupervisorProvider extends ChangeNotifier {
         return missionMessage.isEmpty ? '요청이 거부되었습니다.' : missionMessage;
       },
       failurePrefix: 'Mission Manager 요청 실패',
+      logAs: LogFilter.patrol,
       onAccepted: (_) {
         _hintPatrol(PatrolPhase.off);
         _clearPatrolAlarm();
@@ -2908,7 +2913,7 @@ class SupervisorProvider extends ChangeNotifier {
     );
     if (!returnHome && notice != kPatrolStoppedText && !_disposed) {
       // 못 돌아간 까닭은 알림 목록에도 남깁니다(종료 문장은 위에서 이미 남았습니다).
-      _addLog(LogFilter.coordinateTransfer, notice);
+      _addLog(LogFilter.patrol, notice); // 경비 종료 사유는 경비로(2026-11-17)
     }
     return notice;
   }
@@ -3111,12 +3116,10 @@ class SupervisorProvider extends ChangeNotifier {
       final where =
           event.destinationName.isEmpty ? '' : '${event.destinationName}: ';
       final detail = event.reason.isEmpty ? '' : ' (${event.reason})';
-      _addLog(
-        event.isFailure
-            ? LogFilter.emergencyStop
-            : LogFilter.coordinateTransfer,
-        '$where${event.title}$detail',
-      );
+      // 실패만 남긴다(출발·도착 같은 평상시 알림은 지도 설정이 아니다, 2026-11-17).
+      if (event.isFailure) {
+        _addLog(LogFilter.emergencyStop, '$where${event.title}$detail');
+      }
     }
     notifyListeners();
   }
@@ -3250,7 +3253,9 @@ class SupervisorProvider extends ChangeNotifier {
       final message = response.message.isEmpty
           ? (response.accepted ? '초기 위치를 반영했습니다.' : '반영이 거부되었습니다.')
           : response.message;
-      _addLog(LogFilter.coordinateTransfer, message);
+      if (!response.accepted) {
+        _addLog(LogFilter.coordinateTransfer, message);
+      }
       if (response.accepted) {
         // 반영이 끝나면 화면을 1단계로 되돌립니다. 남겨 두면 이미 반영한 값을
         // 다시 확정할 수 있게 보입니다.
@@ -3337,7 +3342,6 @@ class SupervisorProvider extends ChangeNotifier {
       _keepoutMaskApplied = response.values['mask_exists'] == true;
       _keepoutState = KeepoutSaveState.idle;
       _keepoutMessage = '';
-      _addLog(LogFilter.coordinateTransfer, '$mapId 금지구역 ${zones.length}개 조회');
     } catch (error) {
       _keepoutState = KeepoutSaveState.failed;
       _keepoutMessage = '금지구역을 불러오지 못했습니다: $error';
@@ -3499,7 +3503,9 @@ class SupervisorProvider extends ChangeNotifier {
       } else {
         _keepoutState = KeepoutSaveState.failed;
       }
-      _addLog(LogFilter.coordinateTransfer, '금지구역 저장: $_keepoutMessage');
+      if (_keepoutState == KeepoutSaveState.failed) {
+        _addLog(LogFilter.coordinateTransfer, '금지구역 저장: $_keepoutMessage');
+      }
     } catch (error) {
       _keepoutState = KeepoutSaveState.failed;
       _keepoutMessage = '금지구역 저장 실패: $error';
@@ -3537,7 +3543,9 @@ class SupervisorProvider extends ChangeNotifier {
     _keepoutMessage = text;
     _keepoutState =
         applied ? KeepoutSaveState.succeeded : KeepoutSaveState.failed;
-    _addLog(LogFilter.coordinateTransfer, '금지구역 상태: $text');
+    if (!applied) {
+      _addLog(LogFilter.coordinateTransfer, '금지구역 상태: $text');
+    }
     notifyListeners();
   }
 
@@ -3970,7 +3978,6 @@ class SupervisorProvider extends ChangeNotifier {
       _routePreview = null;
       _routeChecks = RouteChecks.none;
       _routeState = RouteEditState.succeeded;
-      _addLog(LogFilter.coordinateTransfer, '레일 저장: $_routeMessage');
       notifyListeners();
       await requestRouteInfo(settings, mapId);
       await loadRouteGraph(settings, mapId);
@@ -4011,7 +4018,9 @@ class SupervisorProvider extends ChangeNotifier {
     } else {
       _pendingRouteAlert = text.isEmpty ? '레일을 적용하지 못했습니다.' : text;
     }
-    _addLog(LogFilter.coordinateTransfer, '레일 상태: $text');
+    if (!applied) {
+      _addLog(LogFilter.coordinateTransfer, '레일 상태: $text');
+    }
     notifyListeners();
   }
 
@@ -4090,7 +4099,9 @@ class SupervisorProvider extends ChangeNotifier {
       final message = response.message.isEmpty
           ? (response.accepted ? '저장을 시작했습니다.' : '저장이 거부되었습니다.')
           : response.message;
-      _addLog(LogFilter.coordinateTransfer, message);
+      if (!response.accepted) {
+        _addLog(LogFilter.coordinateTransfer, message);
+      }
       return message;
     } catch (error) {
       // rosbridge 가 요청을 거부하면 StateError 로 옵니다. 정렬 요청이 거부됐다면
@@ -4236,6 +4247,7 @@ class SupervisorProvider extends ChangeNotifier {
               ? '요청이 거부되었습니다.'
               : _localizeGateReason(response.message),
       failurePrefix: 'Mission Manager 요청 실패',
+      logAs: LogFilter.emergencyStop,
     );
     return reply.message;
   }
@@ -4243,7 +4255,8 @@ class SupervisorProvider extends ChangeNotifier {
   /// 미션·지도·홈 서비스 한 번 부르기의 공통 틀입니다.
   ///
   /// 연결을 확인하고(없으면 부르지 않고 'ROS Bridge에 연결되지 않았습니다.'), 부르고,
-  /// [describe] 가 응답으로 화면 문구를 고르고, 그 문구를 '좌표 전송' 알림에 남깁니다.
+  /// [describe] 가 응답으로 화면 문구를 고릅니다. 거부되거나 호출이 실패했을 때만 [logAs] 분류
+  /// (기본 '지도 설정')에 남깁니다 — 2026-11-17 사용자: 반영 안 된 것만 기록.
   /// 호출이 실패하면(시간 초과·서비스 없음·연결 끊김) '[failurePrefix]: 오류' 입니다.
   /// 자리마다 기본 문구와 거부 사유를 읽는 법이 달라 [describe] 로 받습니다.
   ///
@@ -4256,6 +4269,7 @@ class SupervisorProvider extends ChangeNotifier {
     Duration timeout = RosBridgeClient.defaultServiceTimeout,
     required String Function(RosServiceResponse response) describe,
     required String failurePrefix,
+    LogFilter logAs = LogFilter.coordinateTransfer,
     void Function(RosServiceResponse response)? onAccepted,
     void Function(bool calling)? busy,
   }) async {
@@ -4272,14 +4286,17 @@ class SupervisorProvider extends ChangeNotifier {
         timeout: timeout,
       );
       final message = describe(response);
-      _addLog(LogFilter.coordinateTransfer, message);
+      // 2026-11-17 사용자: 거부(반영 안 됨)만 남긴다. 수락은 화면 문구로 충분하다.
+      if (!response.accepted) {
+        _addLog(logAs, message);
+      }
       if (response.accepted) {
         onAccepted?.call(response);
       }
       return (accepted: response.accepted, message: message);
     } catch (error) {
       final message = '$failurePrefix: $error';
-      _addLog(LogFilter.coordinateTransfer, message);
+      _addLog(logAs, message);
       return (accepted: false, message: message);
     } finally {
       busy?.call(false);
@@ -4378,8 +4395,6 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     _locationsByMap[mapId] = nextLocations;
-    _addLog(
-        LogFilter.coordinateTransfer, '$mapId 장소 ${nextLocations.length}개 수신');
     notifyListeners();
   }
 
