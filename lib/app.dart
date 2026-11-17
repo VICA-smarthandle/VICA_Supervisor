@@ -28,6 +28,7 @@ import 'widgets/goal_alert_dialog.dart';
 import 'widgets/help_alert_dialog.dart';
 import 'widgets/patrol_alarm_dialog.dart';
 import 'widgets/patrol_ui.dart';
+import 'widgets/ros_connection_tile.dart';
 import 'widgets/route_dialogs.dart';
 import 'widgets/voice_alert_snack.dart';
 import 'widgets/vica_ui.dart';
@@ -679,7 +680,12 @@ class _SupervisorShellState extends State<SupervisorShell> {
           ),
           const SizedBox(width: 12),
         ],
-        _LiveChip(state: supervisor.connectionState),
+        RosSilenceBuilder(
+          builder: (context, silent) => _LiveChip(
+            state: supervisor.connectionState,
+            silent: silent,
+          ),
+        ),
         const SizedBox(width: 12),
         OutlinedButton.icon(
           onPressed: () => _changeMode(context),
@@ -1147,13 +1153,17 @@ class _PageTitle extends StatelessWidget {
 
 /// 헤더의 '실시간 수신 중' 알약. 연결 상태를 그대로 옮긴 표시일 뿐 누를 수 없습니다.
 class _LiveChip extends StatelessWidget {
-  const _LiveChip({required this.state});
+  const _LiveChip({required this.state, this.silent = false});
 
   final RosConnectionState state;
+
+  /// 소켓은 붙었는데 5초 넘게 받은 것이 없음(2026-11-17 rosbridge 처리 스레드 사망).
+  final bool silent;
 
   @override
   Widget build(BuildContext context) {
     final (label, color) = switch (state) {
+      RosConnectionState.connected when silent => ('응답 없음', VicaColors.warning),
       RosConnectionState.connected => ('온라인', VicaColors.green),
       RosConnectionState.connecting => ('접속 중', VicaColors.primary),
       // 연결 칸(RosConnectionTile)과 같은 회색(2026-10-12 사용자 결정).

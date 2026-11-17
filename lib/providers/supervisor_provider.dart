@@ -111,8 +111,11 @@ class SupervisorProvider extends ChangeNotifier {
     RosChannelConnector? rosChannelConnector,
     bool? showOtherScreenDeliveryNotices,
     PatrolLogLoader? patrolLogLoader,
-  })  : _deliveryNotifier = deliveryNotifier ?? createDeliveryNotifier(),
-        _showOtherScreenDeliveryNotices = showOtherScreenDeliveryNotices ?? kIsWeb,
+    DateTime Function()? now,
+  })  : _now = now ?? DateTime.now,
+        _deliveryNotifier = deliveryNotifier ?? createDeliveryNotifier(),
+        _showOtherScreenDeliveryNotices =
+            showOtherScreenDeliveryNotices ?? kIsWeb,
         _deliveryStore =
             deliveryJobStore ?? const SharedPreferencesDeliveryJobStore(),
         _routeGraphLoader = routeGraphLoader ?? const RouteGraphLoader(),
@@ -124,6 +127,9 @@ class SupervisorProvider extends ChangeNotifier {
   /// rosbridge 소켓을 여는 함수. null 이면 실제 WebSocket 을 엽니다. 시험은 가짜
   /// 채널을 끼워 끊김·재연결을 젯슨 없이 재현합니다.
   final RosChannelConnector? _rosChannelConnector;
+
+  /// 시각. 시험은 가짜 시계를 끼웁니다([rosSilent]).
+  final DateTime Function() _now;
 
   static const _nav2UnavailableReason = 'Nav2/AMCL 미실행';
   static const _nav2UnavailableMessage =
@@ -235,6 +241,22 @@ class SupervisorProvider extends ChangeNotifier {
   String get connectedUrl => _lastSettings?.rosBridgeUrl ?? '';
 
   RosConnectionState get connectionState => _connectionState;
+
+  /// 소켓은 붙었는데 이만큼 받은 것이 없으면 '응답 없음'. 평소에는 /robot_status 만으로 초당 2개가 옵니다.
+  static const rosSilentAfter = Duration(seconds: 5);
+
+  /// 소켓은 붙어 있는데 [rosSilentAfter] 넘게 받은 것이 없음 — 화면은 '온라인' 대신 '응답 없음'.
+  ///
+  /// 부를 때마다 시각으로 계산합니다(타이머 없음). 1초마다 다시 보는 일은 화면 위젯
+  /// [RosSilenceBuilder] 가 합니다 — 화면이 닫히면 그 타이머도 함께 정리됩니다.
+  bool get rosSilent {
+    final at = _client?.lastReceivedAt;
+    if (_connectionState != RosConnectionState.connected || at == null) {
+      return false;
+    }
+    return _now().difference(at) >= rosSilentAfter;
+  }
+
   String get connectionDetail => _connectionDetail;
   EmergencyStopState get emergencyStopState => _emergencyStopState;
   String get emergencyStopMessage => _emergencyStopMessage;
@@ -316,6 +338,7 @@ class SupervisorProvider extends ChangeNotifier {
       onState: (state, detail) =>
           _handleClientState(client, settings, state, detail),
       connector: _rosChannelConnector,
+      now: _now,
     );
     _client = client;
     await client.connect(settings.rosBridgeUrl);
@@ -565,7 +588,9 @@ class SupervisorProvider extends ChangeNotifier {
     if (_modeStatus == null || at == null) {
       return null;
     }
-    return DateTime.now().difference(at) > kModeStatusStale ? null : _modeStatus;
+    return DateTime.now().difference(at) > kModeStatusStale
+        ? null
+        : _modeStatus;
   }
 
   void _handleModeStatus(Map<String, Object?> message) {
@@ -581,7 +606,8 @@ class SupervisorProvider extends ChangeNotifier {
   }
 
   @visibleForTesting
-  void handleModeStatusForTest(Map<String, Object?> message) => _handleModeStatus(message);
+  void handleModeStatusForTest(Map<String, Object?> message) =>
+      _handleModeStatus(message);
 
   // ---- 음성 연결 알림(사용자 11-16, 목업 D·E) ------------------------------------
   //
@@ -708,7 +734,10 @@ class SupervisorProvider extends ChangeNotifier {
   void _settleMapRequest(ModeStatus status) {
     final change = status.mapChange;
     final done = _mapRequestDone;
-    if (change == null || done == null || done.isCompleted || change.requestId != _mapRequestId) {
+    if (change == null ||
+        done == null ||
+        done.isCompleted ||
+        change.requestId != _mapRequestId) {
       return;
     }
     done.complete((change.applied, change.message));
@@ -1651,7 +1680,8 @@ class SupervisorProvider extends ChangeNotifier {
     ));
     // 비어 있어도 냅니다 — 대신 보내는 폰이 같은 장소의 지난 메시지를 다시 쓰지 않게. 번호는 바꿨을
     // 때만 싣습니다(저장된 번호는 유심 폰이 제 장소 목록에서 압니다).
-    _publishDeliveryNote(settings, location, cleanNote, phone: typed.isNotEmpty ? location.contactPhone : '');
+    _publishDeliveryNote(settings, location, cleanNote,
+        phone: typed.isNotEmpty ? location.contactPhone : '');
     _pendingDeliveryNotice = null;
     _addLog(LogFilter.delivery,
         '${location.name} 배송 출발${cleanNote.isEmpty ? '' : ' · 메시지 ${cleanNote.length}자'}');
@@ -1959,7 +1989,9 @@ class SupervisorProvider extends ChangeNotifier {
     // 남으므로 장소만 보면 폰 앱이 같은 장소로 보낸 배송의 팝업을 막았습니다(10-29 검토).
     final job = _delivery;
     final mine = _ownSmsKeys.contains(key) ||
-        (job != null && job.isActive && job.destination.locationId == locationId);
+        (job != null &&
+            job.isActive &&
+            job.destination.locationId == locationId);
     if (_showOtherScreenDeliveryNotices && !mine) {
       _showOtherScreenDeliveryNotice(
         mapId: (message['map_id'] as String?)?.trim() ?? '',
@@ -2006,10 +2038,13 @@ class SupervisorProvider extends ChangeNotifier {
     }
     _addLog(LogFilter.delivery,
         '${location.name} 도착 문자 $state(다른 화면에서 보낸 배송): ${result.detail}');
-    final (note, typedPhone) = _peekDeliveryNote(location.mapId, location.locationId);
+    final (note, typedPhone) =
+        _peekDeliveryNote(location.mapId, location.locationId);
     _pendingDeliveryNotice = DeliveryNotice(
       job: DeliveryJob(
-        destination: typedPhone.isEmpty ? location : location.copyWith(contactPhone: typedPhone),
+        destination: typedPhone.isEmpty
+            ? location
+            : location.copyWith(contactPhone: typedPhone),
         startedAt: DateTime.now(),
         phase: DeliveryPhase.arrived,
       ),
@@ -2044,7 +2079,8 @@ class SupervisorProvider extends ChangeNotifier {
     final name = location?.name ?? event.destinationName;
     // 보낸 화면이 남긴 메시지·바꾼 번호(있으면). 한 번 쓰면 지웁니다 — 다음 배송에 섞이지 않게.
     final (note, typedPhone) = _takeDeliveryNote(event.mapId, event.locationId);
-    final phone = typedPhone.isNotEmpty ? typedPhone : (location?.contactPhone ?? '');
+    final phone =
+        typedPhone.isNotEmpty ? typedPhone : (location?.contactPhone ?? '');
     DeliveryNotifyResult result;
     if (phone.isEmpty) {
       result = const DeliveryNotifyResult(
@@ -2097,7 +2133,10 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     client
-      ..advertise(topic: settings.deliveryNoteTopic, type: 'std_msgs/String', latch: true)
+      ..advertise(
+          topic: settings.deliveryNoteTopic,
+          type: 'std_msgs/String',
+          latch: true)
       ..publishJsonString(
         topic: settings.deliveryNoteTopic,
         payload: {
@@ -2115,11 +2154,16 @@ class SupervisorProvider extends ChangeNotifier {
   void _clearDeliveryNote(String mapId, String locationId) {
     final settings = _lastSettings;
     final client = _client;
-    if (settings == null || client == null || _connectionState != RosConnectionState.connected) {
+    if (settings == null ||
+        client == null ||
+        _connectionState != RosConnectionState.connected) {
       return;
     }
     client
-      ..advertise(topic: settings.deliveryNoteTopic, type: 'std_msgs/String', latch: true)
+      ..advertise(
+          topic: settings.deliveryNoteTopic,
+          type: 'std_msgs/String',
+          latch: true)
       ..publishJsonString(
         topic: settings.deliveryNoteTopic,
         payload: {'map_id': mapId, 'location_id': locationId, 'note': ''},
@@ -2149,12 +2193,14 @@ class SupervisorProvider extends ChangeNotifier {
   }
 
   @visibleForTesting
-  void handleDeliveryNoteForTest(Map<String, Object?> message) => _handleDeliveryNote(message);
+  void handleDeliveryNoteForTest(Map<String, Object?> message) =>
+      _handleDeliveryNote(message);
 
   /// (메시지, 바꾼 번호). 없거나 오래됐으면 둘 다 빈 값.
   (String, String) _peekDeliveryNote(String mapId, String locationId) {
     final entry = _deliveryNotes['$mapId|$locationId'];
-    if (entry == null || DateTime.now().difference(entry.$3) > _deliveryNoteTtl) {
+    if (entry == null ||
+        DateTime.now().difference(entry.$3) > _deliveryNoteTtl) {
       return ('', '');
     }
     return (entry.$1, entry.$2);
@@ -2175,7 +2221,8 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     client
-      ..advertise(topic: settings.deliverySmsResultTopic, type: 'std_msgs/String')
+      ..advertise(
+          topic: settings.deliverySmsResultTopic, type: 'std_msgs/String')
       ..publishJsonString(
         topic: settings.deliverySmsResultTopic,
         payload: {
@@ -2271,8 +2318,9 @@ class SupervisorProvider extends ChangeNotifier {
         _activeHelp = event;
         if (isNew) {
           final stamp = event.robotStamp;
-          _helpRequestedAt =
-              stamp.contains('T') ? stamp.substring(stamp.indexOf('T') + 1) : stamp;
+          _helpRequestedAt = stamp.contains('T')
+              ? stamp.substring(stamp.indexOf('T') + 1)
+              : stamp;
           final where = event.place.isEmpty ? '' : ' (${event.place})';
           _addLog(LogFilter.emergencyStop, '도움 요청$where');
         }
@@ -2331,7 +2379,8 @@ class SupervisorProvider extends ChangeNotifier {
     if (reply.accepted) {
       _acknowledgedHelpId = help.helpId;
     }
-    if ((reply.accepted || alreadyEnded) && _activeHelp?.helpId == help.helpId) {
+    if ((reply.accepted || alreadyEnded) &&
+        _activeHelp?.helpId == help.helpId) {
       _activeHelp = null;
       notifyListeners();
     }
