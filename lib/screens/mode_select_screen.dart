@@ -876,8 +876,8 @@ class _UnknownNotice extends StatelessWidget {
               // 문장 끝에서 줄을 바꾸고(2026-09-14 규칙), 그 안은 어절 단위로
               // 폭에 맞춰 접힙니다. 글자는 그대로입니다.
               vicaKeepWords(vicaBreakAtSentences(
-                'ROS 에 연결하지 않아 로봇 상태를 확인할 수 없습니다. '
-                '모드 선택은 가능하지만 중복 실행 여부는 확인되지 않은 상태입니다.',
+                // 2026-11-17 사용자 A안.
+                '로봇 연결 전 · 상태·중복 실행 확인 불가',
               )),
               style: const TextStyle(fontSize: 12),
             ),

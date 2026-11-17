@@ -816,22 +816,24 @@ class VicaDisconnectedNotice extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // 2026-11-17 사용자 A안: 'ROS 연결 안 됨' → '로봇 연결 끊김'.
                 const Text(
-                  'ROS 연결 안 됨',
+                  '로봇 연결 끊김',
                   style: TextStyle(
                     fontWeight: FontWeight.w800,
                     color: VicaColors.red,
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  vicaKeepWords(
-                    vicaBreakAtSentences(
-                      detail.isEmpty ? '로봇 상태를 받을 수 없습니다.' : detail,
-                    ),
+                const Text('상태 수신 멈춤 · 주소 확인', style: TextStyle(fontSize: 13)),
+                // 연결 노드가 남긴 원인(예: 연결 오류 내용)은 진단용으로 작게 둡니다.
+                if (detail.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    vicaKeepWords(detail),
+                    style: const TextStyle(fontSize: 11, color: VicaColors.muted),
                   ),
-                  style: const TextStyle(fontSize: 13),
-                ),
+                ],
               ],
             ),
           ),

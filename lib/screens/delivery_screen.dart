@@ -46,6 +46,9 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
   /// 받는 번호. 장소를 고르면 저장된 번호로 채우고, 바꾸면 이번 배송에만 씁니다.
   final TextEditingController _phone = TextEditingController();
 
+  /// 직접 쓴 번호를 그 장소 연락처로 저장할지(2026-11-17 사용자 승인, 목업 ⑥). 기본은 저장 안 함.
+  bool _saveContact = false;
+
   @override
   void dispose() {
     _note.dispose();
@@ -55,6 +58,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
 
   void _pick(LocationPoint location) {
     _selectedId = location.locationId;
+    _saveContact = false;
     _fitNote(location);
     _phone.text = location.contactPhone.isEmpty ? '' : formatContactPhone(location.contactPhone);
   }
@@ -116,6 +120,12 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
             const SizedBox(height: 20),
           ],
           _pickCard(context, supervisor, candidates, selected, busy),
+          const SizedBox(height: 20),
+          // 배송 관련은 이 탭에서 모두 관리합니다 — 지도 설정에서 연락처 칸을 뺐습니다(2026-11-17).
+          _ContactsCard(
+            locations: candidates,
+            onEdit: (location) => _editContact(context, supervisor, location),
+          ),
         ],
       ],
     );
@@ -133,27 +143,42 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          DropdownButtonFormField<String>(
+          // 누르면 목록, 글자를 치면 걸러지는 검색 드롭다운(2026-11-17 사용자, 목업 ⑧).
+          DropdownMenu<String>(
             key: ValueKey('delivery-place-${selected?.locationId}'),
-            initialValue: selected?.locationId,
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: '배송 받을 곳'),
-            hint: Text(candidates.isEmpty ? '장소 없음' : '장소를 고르세요'),
-            items: [
+            initialSelection: selected?.locationId,
+            enabled: !busy && candidates.isNotEmpty,
+            expandedInsets: EdgeInsets.zero,
+            label: const Text('배송 받을 곳'),
+            hintText: candidates.isEmpty ? '장소 없음' : '장소 검색',
+            leadingIcon: const Icon(Icons.search),
+            enableFilter: true,
+            requestFocusOnTap: true,
+            menuHeight: 320,
+            dropdownMenuEntries: [
               for (final location in candidates)
-                DropdownMenuItem(
+                DropdownMenuEntry<String>(
                   value: location.locationId,
-                  child: Text(location.name, overflow: TextOverflow.ellipsis),
+                  label: location.name,
+                  trailingIcon: Text(
+                    location.canReceiveDelivery
+                        ? maskContactPhone(location.contactPhone)
+                        : '번호 없음',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: location.canReceiveDelivery
+                          ? VicaColors.muted
+                          : const Color(0xFF8A5F1C),
+                    ),
+                  ),
                 ),
             ],
-            onChanged: busy || candidates.isEmpty
-                ? null
-                : (id) {
-                    final location = _find(candidates, id);
-                    if (location != null) {
-                      setState(() => _pick(location));
-                    }
-                  },
+            onSelected: (id) {
+              final location = _find(candidates, id);
+              if (location != null) {
+                setState(() => _pick(location));
+              }
+            },
           ),
           const SizedBox(height: 14),
           _PhoneField(
@@ -162,6 +187,17 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
             enabled: !busy && selected != null,
             onChanged: () => setState(() {}),
           ),
+          if (selected != null &&
+              _typedPhone != null &&
+              _typedPhone != selected.contactPhone)
+            CheckboxListTile(
+              value: _saveContact,
+              onChanged: busy ? null : (value) => setState(() => _saveContact = value ?? false),
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              dense: true,
+              title: const Text('이 장소 연락처로 저장'),
+            ),
           const SizedBox(height: 12),
           _NoteField(
             controller: _note,
@@ -229,7 +265,13 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
     if (!confirmed || !context.mounted) {
       return;
     }
-    final message = await supervisor.startDelivery(settings, location, note: note, phone: phone);
+    var message = await supervisor.startDelivery(settings, location, note: note, phone: phone);
+    if (supervisor.delivery?.isActive == true && typed && _saveContact) {
+      // 출발이 받아들여졌을 때만 장소에 저장합니다(거절된 배송의 번호를 남기지 않게).
+      final (saved, saveMessage) =
+          supervisor.saveLocation(settings, location.copyWith(contactPhone: phone));
+      message = saved ? '$message · 연락처 저장' : '$message · $saveMessage';
+    }
     if (!context.mounted) {
       return;
     }
@@ -252,6 +294,30 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
     if (_note.text.length > limit) {
       _note.text = _note.text.substring(0, limit);
     }
+  }
+
+  /// 연락처 수정 창(목업 ⑦). 저장·지우기는 장소 저장 경로(/save_location)로 젯슨 장소 파일에 남습니다.
+  Future<void> _editContact(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    LocationPoint location,
+  ) async {
+    final settings = context.read<SettingsProvider>().settings;
+    // 창이 입력 칸 컨트롤러를 스스로 들고 정리합니다 — 닫히는 애니메이션 중에 버리면 오류가 납니다.
+    final result = await showDialog<String>(
+      context: context,
+      builder: (_) => _ContactEditDialog(location: location),
+    );
+    if (result == null || !context.mounted || result == location.contactPhone) {
+      return;
+    }
+    final (ok, message) =
+        supervisor.saveLocation(settings, location.copyWith(contactPhone: result));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(ok
+          ? (result.isEmpty ? '${location.name} 연락처를 지웠습니다.' : '${location.name} 연락처를 저장했습니다.')
+          : message),
+    ));
   }
 
   static LocationPoint? _find(List<LocationPoint> locations, String? id) {
@@ -638,6 +704,120 @@ class _PhoneField extends StatelessWidget {
         helperText: helper.isEmpty ? null : helper,
         errorText: error,
       ),
+    );
+  }
+}
+
+/// 연락처 관리(목업 ⑥). 장소마다 저장된 번호(가림) 또는 '없음'. 누르면 수정 창.
+class _ContactsCard extends StatelessWidget {
+  const _ContactsCard({required this.locations, required this.onEdit});
+
+  final List<LocationPoint> locations;
+  final ValueChanged<LocationPoint> onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    return VicaCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('연락처 관리', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 6),
+          if (locations.isEmpty)
+            const Text('장소가 아직 없습니다.', style: TextStyle(color: VicaColors.muted))
+          else
+            for (final (index, location) in locations.indexed) ...[
+              if (index > 0) const Divider(height: 1),
+              InkWell(
+                onTap: () => onEdit(location),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 52),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          location.name,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w700, color: VicaColors.text),
+                        ),
+                      ),
+                      Text(
+                        location.canReceiveDelivery ? maskContactPhone(location.contactPhone) : '없음',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: location.canReceiveDelivery ? FontWeight.w400 : FontWeight.w700,
+                          color: location.canReceiveDelivery ? VicaColors.muted : const Color(0xFF8A5F1C),
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: VicaColors.muted),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 연락처 수정 창(목업 ⑦). 돌려주는 값: 저장할 숫자, 지우기면 '', 취소면 null.
+class _ContactEditDialog extends StatefulWidget {
+  const _ContactEditDialog({required this.location});
+
+  final LocationPoint location;
+
+  @override
+  State<_ContactEditDialog> createState() => _ContactEditDialogState();
+}
+
+class _ContactEditDialogState extends State<_ContactEditDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.location.contactPhone.isEmpty
+        ? ''
+        : formatContactPhone(widget.location.contactPhone),
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final digits = normalizeContactPhone(_controller.text);
+    final valid = digits != null && digits.isNotEmpty;
+    return VicaDialog(
+      icon: Icons.contact_phone_outlined,
+      title: '${widget.location.name} 연락처',
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        keyboardType: TextInputType.phone,
+        onChanged: (_) => setState(() {}),
+        decoration: InputDecoration(
+          labelText: '연락처',
+          hintText: '010-0000-0000',
+          errorText: _controller.text.trim().isNotEmpty && digits == null
+              ? '휴대폰 번호 모양이 아님'
+              : null,
+        ),
+      ),
+      actions: [
+        if (widget.location.contactPhone.isNotEmpty)
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(''),
+            style: TextButton.styleFrom(foregroundColor: VicaColors.red),
+            child: const Text('지우기'),
+          ),
+        VicaCancelButton(onPressed: () => Navigator.of(context).pop()),
+        FilledButton(
+          onPressed: valid ? () => Navigator.of(context).pop(digits) : null,
+          child: const Text('저장'),
+        ),
+      ],
     );
   }
 }

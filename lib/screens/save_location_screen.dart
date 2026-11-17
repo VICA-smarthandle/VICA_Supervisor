@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/app_settings.dart';
-import '../core/contact_phone.dart';
 import '../core/location_edit.dart';
 import '../core/wait_spot_geometry.dart';
 import '../core/destination_categories.dart';
@@ -54,7 +53,9 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   final _buildingController = TextEditingController();
   final _floorController = TextEditingController();
   final _ownerController = TextEditingController();
-  final _contactPhoneController = TextEditingController();
+  // 도착 문자 연락처는 2026-11-17 부터 배송 탭에서만 고칩니다(사용자 지시). 이 화면은 불러온 장소의
+  // 번호를 들고 있다가 저장할 때 그대로 싣습니다 — 안 실으면 빈 값으로 덮여 번호가 지워집니다.
+  String _keptContactPhone = '';
   final _unavailableReasonController = TextEditingController();
 
   Offset? _pickedRos;
@@ -138,7 +139,6 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     _buildingController.dispose();
     _floorController.dispose();
     _ownerController.dispose();
-    _contactPhoneController.dispose();
     _unavailableReasonController.dispose();
     super.dispose();
   }
@@ -2203,22 +2203,6 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                             ),
                           ],
                           const SizedBox(height: 10),
-                          // 물류 배송이 도착하면 문자를 보낼 번호입니다. 어느 분류든
-                          // 받을 수 있어 담당자 칸과 달리 항상 보입니다. 비워도
-                          // 됩니다 — 그 장소는 배송 대상에서만 빠집니다.
-                          TextFormField(
-                            controller: _contactPhoneController,
-                            keyboardType: TextInputType.phone,
-                            decoration: const InputDecoration(
-                              labelText: '도착 문자 연락처 (선택)',
-                              hintText: '예: 010-1234-5678 · 비우면 배송 대상 제외',
-                            ),
-                            validator: (value) =>
-                                normalizeContactPhone(value ?? '') == null
-                                    ? '휴대폰 번호 모양이 아닙니다 (010-0000-0000).'
-                                    : null,
-                          ),
-                          const SizedBox(height: 10),
                           DropdownButtonFormField<String>(
                             initialValue: _authorization,
                             decoration:
@@ -2437,6 +2421,18 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   }
 
   /// 폼에 적힌 것으로 장소 한 건을 만듭니다. 좌표나 분류가 없으면 null 입니다.
+  String _currentContactPhone(String mapId) {
+    final id = _editingLocationId;
+    if (id != null) {
+      for (final location in context.read<SupervisorProvider>().locationsFor(mapId)) {
+        if (location.locationId == id) {
+          return location.contactPhone;
+        }
+      }
+    }
+    return _keptContactPhone;
+  }
+
   LocationPoint? _locationFromForm(String mapId) {
     final picked = _pickedRos;
     final door = _doorDirection;
@@ -2460,8 +2456,9 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       building: _buildingController.text.trim(),
       floor: int.parse(_floorController.text.trim()),
       owner: _category1 == 'person' ? _ownerController.text.trim() : '',
-      // validator 를 통과한 뒤라 null 이 아닙니다. 파일에는 숫자만 남깁니다.
-      contactPhone: normalizeContactPhone(_contactPhoneController.text) ?? '',
+      // 번호는 배송 탭이 관리합니다. 지금 목록의 값을 그대로 실어 덮어 지우지 않습니다 — 폼을 연 사이
+      // 배송 탭에서 바뀌었을 수 있어, 불러올 때 값보다 목록의 최신 값을 먼저 씁니다.
+      contactPhone: _currentContactPhone(mapId),
       authorization: _authorization,
       isApproachable: _isApproachable,
       unavailableReason:
@@ -2520,8 +2517,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     _buildingController.text = draft.building;
     _floorController.text = draft.floor.toString();
     _ownerController.text = draft.owner;
-    // 편집할 때만 번호 전체를 보여줍니다. 그 밖의 자리는 가립니다.
-    _contactPhoneController.text = formatContactPhone(draft.contactPhone);
+    _keptContactPhone = draft.contactPhone;
     _unavailableReasonController.text = draft.unavailableReason;
     setState(() {
       _editingLocationId = draft.locationId;
@@ -2559,7 +2555,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     _buildingController.clear();
     _floorController.clear();
     _ownerController.clear();
-    _contactPhoneController.clear();
+    _keptContactPhone = '';
     _unavailableReasonController.clear();
     _category1 = null;
     _category2 = null;
@@ -2610,8 +2606,6 @@ class _DraftSummary extends StatelessWidget {
           Text('접근 권한: ${location.authorization}'),
           Text('로봇 접근: ${location.isApproachable}'),
           if (location.owner.isNotEmpty) Text('담당자: ${location.owner}'),
-          if (location.canReceiveDelivery)
-            Text('도착 문자: ${maskContactPhone(location.contactPhone)}'),
           if (location.unavailableReason.isNotEmpty)
             Text('접근 불가 사유: ${location.unavailableReason}'),
           Text(

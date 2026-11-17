@@ -62,7 +62,7 @@ void main() {
       state: RosConnectionState.disconnected,
       connectedUrl: '',
     );
-    expect(find.text('ROS 연결 안 됨'), findsOneWidget);
+    expect(find.text('연결 안 됨'), findsOneWidget);
     expect(find.textContaining('ws://127.0.0.1:9090'), findsOneWidget);
   });
 
@@ -73,7 +73,7 @@ void main() {
       connectedUrl: 'ws://127.0.0.1:9090',
     );
     // 상태 줄과 버튼 라벨 두 곳에 나옵니다.
-    expect(find.text('ROS 연결됨'), findsNWidgets(2));
+    expect(find.text('연결됨'), findsNWidgets(2));
     expect(find.textContaining('주소가 바뀌었습니다'), findsNothing);
   });
 
