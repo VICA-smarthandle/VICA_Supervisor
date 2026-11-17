@@ -1596,7 +1596,7 @@ void main() {
         tester.widgetList<ChoiceChip>(find.byType(ChoiceChip)).map(
               (chip) => (chip.label as Text).data,
             ),
-        ['전체', '긴급 정지', '좌표 전송', '연결 상태', '물류 배송', '경비 기록'],
+        ['전체', '비상정지', '좌표 전송', '연결 상태', '물류 배송', '경비 기록'],
       );
       for (final text in [
         '침입 감지 · 사람',

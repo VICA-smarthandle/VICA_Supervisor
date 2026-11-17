@@ -1,4 +1,6 @@
 // 알림 및 로그의 '오늘 N건' 숫자 줄과 시간대 막대(2026-11-17 사용자 채택 초안 ①).
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -62,13 +64,27 @@ void main() {
     expect(
       [for (final f in kLogSummaryFilters) vicaLogColor(f)],
       const [
-        Color(0xFFD55E00), // 긴급 정지 주홍
+        Color(0xFFD55E00), // 비상정지 주홍
         Color(0xFF0072B2), // 연결 파랑
         Color(0xFF009E73), // 배송 청록
         Color(0xFFE69F00), // 좌표 전송 주황
         Color(0xFFCC79A7), // 경비 분홍보라
       ],
     );
+  });
+
+  test('숫자 글자색은 흰 바탕에서 4.5:1 이상이다(막대 색은 그대로)', () {
+    double lum(Color c) {
+      double ch(double v) => v <= 0.03928
+          ? v / 12.92
+          : math.pow((v + 0.055) / 1.055, 2.4).toDouble();
+      return 0.2126 * ch(c.r) + 0.7152 * ch(c.g) + 0.0722 * ch(c.b);
+    }
+
+    for (final f in kLogSummaryFilters) {
+      final ratio = 1.05 / (lum(vicaLogTextColor(f)) + 0.05);
+      expect(ratio, greaterThanOrEqualTo(4.5), reason: f.label);
+    }
   });
 
   testWidgets('오늘 기록만 분류별로 세고 시간대 막대에 쌓는다', (tester) async {
@@ -99,7 +115,7 @@ void main() {
     );
     expect(find.text('오늘 4건'), findsOneWidget);
     expect(find.text('최근 7시간'), findsOneWidget); // 막대 범위를 제목에(사용자 11-17)
-    expect(find.bySemanticsLabel('긴급 정지 2건'), findsOneWidget);
+    expect(find.bySemanticsLabel('비상정지 2건'), findsOneWidget);
     expect(find.bySemanticsLabel('배송 1건'), findsOneWidget);
     // 막대는 지금까지 최근 7시간(8~14시). 9시 기록은 들어가고 칸 수는 7.
     expect(find.text('8시'), findsOneWidget);
@@ -141,7 +157,7 @@ void main() {
     ]);
     expect(find.byType(LogTodaySummary), findsOneWidget);
 
-    await tester.tap(find.bySemanticsLabel('긴급 정지 1건'));
+    await tester.tap(find.bySemanticsLabel('비상정지 1건'));
     await tester.pump();
     expect(find.byType(LogTodaySummary), findsNothing);
     expect(find.text('비상정지 기록'), findsOneWidget);

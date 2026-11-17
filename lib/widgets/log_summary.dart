@@ -235,7 +235,7 @@ class _CountButton extends StatelessWidget {
                     height: 1.2,
                     color: count == 0
                         ? VicaColors.textTertiary
-                        : vicaLogColor(filter),
+                        : vicaLogTextColor(filter),
                   ),
                 ),
               ),

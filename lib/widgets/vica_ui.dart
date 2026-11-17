@@ -863,7 +863,8 @@ class VicaDisconnectedNotice extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     vicaKeepWords(detail),
-                    style: const TextStyle(fontSize: 11, color: VicaColors.muted),
+                    style:
+                        const TextStyle(fontSize: 11, color: VicaColors.muted),
                   ),
                 ],
               ],
@@ -1188,6 +1189,16 @@ Color vicaLogColor(LogFilter filter) => switch (filter) {
       LogFilter.coordinateTransfer => const Color(0xFFE69F00), // 주황
       LogFilter.patrol => const Color(0xFFCC79A7), // 분홍보라
       LogFilter.all => VicaColors.primaryDark,
+    };
+
+/// 흰 바탕 위 숫자 글자색. 막대·점은 [vicaLogColor] 그대로, 글자만 같은 색조를 어둡게 해
+/// 대비 4.5:1 이상으로 맞춥니다(2026-11-17 사용자: 주황·분홍보라 숫자가 흐림, 2.3·3.1:1).
+Color vicaLogTextColor(LogFilter filter) => switch (filter) {
+      LogFilter.emergencyStop => const Color(0xFFC25600), // 4.5:1
+      LogFilter.delivery => const Color(0xFF008662), // 4.6:1
+      LogFilter.coordinateTransfer => const Color(0xFF9C6C00), // 4.6:1
+      LogFilter.patrol => const Color(0xFFA36186), // 4.6:1
+      _ => vicaLogColor(filter), // 연결 파랑은 원래 5.2:1
     };
 
 class VicaLogTile extends StatelessWidget {
