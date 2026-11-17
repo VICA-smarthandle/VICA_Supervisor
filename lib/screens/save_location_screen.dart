@@ -20,6 +20,7 @@ import '../ros/ros_bridge_client.dart';
 import '../widgets/home_position_card.dart';
 import '../widgets/initial_pose_card.dart' show PoseDirection;
 import '../widgets/keepout_card.dart';
+import '../widgets/drive_map_change.dart';
 import '../widgets/map_canvas.dart';
 import '../widgets/map_picker.dart';
 import '../widgets/map_work_layout.dart';
@@ -252,6 +253,8 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
           refreshLabel: const Text('새로고침'),
         ),
         const SizedBox(height: 18),
+        // 설정하는 지도가 주행 지도와 다르면 '이 지도로 주행'(2026-11-17 목업 ③⑥).
+        DriveMapBanner(viewedMapId: supervisor.selectedMapId),
         if (map == null)
           const NoMapCard()
         else ...[

@@ -16,11 +16,24 @@ import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/screens/drive_bringup_screen.dart';
 import 'package:vica_supervisor/screens/mode_select_screen.dart';
+import 'package:vica_supervisor/widgets/drive_map_change.dart';
 import 'package:vica_supervisor/widgets/drive_nodes_card.dart';
 import 'package:vica_supervisor/widgets/voice_alert_snack.dart';
 
 const _widths = <double>[320, 360, 390, 600, 900];
 const _scales = <double>[1.0, 1.3, 1.6];
+
+// 이름이 긴 지도(좁은 폰에서 줄임표로 접혀야 한다).
+const _maps = {
+  'maps': [
+    {'map_id': 'map_1116_203022', 'map_name': '4층 복도 동쪽 끝 세미나실 앞 임시 지도', 'has_route': true,
+     'has_keepout': true, 'destination_count': 14, 'saved_at': '2026-11-16T20:30:26'},
+    {'map_id': 'map_1103_142858', 'map_name': '킨텍스 제2전시장 9홀 로봇 시연 구역', 'has_route': true,
+     'has_keepout': true, 'destination_count': 3, 'saved_at': '2026-11-03T14:28:58'},
+    {'map_id': 'map_x', 'map_name': '빈 지도', 'destination_count': 0},
+  ],
+  'current_map_id': 'map_1116_203022',
+};
 
 const _longDetail = 'Nav2 기동 90 s 넘게 진행 없음(자동 재시도 뒤에도) — /vica/mode/nav2_restart 로 다시 띄웁니다';
 
@@ -32,6 +45,10 @@ Map<String, Object?> _status({
   String detail = '',
   int? stopIn,
   List<String> stopTimeouts = const [],
+  String current = 'map_1116_203022',
+  String running = 'map_1116_203022',
+  String block = '',
+  String dialog = 'idle',
 }) =>
     {
       'mode': mode,
@@ -44,6 +61,11 @@ Map<String, Object?> _status({
       'stop_in_sec': stopIn,
       'stop_timeouts': stopTimeouts,
       'voice_events_epoch': 1.0,
+      'current_map_id': current,
+      'running_maps': {'nav2': running, 'mission': running, 'llm': running},
+      'map_mismatch': current != running,
+      'map_change_block': block,
+      'dialog_state': dialog,
       'voice_events': [
         {'id': 1, 'at': 1794825000.0, 'kind': 'both_fail', 'text': '외부 API·로컬 API 모두 연결 실패 (Connection refused by the remote host)'},
       ],
@@ -87,6 +109,7 @@ void main() {
         tester.view.devicePixelRatio = 1;
         tester.view.physicalSize = Size(width, 800);
         final supervisor = SupervisorProvider();
+        supervisor.handleMapListForTest(Map<String, Object?>.from(_maps));
         if (status != null) {
           // 첫 상태는 연결 직후로 보아 알림을 기록만 합니다. 그래도 카드의 마지막 알림 줄은 채워집니다.
           supervisor.handleModeStatusForTest(status);
@@ -139,6 +162,44 @@ void main() {
   testWidgets('주행 노드 카드 — 감지기 꺼짐·긴 음성 알림', (tester) async {
     await check(tester, '주행 노드 카드', _status(detector: 'inactive'),
         () => const Scaffold(body: SingleChildScrollView(child: Padding(padding: EdgeInsets.all(16), child: DriveNodesCard()))));
+  });
+
+  Widget scroll(Widget child) =>
+      Scaffold(body: SingleChildScrollView(child: Padding(padding: const EdgeInsets.all(16), child: child)));
+
+  testWidgets('지도 바꾸기 — ③ 띠·⑥ 막힘 이유', (tester) async {
+    await check(tester, '지도 띠', _status(), () => scroll(const DriveMapBanner(viewedMapId: 'map_1103_142858')));
+    await check(tester, '지도 띠(막힘)',
+        _status(dialog: 'navigating', block: '도착 뒤 기다리는 중엔 불가 · 끝나거나 일시정지하면 가능'),
+        () => scroll(const DriveMapBanner(viewedMapId: 'map_1103_142858')));
+  });
+
+  testWidgets('지도 바꾸기 — ⑦ 불일치 카드', (tester) async {
+    await check(tester, '지도 불일치', _status(current: 'map_1103_142858'), () => scroll(const DriveMapMismatchCard()));
+  });
+
+  testWidgets('지도 바꾸기 — ① 지도 줄·② 목록', (tester) async {
+    await check(tester, '지도 줄', _status(mode: 'idle', state: 'idle', nav2: 'down'),
+        () => scroll(const DriveMapRow()), after: (tester) async {
+      await tester.tap(find.text('바꾸기'));
+      await tester.pumpAndSettle();
+    });
+  });
+
+  testWidgets('지도 바꾸기 — ④-2 확인 창', (tester) async {
+    await check(tester, '지도 확인 창', _status(dialog: 'paused'),
+        () => scroll(const DriveMapBanner(viewedMapId: 'map_1103_142858')), after: (tester) async {
+      await tester.tap(find.text('이 지도로 주행'));
+      await tester.pumpAndSettle();
+    });
+  });
+
+  testWidgets('지도 바꾸기 — ⑤ 진행 화면', (tester) async {
+    await check(tester, '지도 바꾸는 중', _status(state: 'starting', nav2: 'starting'),
+        () => const DriveBringupScreen(
+              submode: DriveSubmode.guideDelivery,
+              mapChange: ('4층 복도 동쪽 끝 세미나실 앞 임시 지도', '킨텍스 제2전시장 9홀 로봇 시연 구역'),
+            ));
   });
 
   testWidgets('음성 알림 띠', (tester) async {

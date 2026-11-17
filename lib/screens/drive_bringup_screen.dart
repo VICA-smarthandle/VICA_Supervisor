@@ -9,6 +9,8 @@
 //     노드가 강제 종료되기 쉽다 — 11-16 실기). 예약 중 '주행 계속'은 예약 취소입니다.
 //   - 초기 위치 대기: 원격 주행 탭의 초기 위치 카드로 보냅니다(그 카드는 그대로 씁니다).
 //   - 지도로 바꾸기([thenMapping]): 다 꺼지면 지도 모드로 들어갑니다.
+//   - 주행 지도 바꾸기([mapChange], 2026-11-17 목업 ⑤): 젯슨이 Nav2·미션·음성을 다시 띄우는 동안
+//     진행을 보이고, 초기 위치 대기에 이르면 원격 주행 탭으로 보냅니다.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -25,6 +27,7 @@ class DriveBringupScreen extends StatefulWidget {
     super.key,
     this.submode = DriveSubmode.guideDelivery,
     this.thenMapping = false,
+    this.mapChange,
   });
 
   /// 다 켜진 뒤 처음 열 화면을 정합니다.
@@ -32,6 +35,9 @@ class DriveBringupScreen extends StatefulWidget {
 
   /// true 면 주행을 끄는 중이고, 다 꺼지면 지도 모드로 들어갑니다.
   final bool thenMapping;
+
+  /// 주행 지도를 바꾸는 중이면 (바꾸기 전 이름, 바꾼 이름).
+  final (String, String)? mapChange;
 
   @override
   State<DriveBringupScreen> createState() => _DriveBringupScreenState();
@@ -45,6 +51,10 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
 
   /// 이 화면에서 끄기를 눌렀는가. 꺼지면(idle) 모드 선택으로 돌아갑니다.
   late bool _stopRequested = widget.thenMapping;
+
+  /// 지도 바꾸기: 유닛이 내려간 것을 봤는가. 요청 직후 상태가 아직 running 일 수 있어, 그 사이에
+  /// 화면을 닫지 않게 합니다(젯슨이 2 s 마다 상태를 냄).
+  bool _sawRestart = false;
 
   @override
   void initState() {
@@ -125,14 +135,19 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
             modes.select(AppMode.mapping);
           }
         });
-      } else if (status.state == ModeState.running && !_stopRequested) {
+      } else if (status.state == ModeState.running && !_stopRequested && _restartSeen()) {
         _leave((modes) => modes.enterDrive(widget.submode));
+      }
+      if (status.state != ModeState.running) {
+        _sawRestart = true;
       }
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.thenMapping ? '지도로 바꾸기' : '주행 준비'),
+        title: Text(widget.thenMapping
+            ? '지도로 바꾸기'
+            : (widget.mapChange != null ? '지도 바꾸는 중' : '주행 준비')),
       ),
       body: SafeArea(
         child: Padding(
@@ -154,6 +169,9 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
   }
 
   int get _elapsed => DateTime.now().difference(_openedAt).inSeconds;
+
+  // 지도 바꾸기가 아니면 바로, 맞으면 유닛이 내려간 것을 본 뒤(늦어도 10 s 뒤)에 running 을 믿습니다.
+  bool _restartSeen() => widget.mapChange == null || _sawRestart || _elapsed > 10;
 
   List<Widget> _content(ModeStatus? status) {
     if (status == null) {
@@ -217,6 +235,19 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
       ];
     }
     final ready = status.state == ModeState.needInitialPose;
+    final change = widget.mapChange;
+    if (change != null) {
+      return [
+        _MapFromTo(from: change.$1, to: change.$2),
+        const SizedBox(height: 14),
+        _StepsCard(
+          title: ready ? '초기 위치를 잡아 주세요' : '지도 바꾸는 중',
+          elapsed: ready ? null : _elapsed,
+          steps: _mapSteps(status),
+          note: '로봇은 움직이지 않음 · 약 1분',
+        ),
+      ];
+    }
     return [
       _SubmodeChip(submode: widget.submode),
       const SizedBox(height: 14),
@@ -227,6 +258,25 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
         note: ready
             ? '초기 위치를 잡으면 주행을 시작할 수 있습니다.'
             : '기동이 중단되거나 90초 동안 진행이 없으면 Nav2 를 한 번 자동으로 다시 띄웁니다.',
+      ),
+    ];
+  }
+
+  // 지도 바꾸기 단계(목업 ⑤). 파일은 요청 때 이미 썼습니다.
+  List<_Step> _mapSteps(ModeStatus status) {
+    final nav2Up = (status.nav2 == 'waiting_pose' || status.nav2 == 'active') && _sawRestart;
+    final voiceUp = status.voice == 'active' && _sawRestart;
+    return [
+      const _Step('지도 기록', _StepState.done, ''),
+      _Step('Nav2·미션 켜기', nav2Up ? _StepState.done : _StepState.current, ''),
+      if (status.voice != 'none')
+        _Step('음성 켜기', voiceUp ? _StepState.done : _StepState.current, ''),
+      _Step(
+        '초기 위치',
+        status.state == ModeState.running && _sawRestart
+            ? _StepState.done
+            : (nav2Up ? _StepState.current : _StepState.todo),
+        '',
       ),
     ];
   }
@@ -325,6 +375,62 @@ class _Step {
   final String label;
   final _StepState state;
   final String hint;
+}
+
+class _MapFromTo extends StatelessWidget {
+  const _MapFromTo({required this.from, required this.to});
+
+  final String from;
+  final String to;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: VicaColors.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: VicaColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '주행 지도',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: VicaColors.muted),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Flexible(
+                child: Text(
+                  from,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: VicaColors.textTertiary,
+                    decoration: TextDecoration.lineThrough,
+                  ),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 10),
+                child: Icon(Icons.arrow_forward, size: 20, color: VicaColors.primary),
+              ),
+              Flexible(
+                child: Text(
+                  to,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: VicaColors.text),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _StepsCard extends StatelessWidget {

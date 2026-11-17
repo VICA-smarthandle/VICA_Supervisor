@@ -570,6 +570,7 @@ class SupervisorProvider extends ChangeNotifier {
     _modeStatus = ModeStatus.fromJson(decoded);
     _modeStatusAt = DateTime.now();
     _ingestVoiceEvents(_modeStatus!);
+    _settleMapRequest(_modeStatus!);
     notifyListeners();
   }
 
@@ -651,6 +652,60 @@ class SupervisorProvider extends ChangeNotifier {
         VoiceChoice.local => _callModeService(kVoiceLocalService, '음성 로컬'),
         VoiceChoice.api => _callModeService(kVoiceApiService, '음성 외부 API'),
       };
+
+  // ---- 주행 지도 바꾸기(사용자 11-17) -------------------------------------------
+  //
+  // Trigger 는 인자가 없어 토픽으로 보냅니다. 모드 노드는 받자마자 상태를 다시 내며, 그 안의
+  // map_change 가 같은 request_id 면 결과입니다. 젯슨은 maps/CURRENT_MAP 을 쓰고, 주행이 떠
+  // 있으면 Nav2·미션·음성·위치 확인을 다시 띄웁니다(약 1분) — 진행은 모드 상태로 봅니다.
+
+  String? _mapRequestId;
+  Completer<(bool, String)>? _mapRequestDone;
+
+  /// 주행 지도를 [mapId] 로 바꾸기. (받아들였는가, 사람에게 보일 문구)
+  Future<(bool, String)> requestMapChange(String mapId) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return (false, 'ROS Bridge에 연결되지 않았습니다.');
+    }
+    final id = _uuid.v4();
+    final done = Completer<(bool, String)>();
+    _mapRequestId = id;
+    _mapRequestDone = done;
+    client
+      ..advertise(topic: kModeMapRequestTopic, type: 'std_msgs/String')
+      ..publishJsonString(
+        topic: kModeMapRequestTopic,
+        payload: {'request_id': id, 'map_id': mapId},
+      );
+    _addLog(LogFilter.coordinateTransfer, '주행 지도 바꾸기 요청: $mapId');
+    try {
+      return await done.future.timeout(kModeMapRequestTimeout);
+    } on TimeoutException {
+      return (false, '로봇이 답하지 않음 · 모드 노드 확인');
+    } finally {
+      if (_mapRequestId == id) {
+        _mapRequestId = null;
+        _mapRequestDone = null;
+      }
+    }
+  }
+
+  void _settleMapRequest(ModeStatus status) {
+    final change = status.mapChange;
+    final done = _mapRequestDone;
+    if (change == null || done == null || done.isCompleted || change.requestId != _mapRequestId) {
+      return;
+    }
+    done.complete((change.applied, change.message));
+    _addLog(LogFilter.coordinateTransfer,
+        '주행 지도 ${change.from} → ${change.mapId}: ${change.message}');
+    // '(현재)' 표시와 지도별 준비 상태를 새로 받습니다.
+    final settings = _lastSettings;
+    if (change.applied && settings != null) {
+      requestMapList(settings);
+    }
+  }
 
   // std_srvs/Trigger 는 accepted 가 아니라 success 로 답합니다. 그래서 _callService 를
   // 쓰지 않습니다(그 도우미는 accepted 만 봅니다).

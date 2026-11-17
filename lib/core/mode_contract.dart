@@ -25,5 +25,13 @@ const String kDetectorOffService = '/vica/mode/detector_off';
 const String kVoiceLocalService = '/vica/mode/voice_offline';
 const String kVoiceApiService = '/vica/mode/voice_online';
 
+/// 주행 지도 바꾸기(사용자 11-17). std_msgs/String JSON {request_id, map_id}. Trigger 는 인자가 없어
+/// 토픽으로 보내고 결과는 모드 상태의 map_change(같은 request_id)로 받는다. 젯슨은 maps/CURRENT_MAP 을
+/// 쓰고, 주행이 떠 있으면 Nav2·미션·음성·위치 확인을 다시 띄운다(약 1분).
+const String kModeMapRequestTopic = '/vica/mode/map_request';
+
+/// 지도 바꾸기 요청에 모드 노드가 답하기를 기다리는 시간. 노드는 받자마자 상태를 다시 낸다.
+const Duration kModeMapRequestTimeout = Duration(seconds: 8);
+
 /// 모드 상태가 이보다 오래 안 오면 모드 노드가 없다고 본다. 노드는 2 s 마다 낸다.
 const Duration kModeStatusStale = Duration(seconds: 8);

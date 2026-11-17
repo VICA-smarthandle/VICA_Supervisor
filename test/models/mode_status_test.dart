@@ -94,4 +94,38 @@ void main() {
     expect(status.voiceEvents[1].isFallback, isTrue);
     expect(status.voiceEvents[2].isSuccess || status.voiceEvents[2].isFallback, isFalse);
   });
+
+  test('주행 지도 칸(11-17): 현재 지도·유닛이 읽은 지도·막힘 이유·요청 결과', () {
+    final status = ModeStatus.fromJson({
+      'mode': 'drive',
+      'state': 'running',
+      'current_map_id': 'map_b',
+      'running_maps': {'nav2': 'map_a', 'mission': 'map_a'},
+      'map_mismatch': true,
+      'map_change_block': '안내 중엔 불가',
+      'dialog_state': 'patrol_paused',
+      'map_change': {
+        'request_id': 'r1', 'map_id': 'map_b', 'from': 'map_a', 'state': 'applied',
+        'message': 'Nav2·미션·음성 재시작 · 약 1분', 'restarted': ['nav2', 'mission', 'llm', 'posecheck'],
+        'at': 1794878000.5,
+      },
+    });
+    expect(status.currentMapId, 'map_b');
+    expect(status.driveMapId, 'map_a');
+    expect(status.mapMismatch, isTrue);
+    expect(status.mapChangeBlock, '안내 중엔 불가');
+    expect(status.paused, isTrue);
+    expect(status.mapChange!.applied, isTrue);
+    expect(status.mapChange!.restarted, hasLength(4));
+    expect(status.mapChange!.requestId, 'r1');
+  });
+
+  test('옛 모드 노드(지도 칸 없음)는 비어 있고 Nav2 지도는 현재 지도로 본다', () {
+    final status = ModeStatus.fromJson({'mode': 'idle', 'state': 'idle'});
+    expect(status.currentMapId, '');
+    expect(status.runningMaps, isEmpty);
+    expect(status.mapMismatch, isFalse);
+    expect(status.mapChange, isNull);
+    expect(status.paused, isFalse);
+  });
 }

@@ -86,6 +86,51 @@ class VoiceEvent {
   }
 }
 
+/// 주행 지도 바꾸기 요청의 결과(모드 상태의 map_change, 사용자 11-17).
+class MapChangeResult {
+  const MapChangeResult({
+    required this.requestId,
+    required this.mapId,
+    required this.from,
+    required this.state,
+    required this.message,
+    this.restarted = const [],
+    this.at,
+  });
+
+  final String requestId;
+  final String mapId;
+
+  /// 바꾸기 전 maps/CURRENT_MAP.
+  final String from;
+
+  /// applied(파일을 쓰고 필요한 유닛을 다시 띄움) · refused(거절, [message] 가 이유) · failed
+  final String state;
+  final String message;
+
+  /// 다시 띄운 유닛 키(nav2·mission·llm·posecheck). 비면 파일만 바꿨다(다음 주행부터).
+  final List<String> restarted;
+  final DateTime? at;
+
+  bool get applied => state == 'applied';
+
+  static MapChangeResult? fromJson(Object? raw) {
+    if (raw is! Map) {
+      return null;
+    }
+    final at = raw['at'];
+    return MapChangeResult(
+      requestId: '${raw['request_id'] ?? ''}',
+      mapId: '${raw['map_id'] ?? ''}',
+      from: '${raw['from'] ?? ''}',
+      state: '${raw['state'] ?? ''}',
+      message: '${raw['message'] ?? ''}',
+      restarted: raw['restarted'] is List ? [for (final k in raw['restarted'] as List) '$k'] : const [],
+      at: at is num ? DateTime.fromMillisecondsSinceEpoch((at * 1000).round()) : null,
+    );
+  }
+}
+
 class ModeStatus {
   const ModeStatus({
     required this.mode,
@@ -103,6 +148,12 @@ class ModeStatus {
     this.voiceChoice = VoiceChoice.local,
     this.voiceEvents = const [],
     this.voiceEventsEpoch = 0,
+    this.currentMapId = '',
+    this.runningMaps = const {},
+    this.mapMismatch = false,
+    this.mapChangeBlock = '',
+    this.dialogState = '',
+    this.mapChange,
   });
 
   /// idle · drive · mapping · unknown
@@ -137,6 +188,30 @@ class ModeStatus {
 
   /// 모드 노드가 뜬 시각(초). 알림 번호는 이 값이 같은 동안만 이어집니다.
   final double voiceEventsEpoch;
+
+  /// maps/CURRENT_MAP — 다음에 켜는 유닛이 읽는 주행 지도(사용자 11-17).
+  final String currentMapId;
+
+  /// 지금 떠 있는 Nav2·미션·음성이 기동 때 읽은 지도(키 nav2·mission·llm). 모르면 빠집니다.
+  final Map<String, String> runningMaps;
+
+  /// 주행 중인데 유닛이 읽은 지도가 [currentMapId] 와 다르다(터미널에서 파일만 바꾼 경우, 목업 ⑦).
+  final bool mapMismatch;
+
+  /// 지금 주행 지도를 바꿀 수 없는 이유. 비면 바꿀 수 있습니다(목업 ⑥).
+  final String mapChangeBlock;
+
+  /// 미션 상태(/vica/robot_state.dialog_state). 일시정지 중이면 확인 창이 '남은 안내 취소'를 알립니다.
+  final String dialogState;
+
+  /// 마지막 지도 바꾸기 요청의 결과.
+  final MapChangeResult? mapChange;
+
+  /// Nav2 가 지금 쓰는 지도. 모르면 [currentMapId].
+  String get driveMapId => runningMaps['nav2'] ?? currentMapId;
+
+  /// 일시정지 중(안내·손잡이 놓침·순찰).
+  bool get paused => const {'paused', 'paused_handle', 'patrol_paused'}.contains(dialogState);
 
   /// Nav2 가 다 떠서 초기 위치를 받을 수 있는가(모드 노드가 Nav2 기동 기록에서 읽은 값).
   bool get nav2Up => nav2 == 'waiting_pose' || nav2 == 'active';
@@ -173,6 +248,15 @@ class ModeStatus {
           if (VoiceEvent.fromJson(raw) case final event?) event,
       ],
       voiceEventsEpoch: (json['voice_events_epoch'] as num?)?.toDouble() ?? 0,
+      currentMapId: json['current_map_id'] as String? ?? '',
+      runningMaps: {
+        if (json['running_maps'] case final Map maps)
+          for (final entry in maps.entries) '${entry.key}': '${entry.value}',
+      },
+      mapMismatch: json['map_mismatch'] == true,
+      mapChangeBlock: json['map_change_block'] as String? ?? '',
+      dialogState: json['dialog_state'] as String? ?? '',
+      mapChange: MapChangeResult.fromJson(json['map_change']),
     );
   }
 }

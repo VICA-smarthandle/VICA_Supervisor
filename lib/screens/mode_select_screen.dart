@@ -26,6 +26,7 @@ import 'drive_bringup_screen.dart';
 import 'settings_screen.dart';
 import '../ros/ros_bridge_client.dart';
 import '../widgets/confirm_logout.dart';
+import '../widgets/drive_map_change.dart';
 import '../widgets/ros_connection_tile.dart';
 import '../widgets/vica_ui.dart';
 
@@ -111,6 +112,7 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
                 !modeStatus.driveOn &&
                 modeStatus.stopTimeouts.isNotEmpty)
               _StopWarningNotice(units: modeStatus.stopTimeouts),
+            const DriveMapMismatchCard(),
             const SizedBox(height: 4),
             LayoutBuilder(
               builder: (context, constraints) {
@@ -456,8 +458,9 @@ Future<(DriveSubmode, VoiceChoice?)?> showDriveSubmodeSheet(
     ),
     builder: (sheetContext) {
       return StatefulBuilder(
+        // 글자를 키운 좁은 폰에서는 지도 줄까지 더해 화면보다 길어집니다 — 스크롤되게 둡니다(11-17).
         builder: (sheetContext, setSheetState) => SafeArea(
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -480,6 +483,9 @@ Future<(DriveSubmode, VoiceChoice?)?> showDriveSubmodeSheet(
                 ),
                 const SizedBox(height: 14),
                 if (picked != null) ...[
+                  // 주행 지도(2026-11-17 목업 ①). 고르면 바로 젯슨에 보냅니다 — 꺼져 있으면 다음 주행부터.
+                  const DriveMapRow(),
+                  const SizedBox(height: 10),
                   _VoicePicker(
                     value: picked!,
                     onChanged: (choice) => setSheetState(() => picked = choice),

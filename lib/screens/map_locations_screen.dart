@@ -12,6 +12,7 @@ import '../providers/supervisor_provider.dart';
 import '../widgets/initial_pose_card.dart';
 import '../widgets/drive_control_bar.dart';
 import '../widgets/drive_map_canvas.dart';
+import '../widgets/drive_map_change.dart';
 import '../widgets/map_canvas.dart';
 import '../widgets/map_picker.dart';
 import '../widgets/map_work_layout.dart';
@@ -88,6 +89,8 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
           refreshLabel: const Text('새로고침'),
         ),
         const SizedBox(height: 18),
+        // 보는 지도가 주행 지도와 다르면 '이 지도로 주행'(2026-11-17 목업 ③⑥).
+        DriveMapBanner(viewedMapId: supervisor.selectedMapId),
         if (map == null)
           const NoMapCard()
         else ...[
