@@ -44,7 +44,7 @@ enum DriveSubmode {
   guideDelivery(
     title: '안내·배송',
     // 2026-11-17 사용자 지시. 전: '흰 지팡이 사용자 안내와 물품 배송 · 감지 켬' → '지팡이 안내 · 배송'.
-    subtitle: '시각장애인 안내·물류배송 모드',
+    subtitle: '길안내·물류배송 모드',
     icon: Icons.accessibility_new,
   ),
   patrol(
