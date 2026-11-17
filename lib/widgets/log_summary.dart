@@ -126,8 +126,9 @@ class LogTodaySummary extends StatelessWidget {
           Row(
             children: [
               const Expanded(
+                // 2026-11-17 사용자: 막대가 덮는 범위를 제목에 적는다(오늘 전체가 아님).
                 child: Text(
-                  '시간대별',
+                  '최근 $kLogSummaryHours시간',
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
                 ),
               ),

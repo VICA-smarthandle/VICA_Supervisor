@@ -98,6 +98,7 @@ void main() {
       ),
     );
     expect(find.text('오늘 4건'), findsOneWidget);
+    expect(find.text('최근 7시간'), findsOneWidget); // 막대 범위를 제목에(사용자 11-17)
     expect(find.bySemanticsLabel('긴급 정지 2건'), findsOneWidget);
     expect(find.bySemanticsLabel('배송 1건'), findsOneWidget);
     // 막대는 지금까지 최근 7시간(8~14시). 9시 기록은 들어가고 칸 수는 7.
