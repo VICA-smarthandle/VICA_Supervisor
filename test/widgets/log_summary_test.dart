@@ -118,20 +118,45 @@ void main() {
     expect(find.text('어제 기록'), findsOneWidget);
   });
 
-  testWidgets('숫자 칸을 누르면 그 분류만, 다시 누르면 전체', (tester) async {
+  testWidgets('숫자 칸을 누르면 그 분류의 로그만 — 막대는 전체에서만', (tester) async {
     final now = DateTime.now();
     await _pumpScreen(tester, [
       _log(LogFilter.emergencyStop, now, '비상정지 기록'),
       _log(LogFilter.delivery, now, '배송 기록'),
     ]);
-    await tester.tap(find.bySemanticsLabel('긴급 정지 1건'));
-    await tester.pump();
-    expect(find.text('비상정지 기록'), findsOneWidget);
-    expect(find.text('배송 기록'), findsNothing);
+    expect(find.byType(LogTodaySummary), findsOneWidget);
 
     await tester.tap(find.bySemanticsLabel('긴급 정지 1건'));
     await tester.pump();
+    expect(find.byType(LogTodaySummary), findsNothing);
+    expect(find.text('비상정지 기록'), findsOneWidget);
+    expect(find.text('배송 기록'), findsNothing);
+
+    await tester.tap(find.widgetWithText(ChoiceChip, '전체'));
+    await tester.pump();
+    expect(find.byType(LogTodaySummary), findsOneWidget);
     expect(find.text('배송 기록'), findsOneWidget);
+  });
+
+  testWidgets('다른 분류 칩에는 막대가 없고, 고른 시는 풀린다', (tester) async {
+    final now = DateTime.now();
+    await _pumpScreen(tester, [
+      _log(LogFilter.connection, now, '연결 기록'),
+      _log(LogFilter.connection, now.subtract(const Duration(days: 1)),
+          '어제 연결 기록'),
+    ]);
+    await tester.tap(find.bySemanticsLabel('${now.hour}시 1건'));
+    await tester.pump();
+    expect(find.text('어제 연결 기록'), findsNothing);
+
+    final chip = find.widgetWithText(ChoiceChip, '연결 상태');
+    await tester.ensureVisible(chip); // 칩 줄은 가로로 밀립니다
+    await tester.pump();
+    await tester.tap(chip);
+    await tester.pump();
+    expect(find.byType(LogTodaySummary), findsNothing);
+    expect(find.text('연결 기록'), findsOneWidget);
+    expect(find.text('어제 연결 기록'), findsOneWidget);
   });
 
   testWidgets('기록이 없으면 숫자 줄·막대를 그리지 않는다', (tester) async {

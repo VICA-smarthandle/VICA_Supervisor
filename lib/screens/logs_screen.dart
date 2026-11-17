@@ -128,7 +128,8 @@ class _LogsScreenState extends State<LogsScreen> {
                   onSelected: (_) {
                     setState(() {
                       _filter = filter;
-                      if (filter == LogFilter.patrol) {
+                      // 막대는 '전체' 에만 있습니다 — 다른 분류로 가면 고른 시도 풉니다.
+                      if (filter != LogFilter.all) {
                         _hour = null;
                       }
                     });
@@ -142,17 +143,19 @@ class _LogsScreenState extends State<LogsScreen> {
           ),
         ),
         const SizedBox(height: 18),
-        // 오늘 숫자 줄·시간대 막대(2026-11-17 사용자 채택 초안 ①). 경비 기록은 로봇 쪽 기록이라 뺍니다.
-        if (!patrol && supervisor.logs.isNotEmpty) ...[
+        // 오늘 숫자 줄·시간대 막대(2026-11-17 사용자 채택 초안 ①). '전체' 에서만 보이고, 다른 분류는
+        // 로그 목록만 둡니다(2026-11-17 사용자).
+        if (_filter == LogFilter.all && supervisor.logs.isNotEmpty) ...[
           LogTodaySummary(
             logs: supervisor.logs,
             filter: _filter,
             hour: _hour,
             now: now,
             onHour: (hour) => setState(() => _hour = hour),
-            onFilter: (filter) => setState(
-              () => _filter = _filter == filter ? LogFilter.all : filter,
-            ),
+            onFilter: (filter) => setState(() {
+              _filter = filter;
+              _hour = null;
+            }),
           ),
           if (_hour != null)
             Padding(
