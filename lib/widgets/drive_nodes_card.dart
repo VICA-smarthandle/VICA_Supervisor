@@ -63,8 +63,9 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
           Row(
             children: [
               const Expanded(
+                // 2026-11-17 사용자: '주행 노드' → '주행 설정'.
                 child: Text(
-                  '주행 노드',
+                  '주행 설정',
                   style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
@@ -94,7 +95,7 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
             icon: detectorOff
                 ? Icons.visibility_off_outlined
                 : Icons.visibility_outlined,
-            title: '사람 감지',
+            title: '카메라 감지', // 2026-11-17 사용자: '사람 감지' → '카메라 감지'
             state: _detectorText(status.detector),
             trailing: Switch(
               value: status.detectorOn,
@@ -116,7 +117,7 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
           const Divider(height: 28, color: VicaColors.border),
           _Row(
             icon: Icons.mic_none,
-            title: '음성',
+            title: '음성 LLM', // 2026-11-17 사용자: '음성' → '음성 LLM'
             state: _voiceLine(status.voice, supervisor.lastVoiceEvent),
             // 폭 상한을 두고 그 안에서 줄인다 — 좁은 폰·큰 글자에서 줄을 밀어내지 않게(11-16 APK 확인).
             trailing: ConstrainedBox(

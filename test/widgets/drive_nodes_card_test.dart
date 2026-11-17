@@ -62,9 +62,9 @@ void main() {
 
   testWidgets('주행이 꺼져 있거나 모드 노드가 없으면 그리지 않는다', (tester) async {
     await pump(tester, null);
-    expect(find.text('주행 노드'), findsNothing);
+    expect(find.text('주행 설정'), findsNothing);
     await pump(tester, const ModeStatus(mode: 'idle', state: ModeState.idle));
-    expect(find.text('주행 노드'), findsNothing);
+    expect(find.text('주행 설정'), findsNothing);
   });
 
   testWidgets('사람 감지 스위치를 끄면 감지기만 끄라고 보낸다', (tester) async {

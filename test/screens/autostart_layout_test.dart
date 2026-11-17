@@ -181,7 +181,7 @@ void main() {
   testWidgets('지도 바꾸기 — ① 지도 줄·② 목록', (tester) async {
     await check(tester, '지도 줄', _status(mode: 'idle', state: 'idle', nav2: 'down'),
         () => scroll(const DriveMapRow()), after: (tester) async {
-      await tester.tap(find.text('바꾸기'));
+      await tester.tap(find.text('변경'));
       await tester.pumpAndSettle();
     });
   });

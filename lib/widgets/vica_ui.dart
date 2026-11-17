@@ -984,7 +984,8 @@ class VicaRobotCard extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _IconBox(icon: Icons.smart_toy, color: VicaColors.primaryDark),
+          // 2026-11-17 사용자: 초록 로봇 아이콘 → 비카 로고.
+          const VicaLogo(size: 50),
           const SizedBox(width: 14),
           // Wrap은 자식에게 폭 제한을 물려주지 않아 긴 문구가 그대로 카드 밖으로
           // 나갔습니다. 실제로 쓸 수 있는 폭을 재서 각 항목에 직접 넘깁니다.
@@ -1266,26 +1267,6 @@ class VicaLogTile extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _IconBox extends StatelessWidget {
-  const _IconBox({required this.icon, required this.color});
-
-  final IconData icon;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 50,
-      height: 50,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        shape: BoxShape.circle,
-      ),
-      child: Icon(icon, color: color, size: 24),
     );
   }
 }

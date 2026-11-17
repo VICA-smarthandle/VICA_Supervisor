@@ -162,7 +162,7 @@ void main() {
         const DriveMapRow());
     expect(find.text('4층 복도'), findsOneWidget);
     expect(find.text('11-16 20:30 · 레일 · 금지구역 · 목적지 4'), findsOneWidget);
-    await tester.tap(find.text('바꾸기'));
+    await tester.tap(find.text('변경'));
     await tester.pumpAndSettle();
     expect(find.text('주행 지도 고르기'), findsOneWidget);
     expect(find.text('사용 중'), findsOneWidget);

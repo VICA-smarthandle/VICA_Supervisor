@@ -559,8 +559,9 @@ class _VoicePicker extends StatelessWidget {
           const Icon(Icons.mic_none, color: VicaColors.primary, size: 22),
           const SizedBox(width: 12),
           const Expanded(
+            // 2026-11-17 사용자: 주행 설정 카드와 같은 이름 '음성 LLM'.
             child: Text(
-              '음성',
+              '음성 LLM',
               style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: VicaColors.text),
             ),
           ),

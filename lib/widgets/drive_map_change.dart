@@ -289,8 +289,9 @@ class DriveMapRow extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
+              // 2026-11-17 사용자: '바꾸기 >' → '변경 >'(확인 창의 '바꾸기' 버튼은 그대로).
               const Text(
-                '바꾸기',
+                '변경',
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: VicaColors.primaryDark),
               ),
               const Icon(Icons.chevron_right, color: VicaColors.primaryDark),
