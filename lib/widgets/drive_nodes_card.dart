@@ -123,6 +123,7 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
               constraints: const BoxConstraints(maxWidth: 150),
               child: DropdownButton<VoiceChoice>(
                 isExpanded: true,
+                alignment: AlignmentDirectional.centerEnd,
                 value: status.voiceChoice,
                 underline: const SizedBox.shrink(),
                 borderRadius: BorderRadius.circular(12),
@@ -138,6 +139,8 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
                   for (final choice in VoiceChoice.values)
                     DropdownMenuItem(
                       value: choice,
+                      // 오른쪽에 붙임(2026-11-17 사용자 지시).
+                      alignment: AlignmentDirectional.centerEnd,
                       child: Text(
                         choice.label,
                         overflow: TextOverflow.ellipsis,

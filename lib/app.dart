@@ -237,7 +237,8 @@ class VicaSupervisorApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'VICA_Supervisor',
+      // 2026-11-17 사용자: 앱 이름은 모두 대문자.
+      title: 'VICA_SUPERVISOR',
       debugShowCheckedModeBanner: false,
       theme: vicaTheme(),
       home: const AuthGate(),

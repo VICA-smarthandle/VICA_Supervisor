@@ -77,7 +77,8 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
     return Scaffold(
       appBar: AppBar(
         // 2026-11-17 제목·문구 간결화(사용자 승인): 제목은 '모드 선택' 하나, 계정은 오른쪽 작은 글씨.
-        title: const Text('모드 선택'),
+        // 2026-11-17 사용자: 처음 화면 제목은 앱 이름(로그인·브라우저 탭과 같은 이름).
+        title: const Text('VICA_SUPERVISOR'),
         actions: [
           if (username.isNotEmpty)
             Center(
@@ -554,6 +555,7 @@ class _VoicePicker extends StatelessWidget {
             constraints: const BoxConstraints(maxWidth: 160),
             child: DropdownButton<VoiceChoice>(
               isExpanded: true,
+              alignment: AlignmentDirectional.centerEnd,
               value: value,
               underline: const SizedBox.shrink(),
               borderRadius: BorderRadius.circular(12),
@@ -566,6 +568,8 @@ class _VoicePicker extends StatelessWidget {
                 for (final choice in VoiceChoice.values)
                   DropdownMenuItem(
                     value: choice,
+                    // 오른쪽에 붙임(2026-11-17 사용자 지시).
+                    alignment: AlignmentDirectional.centerEnd,
                     child: Text(
                       choice.label,
                       overflow: TextOverflow.ellipsis,

@@ -1,6 +1,6 @@
 {
-    "name": "vica_supervisor",
-    "short_name": "vica_supervisor",
+    "name": "VICA_SUPERVISOR",
+    "short_name": "VICA_SUPERVISOR",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
