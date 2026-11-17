@@ -18,6 +18,7 @@ import 'package:vica_supervisor/screens/drive_bringup_screen.dart';
 import 'package:vica_supervisor/screens/mode_select_screen.dart';
 import 'package:vica_supervisor/widgets/drive_map_change.dart';
 import 'package:vica_supervisor/widgets/drive_nodes_card.dart';
+import 'package:vica_supervisor/widgets/drive_stop_button.dart';
 import 'package:vica_supervisor/widgets/duplicate_run_banner.dart';
 import 'package:vica_supervisor/widgets/voice_alert_snack.dart';
 
@@ -174,6 +175,10 @@ void main() {
     });
     await check(tester, '주행 끄는 중', _status(state: 'stopping', nav2: 'active'),
         () => const DriveBringupScreen(stopOnly: true));
+  });
+
+  testWidgets('원격 주행 상태 줄', (tester) async {
+    await check(tester, '원격 주행 상태 줄', _status(), () => const Scaffold(body: SingleChildScrollView(child: Padding(padding: EdgeInsets.all(16), child: DriveStatusStrip()))));
   });
 
   testWidgets('중복 실행 띠', (tester) async {

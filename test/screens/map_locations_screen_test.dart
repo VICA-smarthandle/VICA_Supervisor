@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vica_supervisor/core/app_settings.dart';
 import 'package:vica_supervisor/models/mode_status.dart';
 import 'package:vica_supervisor/models/stack_status.dart';
+import 'package:vica_supervisor/providers/app_mode_provider.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/screens/map_locations_screen.dart';
@@ -122,6 +123,7 @@ void main() {
         providers: [
           ChangeNotifierProvider<SupervisorProvider>.value(value: supervisor),
           ChangeNotifierProvider(create: (_) => SettingsProvider()),
+          ChangeNotifierProvider(create: (_) => AppModeProvider()),
         ],
         child: const MaterialApp(
           home: Scaffold(body: MapLocationsScreen()),
@@ -432,5 +434,19 @@ void main() {
     );
     // 홈·금지구역 조회가 응답 없이 끝나기를 기다립니다.
     await tester.pump(const Duration(seconds: 15));
+  });
+
+  // 2026-11-17 목업 '원격 주행 A': 주행이 켜져 있으면 맨 위 줄에 상태와 '주행 끄기'.
+  testWidgets('주행이 켜져 있으면 지도 선택 위에 주행 끄기 줄을 보인다', (tester) async {
+    final supervisor = await pump(tester);
+    expect(find.widgetWithText(OutlinedButton, '주행 끄기'), findsNothing);
+
+    supervisor.setModeStatusForTest(
+      const ModeStatus(mode: 'drive', state: ModeState.running, nav2: 'active'),
+    );
+    await tester.pump();
+    final stop = find.widgetWithText(OutlinedButton, '주행 끄기');
+    expect(stop, findsOneWidget);
+    expect(tester.getTopLeft(stop).dy, lessThan(tester.getTopLeft(find.text('지도 선택').first).dy));
   });
 }

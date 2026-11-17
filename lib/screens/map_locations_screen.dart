@@ -13,6 +13,7 @@ import '../widgets/initial_pose_card.dart';
 import '../widgets/drive_control_bar.dart';
 import '../widgets/drive_map_canvas.dart';
 import '../widgets/drive_map_change.dart';
+import '../widgets/drive_stop_button.dart';
 import '../widgets/map_canvas.dart';
 import '../widgets/map_picker.dart';
 import '../widgets/map_work_layout.dart';
@@ -70,6 +71,8 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     // 본문 제목은 뺐습니다 — 제목줄과 같은 말입니다(2026-11-17 제목·문구 간결화, 사용자 승인).
     return MapWorkLayout(
       children: [
+        // 주행 상태와 '주행 끄기'(2026-11-17 목업 '원격 주행 A'). 주행이 꺼져 있으면 그리지 않습니다.
+        const DriveStatusStrip(),
         MapPickerRow(
           supervisor: supervisor,
           settings: settings,

@@ -12,7 +12,7 @@ import 'package:provider/provider.dart';
 import '../models/mode_status.dart';
 import '../providers/app_mode_provider.dart';
 import '../providers/supervisor_provider.dart';
-import '../screens/drive_bringup_screen.dart';
+import 'drive_stop_button.dart';
 import 'vica_ui.dart';
 import 'voice_alert_snack.dart';
 
@@ -39,45 +39,6 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
     // 받아들여도(무엇을 했는지) 거절돼도(왜 안 됐는지) 모드 노드의 말을 그대로 보여 줍니다.
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(ok ? message : '안 됐습니다: $message')),
-    );
-  }
-
-  // 모드 선택 화면의 '주행 끄고 지도로'와 같은 순서입니다: 확인 → /vica/mode/drive_stop →
-  // 끄는 진행 화면 → 다 꺼지면 모드 선택. 움직이는 중이면 모드 노드가 거절합니다.
-  Future<void> _stopDrive(SupervisorProvider supervisor) async {
-    final confirmed = await showVicaConfirm(
-      context,
-      icon: Icons.power_settings_new,
-      iconColor: VicaColors.red,
-      title: '주행을 끌까요?',
-      body: 'Nav2·미션·손잡이·음성·카메라 감지를 끕니다. 모터·센서·앱 연결은 그대로입니다.\n'
-          '보통 5~15초 걸립니다. 로봇이 움직이는 중이면 끌 수 없습니다.',
-      confirmLabel: '주행 끄기',
-      danger: true,
-    );
-    if (!confirmed || !mounted || _busy) {
-      return;
-    }
-    setState(() => _busy = true);
-    final (ok, message) = await supervisor.driveStop();
-    if (!mounted) {
-      return;
-    }
-    setState(() => _busy = false);
-    if (!ok) {
-      await showVicaNotice(
-        context,
-        icon: Icons.error_outline,
-        iconColor: VicaColors.red,
-        title: '주행을 끄지 못했습니다',
-        body: message,
-      );
-      return;
-    }
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => const DriveBringupScreen(stopOnly: true),
-      ),
     );
   }
 
@@ -138,25 +99,8 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
                 ),
               ),
               const SizedBox(width: 8),
-              // 비상정지(위쪽 막대 빨강 채움)와 구별되게 테두리만 빨강입니다(목업 ①).
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: VicaColors.red,
-                  side: const BorderSide(color: VicaColors.red, width: 1.5),
-                  minimumSize: const Size(0, 40),
-                  padding: const EdgeInsets.fromLTRB(10, 0, 14, 0),
-                  shape: const StadiumBorder(),
-                  textStyle: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w800),
-                ),
-                onPressed: _busy ||
-                        status.state == ModeState.stopping ||
-                        status.stopPending
-                    ? null
-                    : () => _stopDrive(supervisor),
-                icon: const Icon(Icons.power_settings_new, size: 18),
-                label: const Text('주행 끄기'),
-              ),
+              // 원격 주행 탭 맨 위 줄과 같은 버튼(drive_stop_button.dart).
+              const DriveStopButton(),
             ],
           ),
           const SizedBox(height: 14),
