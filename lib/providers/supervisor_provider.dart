@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/app_settings.dart';
+import '../core/estop_sources.dart';
 import '../core/contact_phone.dart';
 import '../core/json_read.dart';
 import '../core/log_filter.dart';
@@ -191,6 +192,10 @@ class SupervisorProvider extends ChangeNotifier {
   EmergencyStopState _emergencyStopState = EmergencyStopState.inactive;
   String _emergencyStopMessage = '';
   List<String> _emergencyStopSources = const [];
+  // 알림 및 로그 '비상정지' 에 이미 남긴 원인과, 걸림을 남겼는지(2026-11-17).
+  // 재접속해도 지우지 않습니다 — 같은 비상정지를 두 번 남기지 않게.
+  final Set<String> _loggedEstopSources = {};
+  bool _loggedEstopActive = false;
   bool _nav2UnavailableNotified = false;
   bool _nav2AvailableNotified = false;
   bool _nav2WasUnavailable = false;
@@ -802,7 +807,6 @@ class SupervisorProvider extends ChangeNotifier {
       EmergencyStopState.activating,
       'VICA에 비상정지를 요청하고 있습니다.',
     );
-    _addLog(LogFilter.emergencyStop, '비상정지 요청 전송');
     try {
       final response = await client.callService(
         service: settings.emergencyActivateService,
@@ -815,7 +819,6 @@ class SupervisorProvider extends ChangeNotifier {
               ? '비상정지가 활성화되었습니다. 기존 목적지는 취소되었습니다.'
               : response.message,
         );
-        _addLog(LogFilter.emergencyStop, '비상정지 활성화 완료');
       } else {
         _setEmergencyStopState(
           EmergencyStopState.activationFailed,
@@ -847,7 +850,6 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     _setEmergencyStopState(EmergencyStopState.inactive, '');
-    _addLog(LogFilter.emergencyStop, '비상정지 실패 알림 닫음');
   }
 
   // 비상정지 해제: app_emergency_node의 reset 서비스를 호출합니다.
@@ -871,7 +873,6 @@ class SupervisorProvider extends ChangeNotifier {
       EmergencyStopState.releasing,
       'VICA에 비상정지 해제를 요청하고 있습니다.',
     );
-    _addLog(LogFilter.emergencyStop, '비상정지 해제 요청 전송');
     try {
       final response = await client.callService(
         service: settings.emergencyResetService,
@@ -879,7 +880,6 @@ class SupervisorProvider extends ChangeNotifier {
       );
       if (response.result && response.success) {
         _setEmergencyStopState(EmergencyStopState.inactive, '');
-        _addLog(LogFilter.emergencyStop, '비상정지 해제 완료');
       } else {
         _setEmergencyStopState(
           EmergencyStopState.releaseFailed,
@@ -1176,7 +1176,7 @@ class SupervisorProvider extends ChangeNotifier {
           ? (response.accepted ? '주행 요청을 수락했습니다.' : '주행 요청이 거부되었습니다.')
           : _localizeGateReason(response.message, gateMessages),
       failurePrefix: 'Mission Manager 목적지 요청 실패',
-      logAs: LogFilter.emergencyStop,
+      logAs: null, // 주행 요청 거부·실패는 팝업으로만(2026-11-17)
     );
     return (reply.accepted, reply.message);
   }
@@ -1466,7 +1466,7 @@ class SupervisorProvider extends ChangeNotifier {
           ? (response.accepted ? '홈으로 복귀합니다.' : '홈 복귀 요청이 거부되었습니다.')
           : _localizeGateReason(response.message),
       failurePrefix: '홈 복귀 요청 실패',
-      logAs: LogFilter.emergencyStop,
+      logAs: null, // 주행 요청 거부·실패는 팝업으로만(2026-11-17)
     );
     return (reply.accepted, reply.message);
   }
@@ -2323,25 +2323,21 @@ class SupervisorProvider extends ChangeNotifier {
           _helpRequestedAt = stamp.contains('T')
               ? stamp.substring(stamp.indexOf('T') + 1)
               : stamp;
-          final where = event.place.isEmpty ? '' : ' (${event.place})';
-          _addLog(LogFilter.emergencyStop, '도움 요청$where');
+          // 도움 요청은 알림 및 로그에 남기지 않습니다 — 팝업으로 알립니다(2026-11-17).
         }
       case GoalEventKind.helpAcknowledged:
         if (_activeHelp?.helpId == event.helpId) {
           _activeHelp = null;
           _acknowledgedHelpId = event.helpId;
-          _addLog(LogFilter.emergencyStop, '도움 요청을 관리자가 확인했습니다.');
         }
       case GoalEventKind.helpCanceled:
         if (_activeHelp?.helpId == event.helpId) {
           _activeHelp = null;
-          _addLog(LogFilter.emergencyStop, '도움 요청이 끝났습니다.');
         } else if (_acknowledgedHelpId == event.helpId) {
           // 확인 뒤의 취소는 사용자가 직접 한 것뿐입니다(미션은 그 밖의 끝에는 알리지 않습니다).
           _acknowledgedHelpId = null;
           const notice = '사용자가 도움 요청을 취소했습니다.';
           _pendingHelpNotice = notice;
-          _addLog(LogFilter.emergencyStop, notice);
         }
       default:
         break;
@@ -2377,7 +2373,7 @@ class SupervisorProvider extends ChangeNotifier {
         }
       },
       failurePrefix: '도움 요청 확인 실패',
-      logAs: LogFilter.emergencyStop,
+      logAs: null, // 주행 요청 거부·실패는 팝업으로만(2026-11-17)
     );
     if (reply.accepted) {
       _acknowledgedHelpId = help.helpId;
@@ -2621,7 +2617,7 @@ class SupervisorProvider extends ChangeNotifier {
         final notice = _patrolStopNotices[event.reason];
         if (notice != null) {
           _pendingPatrolNotice = notice;
-          _addLog(LogFilter.emergencyStop, notice);
+          _addLog(LogFilter.patrol, notice);
         }
       default:
         break;
@@ -3111,15 +3107,8 @@ class SupervisorProvider extends ChangeNotifier {
         _lastGoalAlertId = event.id;
         _lastGoalAlertIsWait = event.kind.isWaitAlert;
       }
-      // 팝업과 별개로 알림 목록에도 남깁니다. 팝업은 그 자리에서 닫히지만
-      // 목록은 나중에 되짚을 수 있어야 합니다.
-      final where =
-          event.destinationName.isEmpty ? '' : '${event.destinationName}: ';
-      final detail = event.reason.isEmpty ? '' : ' (${event.reason})';
-      // 실패만 남긴다(출발·도착 같은 평상시 알림은 지도 설정이 아니다, 2026-11-17).
-      if (event.isFailure) {
-        _addLog(LogFilter.emergencyStop, '$where${event.title}$detail');
-      }
+      // 주행 알림(출발·도착·실패)은 알림 및 로그에 남기지 않습니다 — 팝업으로 알립니다
+      // (2026-11-17 사용자: 비상정지 분류는 실제 비상정지만).
     }
     notifyListeners();
   }
@@ -4247,7 +4236,7 @@ class SupervisorProvider extends ChangeNotifier {
               ? '요청이 거부되었습니다.'
               : _localizeGateReason(response.message),
       failurePrefix: 'Mission Manager 요청 실패',
-      logAs: LogFilter.emergencyStop,
+      logAs: null, // 주행 요청 거부·실패는 팝업으로만(2026-11-17)
     );
     return reply.message;
   }
@@ -4269,7 +4258,7 @@ class SupervisorProvider extends ChangeNotifier {
     Duration timeout = RosBridgeClient.defaultServiceTimeout,
     required String Function(RosServiceResponse response) describe,
     required String failurePrefix,
-    LogFilter logAs = LogFilter.coordinateTransfer,
+    LogFilter? logAs = LogFilter.coordinateTransfer,
     void Function(RosServiceResponse response)? onAccepted,
     void Function(bool calling)? busy,
   }) async {
@@ -4287,7 +4276,7 @@ class SupervisorProvider extends ChangeNotifier {
       );
       final message = describe(response);
       // 2026-11-17 사용자: 거부(반영 안 됨)만 남긴다. 수락은 화면 문구로 충분하다.
-      if (!response.accepted) {
+      if (!response.accepted && logAs != null) {
         _addLog(logAs, message);
       }
       if (response.accepted) {
@@ -4296,7 +4285,9 @@ class SupervisorProvider extends ChangeNotifier {
       return (accepted: response.accepted, message: message);
     } catch (error) {
       final message = '$failurePrefix: $error';
-      _addLog(logAs, message);
+      if (logAs != null) {
+        _addLog(logAs, message);
+      }
       return (accepted: false, message: message);
     } finally {
       busy?.call(false);
@@ -4432,7 +4423,7 @@ class SupervisorProvider extends ChangeNotifier {
       _addLog(LogFilter.connection, errorReason);
       return;
     }
-    _addLog(LogFilter.emergencyStop, '${robot.robotName}: $errorReason');
+    // 비상정지 분류는 실제 비상정지만(2026-11-17) — 오류 사유는 시스템 진단에서 봅니다.
   }
 
   bool _isNoEventsRecorded(String message) {
@@ -4535,17 +4526,8 @@ class SupervisorProvider extends ChangeNotifier {
     }
 
     // 주행을 막는 등급만 기존 알림 목록에도 남깁니다. WARN·DEGRADED까지 넣으면
-    // 알림이 진단 화면과 중복되면서 정작 중요한 항목이 묻힙니다.
-    if (event.fault.severity.blocksDriving &&
-        event.transition != FaultTransition.reminder) {
-      // 해소는 무엇이 풀렸는지만, 발생은 짧은 한 문장까지(2026-11-17).
-      _addLog(
-        LogFilter.emergencyStop,
-        event.transition == FaultTransition.cleared
-            ? '[해소] ${event.fault.componentLabelText}'
-            : '[발생] ${event.fault.componentLabelText}: ${event.fault.message}',
-      );
-    }
+    // 결함 발생·해소는 알림 및 로그에 남기지 않습니다(2026-11-17 사용자: 비상정지 분류는 실제
+    // 비상정지만). 시스템 진단 '최근 1시간' 에서 봅니다.
 
     notifyListeners();
   }
@@ -4610,6 +4592,8 @@ class SupervisorProvider extends ChangeNotifier {
     _emergencyStopSources = rawSources is List
         ? rawSources.map((value) => value.toString()).toList()
         : const [];
+    // 서비스 호출 중이어도 기록은 방송 기준으로 남깁니다(앱으로 건 것도 sources 에 'app').
+    _logEmergencyStopChange(active, _emergencyStopSources);
 
     // 서비스 호출이 진행 중일 때는 그 응답이 상태를 결정하므로 브로드캐스트는 무시합니다.
     if (_emergencyStopState == EmergencyStopState.activating ||
@@ -4645,6 +4629,31 @@ class SupervisorProvider extends ChangeNotifier {
     if (_emergencyStopState != EmergencyStopState.inactive) {
       _setEmergencyStopState(EmergencyStopState.inactive, '');
     }
+  }
+
+  // 비상정지가 실제로 걸리고 풀린 것만 '비상정지' 분류에 남깁니다(사용자 2026-11-17).
+  // 원인이 새로 붙을 때마다 한 줄('비상정지: 물리 버튼'), 풀리면 '비상정지 해제'.
+  // 원인이 빠져도(버튼을 놓음) 래치가 남아 있는 동안은 아무것도 남기지 않습니다.
+  void _logEmergencyStopChange(bool active, List<String> sources) {
+    if (!active) {
+      if (_loggedEstopActive) {
+        _addLog(LogFilter.emergencyStop, '비상정지 해제');
+      }
+      _loggedEstopActive = false;
+      _loggedEstopSources.clear();
+      return;
+    }
+    final fresh =
+        sources.where((s) => !_loggedEstopSources.contains(s)).toList();
+    if (fresh.isEmpty && !_loggedEstopActive) {
+      // 원인을 안 보내는 옛 노드.
+      _addLog(LogFilter.emergencyStop, '비상정지 (원인 모름)');
+    }
+    for (final source in fresh) {
+      _addLog(LogFilter.emergencyStop, '비상정지: ${estopSourceLabel(source)}');
+    }
+    _loggedEstopSources.addAll(fresh);
+    _loggedEstopActive = true;
   }
 
   void _setEmergencyStopState(

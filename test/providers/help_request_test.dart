@@ -122,7 +122,8 @@ void main() {
       expect(provider.pendingHelpNotice, isNull);
       provider.handleGoalEventForTest(_event('help_canceled', _idA));
       expect(provider.pendingHelpNotice, '사용자가 도움 요청을 취소했습니다.');
-      expect(provider.logs.first.message, '사용자가 도움 요청을 취소했습니다.');
+      // 도움 요청은 알림 및 로그에 남기지 않습니다(2026-11-17) — 한 줄 알림(팝업)만.
+      expect(provider.logs, isEmpty);
       provider.consumeHelpNotice();
       expect(provider.pendingHelpNotice, isNull);
       provider.dispose();

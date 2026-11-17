@@ -94,13 +94,14 @@ void main() {
       expect(logsOf(provider, LogFilter.coordinateTransfer), isEmpty);
     });
 
-    test('거부는 비상정지 분류에 남긴다(지도 설정이 아니다)', () {
+    test('거부는 기록하지 않는다 — 팝업 문구로만(2026-11-17)', () {
       final (message, provider) = run(
         (p) => p.requestDestination(_settings, _place),
         _settings.missionRequestService,
         {'accepted': false, 'message': '목적지 요청 거부: 이미 안내 중'},
       );
-      expect(logsOf(provider, LogFilter.emergencyStop), [message]);
+      expect(message, isNotEmpty);
+      expect(logsOf(provider, LogFilter.emergencyStop), isEmpty);
       expect(logsOf(provider, LogFilter.coordinateTransfer), isEmpty);
     });
 
@@ -134,7 +135,7 @@ void main() {
         result: false,
       );
       expect(message, startsWith('Mission Manager 목적지 요청 실패: '));
-      expect(logsOf(provider, LogFilter.emergencyStop), [message]);
+      expect(logsOf(provider, LogFilter.emergencyStop), isEmpty);
     });
   });
 
