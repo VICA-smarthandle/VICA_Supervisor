@@ -34,7 +34,7 @@ class VicaRosConnectionButton extends StatelessWidget {
         connected ? Icons.check_circle : Icons.radio_button_unchecked,
       ),
       // 2026-11-17 사용자 A안: 'ROS' 대신 '로봇 연결'.
-      label: Text(connected ? '연결됨' : '로봇 연결'),
+      label: Text(connected ? '통신 정상' : '통신 연결'),
     );
   }
 }
@@ -62,10 +62,10 @@ class VicaRosConnectionTile extends StatelessWidget {
         ? VicaColors.green
         : (connecting ? VicaColors.primary : VicaColors.muted);
     final label = switch (state) {
-      RosConnectionState.connected => '연결됨',
-      RosConnectionState.connecting => '연결 중',
-      RosConnectionState.failed => '연결 실패',
-      RosConnectionState.disconnected => '연결 안 됨',
+      RosConnectionState.connected => '통신 정상',
+      RosConnectionState.connecting => '통신 연결 중',
+      RosConnectionState.failed => '통신 실패',
+      RosConnectionState.disconnected => '통신 끊김',
     };
 
     return VicaCard(

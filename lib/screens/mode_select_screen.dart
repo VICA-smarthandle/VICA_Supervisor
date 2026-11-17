@@ -78,7 +78,21 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
       appBar: AppBar(
         // 2026-11-17 제목·문구 간결화(사용자 승인): 제목은 '모드 선택' 하나, 계정은 오른쪽 작은 글씨.
         // 2026-11-17 사용자: 처음 화면 제목은 앱 이름(로그인·브라우저 탭과 같은 이름).
-        title: const Text('VICA_SUPERVISOR'),
+        // 2026-11-17 사용자: 제목 옆에도 로고.
+        title: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            VicaLogo(size: 32),
+            SizedBox(width: 10),
+            Flexible(
+              child: Text(
+                'VICA_SUPERVISOR',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
         actions: [
           if (username.isNotEmpty)
             Center(
@@ -880,8 +894,8 @@ class _UnknownNotice extends StatelessWidget {
               // 문장 끝에서 줄을 바꾸고(2026-09-14 규칙), 그 안은 어절 단위로
               // 폭에 맞춰 접힙니다. 글자는 그대로입니다.
               vicaKeepWords(vicaBreakAtSentences(
-                // 2026-11-17 사용자 A안.
-                '로봇 연결 전 · 상태·중복 실행 확인 불가',
+                // 2026-11-17 사용자: '연결' → '통신' 묶음.
+                '통신 끊김 · 상태·중복 실행 확인 불가',
               )),
               style: const TextStyle(fontSize: 12),
             ),

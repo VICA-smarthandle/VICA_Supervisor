@@ -232,6 +232,37 @@ class VicaIconCircle extends StatelessWidget {
   }
 }
 
+/// 비카 로봇 로고(2026-11-17 사용자 제공, assets/images/vica_robot.png 256px·투명 바탕).
+///
+/// [framed] 가 true 면 흰 둥근 바탕 위에 올린다 — 어두운 사이드바용.
+/// 밝은 AppBar·로그인 카드에서는 false(그림만).
+class VicaLogo extends StatelessWidget {
+  const VicaLogo({super.key, this.size = 40, this.framed = false});
+
+  final double size;
+  final bool framed;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = Image.asset(
+      'assets/images/vica_robot.png',
+      fit: BoxFit.contain,
+      semanticLabel: 'VICA',
+    );
+    if (!framed) return SizedBox.square(dimension: size, child: image);
+    return Container(
+      width: size,
+      height: size,
+      padding: EdgeInsets.all(size * 0.08),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(size * 0.28),
+      ),
+      child: image,
+    );
+  }
+}
+
 /// 앱의 모든 확인 팝업이 쓰는 틀. 왼쪽 위 아이콘 원, 제목, 설명, (선택) 값 줄,
 /// 아래 버튼 줄. AlertDialog 대신 이것을 쓰면 화면마다 팝업 모양이 갈리지 않는다.
 ///
@@ -816,9 +847,9 @@ class VicaDisconnectedNotice extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 2026-11-17 사용자 A안: 'ROS 연결 안 됨' → '로봇 연결 끊김'.
+                // 2026-11-17 사용자: 'ROS 연결 안 됨' → '로봇 통신 끊김'.
                 const Text(
-                  '로봇 연결 끊김',
+                  '로봇 통신 끊김',
                   style: TextStyle(
                     fontWeight: FontWeight.w800,
                     color: VicaColors.red,

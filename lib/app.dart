@@ -816,7 +816,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
       tooltip: expanded ? '사이드 메뉴 접기' : '사이드 메뉴 펼치기',
       visualDensity: VisualDensity.compact,
     );
-    const logo = _BrandMark(size: 36);
+    const logo = _BrandMark(size: 40);
 
     if (expanded) {
       return SizedBox(
@@ -842,7 +842,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
                       ),
                     ),
                     Text(
-                      'Supervisor',
+                      'SUPERVISOR',
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.6),
                         fontSize: 11,
@@ -1110,24 +1110,14 @@ class _NavigationItem {
   final String label;
 }
 
-/// 틸 원 안의 번개. 사이드바가 씁니다(시안의 사이드바 로고는 원입니다).
+/// 사이드바 로고. 사이드바가 어두워 흰 둥근 바탕 위에 올립니다.
 class _BrandMark extends StatelessWidget {
-  const _BrandMark({this.size = 36});
+  const _BrandMark({this.size = 40});
 
   final double size;
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: const BoxDecoration(
-        color: VicaColors.primary,
-        shape: BoxShape.circle,
-      ),
-      child: Icon(Icons.bolt, color: Colors.white, size: size * 0.55),
-    );
-  }
+  Widget build(BuildContext context) => VicaLogo(size: size, framed: true);
 }
 
 /// AppBar 안의 제목. 폰은 20, 넓은 창은 26.
@@ -1164,11 +1154,11 @@ class _LiveChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (label, color) = switch (state) {
-      RosConnectionState.connected => ('실시간 수신 중', VicaColors.green),
-      RosConnectionState.connecting => ('연결 중', VicaColors.primary),
+      RosConnectionState.connected => ('통신 정상', VicaColors.green),
+      RosConnectionState.connecting => ('통신 연결 중', VicaColors.primary),
       // 연결 칸(RosConnectionTile)과 같은 회색(2026-10-12 사용자 결정).
-      RosConnectionState.failed => ('연결 실패', VicaColors.muted),
-      RosConnectionState.disconnected => ('연결 안 됨', VicaColors.muted),
+      RosConnectionState.failed => ('통신 실패', VicaColors.muted),
+      RosConnectionState.disconnected => ('통신 끊김', VicaColors.muted),
     };
     return VicaStatusChip(label: label, color: color);
   }

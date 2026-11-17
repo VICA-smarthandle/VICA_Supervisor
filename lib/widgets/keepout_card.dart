@@ -146,7 +146,7 @@ class KeepoutCard extends StatelessWidget {
         ),
         const SizedBox(width: 10),
         if (!connected)
-          const VicaStateBadge(text: '연결 없음', color: VicaColors.red)
+          const VicaStateBadge(text: '통신 끊김', color: VicaColors.red)
         else if (editing)
           const VicaStateBadge(text: '편집 중 · 저장 전', color: VicaColors.primary)
         else if (drivingHold)

@@ -30,6 +30,10 @@ flutter:
   # assets/icon/app_icon.png 는 앱 안에 싣지 않습니다 — 앱이 읽는 곳이 없고, 런처 아이콘
   # 원본(아래 flutter_launcher_icons.image_path)으로만 씁니다.
 
+  # 사이드 메뉴 로고 — 비카 로봇 그림(2026-11-17 사용자 제공, 투명 배경, 여백을 잘라 256 px 로 줄임).
+  assets:
+    - assets/images/vica_robot.png
+
   # 폰트를 앱에 넣는다. 이름만 지정하고 파일을 넣지 않으면 그 기기에 같은 이름의
   # 폰트가 깔려 있을 때만 한글이 보인다. Jetson에는 fonts-nanum이 깔려 있어 넘어갔지만
   # APK나 다른 PC에서는 한글이 전부 네모(□)로 나온다.

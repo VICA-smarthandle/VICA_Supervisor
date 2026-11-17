@@ -383,7 +383,7 @@ void main() {
         _wrap(const DashboardScreen(), supervisor, 1.0),
       );
       await tester.pump();
-      final ros = tester.getTopLeft(find.text('로봇 연결'));
+      final ros = tester.getTopLeft(find.text('통신 연결'));
       final map = tester.getTopLeft(find.text('지도 미연결'));
       return Offset(map.dx - ros.dx, map.dy - ros.dy);
     }

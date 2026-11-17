@@ -119,7 +119,7 @@ void main() {
 
     // 안내문은 어절 단위 줄바꿈(vicaKeepWords)을 거치므로 같은 변환으로 찾습니다.
     expect(
-      find.textContaining(vicaKeepWords('로봇 연결 전')),  // 2026-11-17 A안 문구
+      find.textContaining(vicaKeepWords('통신 끊김 · 상태')),  // 2026-11-17 통신 문구
       findsOneWidget,
     );
     expect(find.textContaining('확인 불가'), findsNWidgets(2));
