@@ -127,4 +127,34 @@ void main() {
       isNull,
     );
   });
+
+  test('mp4 가 로봇에 있는지 HEAD 상태로 가른다(2026-11-17)', () async {
+    Future<bool?> ask(Future<int?> Function(Uri) probe) =>
+        PatrolLogLoader(fetch: (_) async => null, probe: probe)
+            .clipExists('http://r:8000', 'c');
+    final asked = <Uri>[];
+    expect(await ask((uri) async { asked.add(uri); return 200; }), isTrue);
+    expect(asked.single.toString(), 'http://r:8000/patrol/clips/c.mp4');
+    expect(await ask((_) async => 206), isTrue);
+    expect(await ask((_) async => 404), isFalse);
+    expect(await ask((_) async => 500), isNull);
+    expect(await ask((_) async => null), isNull);
+    expect(await ask((_) async => throw Exception('끊김')), isNull);
+  });
+
+  test('실패 문구 — 원인 우리말, 주소는 로봇에 없을 때만 뺀다', () {
+    expect(patrolClipErrorCause('MEDIA_ERR_ABORTED'), '중단됨');
+    expect(patrolClipErrorCause('MEDIA_ERR_NETWORK'), '네트워크 오류');
+    expect(patrolClipErrorCause('MEDIA_ERR_DECODE'), '영상 해독 실패');
+    expect(patrolClipErrorCause('MEDIA_ERR_SRC_NOT_SUPPORTED'), '지원하지 않는 형식');
+    expect(patrolClipErrorCause('VideoError'), '알 수 없는 오류');
+    expect(kPatrolClipOpenTimeout, const Duration(seconds: 20));
+    expect(
+      patrolClipFailureText(const PatrolClipFailure(PatrolClipFailureKind.timeout)),
+      '영상을 받지 못했습니다(20초).\n아래 주소를 브라우저 주소창에 직접 열어 보세요.',
+    );
+    expect(const PatrolClipFailure(PatrolClipFailureKind.timeout).showsUrl, isTrue);
+    expect(const PatrolClipFailure(PatrolClipFailureKind.browser).showsUrl, isTrue);
+    expect(const PatrolClipFailure(PatrolClipFailureKind.missing).showsUrl, isFalse);
+  });
 }

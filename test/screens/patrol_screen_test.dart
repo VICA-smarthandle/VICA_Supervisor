@@ -5,6 +5,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1678,22 +1679,116 @@ void main() {
       'detect_sec': 5.0,
     })!;
 
-    testWidgets('mp4 도 사진도 못 열면 그렇게 적고 조작을 잠근다', (tester) async {
+    Future<void> openFailing(WidgetTester tester, PatrolClipOpener opener) async {
       _size(tester, _phone);
       await tester.pumpWidget(
         MaterialApp(
           theme: vicaTheme(),
           home: PatrolClipDialog(
             record: record,
-            baseUrl: 'http://x',
-            opener: (_, __) async => null,
+            baseUrl: 'http://192.168.50.244:8000',
+            opener: opener,
           ),
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text(_k('영상을 불러오지 못했습니다.')), findsOneWidget);
+    }
+
+    const clipUrl =
+        'http://192.168.50.244:8000/patrol/clips/$_intruder.mp4';
+
+    testWidgets('mp4 도 사진도 못 열면 까닭 모름으로 적고 조작을 잠근다', (tester) async {
+      await openFailing(tester, (_, __) async => null);
+      expect(
+        find.text(patrolKeepWords('브라우저가 영상을 재생하지 못했습니다(오류: 알 수 없는 오류).\n'
+            '아래 주소를 브라우저 주소창에 직접 열어 보세요.')),
+        findsOneWidget,
+      );
+      expect(find.text(clipUrl), findsOneWidget);
       final play = tester.widget<FilledButton>(find.byType(FilledButton));
       expect(play.onPressed, isNull);
+    });
+
+    testWidgets('20초 동안 못 받으면 그렇게 적고 주소와 복사 버튼을 보인다(2026-11-17)', (tester) async {
+      await openFailing(tester, (_, __) async {
+        throw const PatrolClipFailure(PatrolClipFailureKind.timeout);
+      });
+      expect(
+        find.text(patrolKeepWords('영상을 받지 못했습니다(20초).\n'
+            '아래 주소를 브라우저 주소창에 직접 열어 보세요.')),
+        findsOneWidget,
+      );
+      expect(find.text(clipUrl), findsOneWidget);
+      expect(find.text('주소 복사'), findsOneWidget);
+    });
+
+    testWidgets('주소 복사를 누르면 주소가 클립보드에 가고 버튼이 바뀐다', (tester) async {
+      String? copied;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied = (call.arguments as Map)['text'] as String?;
+          }
+          return null;
+        },
+      );
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+      await openFailing(tester, (_, __) async {
+        throw const PatrolClipFailure(PatrolClipFailureKind.timeout);
+      });
+      await tester.tap(find.text('주소 복사'));
+      await tester.pumpAndSettle();
+      expect(copied, clipUrl);
+      expect(find.text('복사했습니다'), findsOneWidget);
+    });
+
+    testWidgets('브라우저 오류는 원인을 우리말로 적는다', (tester) async {
+      await openFailing(tester, (_, __) async {
+        throw const PatrolClipFailure(PatrolClipFailureKind.browser,
+            code: 'MEDIA_ERR_SRC_NOT_SUPPORTED');
+      });
+      expect(
+        find.text(patrolKeepWords('브라우저가 영상을 재생하지 못했습니다(오류: 지원하지 않는 형식).\n'
+            '아래 주소를 브라우저 주소창에 직접 열어 보세요.')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('openPatrolClip — 영상·사진 둘 다 없고 mp4 가 404 면 로봇에 없음', (tester) async {
+      Future<Object?> run(int status) async {
+        try {
+          await openPatrolClip(
+            'http://r:8000',
+            record,
+            loader: PatrolLogLoader(fetch: (_) async => null, probe: (_) async => status),
+          );
+        } catch (error) {
+          return error;
+        }
+        return null;
+      }
+
+      await tester.runAsync(() async {
+        final missing = await run(404) as PatrolClipFailure;
+        expect(missing.kind, PatrolClipFailureKind.missing);
+        // 시험 환경에는 재생기가 없어 브라우저 오류로 떨어진다 — mp4 가 있으면 그 까닭을 그대로 보인다.
+        final there = await run(200) as PatrolClipFailure;
+        expect(there.kind, PatrolClipFailureKind.browser);
+      });
+    });
+
+    testWidgets('로봇에 없는 영상은 주소와 복사 버튼 없이 문구만', (tester) async {
+      await openFailing(tester, (_, __) async {
+        throw const PatrolClipFailure(PatrolClipFailureKind.missing);
+      });
+      expect(
+        find.text(patrolKeepWords('로봇에 이 영상이 없습니다.\n지워졌거나 저장되지 않았습니다.')),
+        findsOneWidget,
+      );
+      expect(find.text(clipUrl), findsNothing);
+      expect(find.text('주소 복사'), findsNothing);
     });
 
     testWidgets('사진 넘기기 — 초당 5장으로 넘어가고 끝에서 멈춘다', (tester) async {
@@ -1910,6 +2005,30 @@ void main() {
         );
       });
     }
+
+    testWidgets('영상 창 — 못 받음 문구·주소·복사 버튼(2026-11-17)', (tester) async {
+      final record = PatrolRecord.fromJson({
+        'alarm_id': _intruder,
+        'kind': 'intruder',
+        'time': '2026-11-14T02:13:41',
+        'place': '화장실',
+        'clip_id': _intruder,
+        'clip_state': 'ready',
+        'clip_sec': 42.0,
+      })!;
+      await check(
+        tester,
+        '영상 창 실패',
+        (s) async {},
+        () => PatrolClipDialog(
+          record: record,
+          baseUrl: 'http://192.168.50.244:8000',
+          opener: (_, __) async {
+            throw const PatrolClipFailure(PatrolClipFailureKind.timeout);
+          },
+        ),
+      );
+    });
 
     testWidgets('영상 창', (tester) async {
       final record = PatrolRecord.fromJson({

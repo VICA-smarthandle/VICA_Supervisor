@@ -21,6 +21,9 @@ import '../models/patrol.dart';
 /// URL 하나를 받아 본문 문자열을 돌려줍니다. 없거나 실패하면 null.
 typedef PatrolFetch = Future<String?> Function(Uri uri);
 
+/// URL 하나의 HTTP 상태 코드만 봅니다(본문 없이 HEAD). 닿지 못하면 null.
+typedef PatrolProbe = Future<int?> Function(Uri uri);
+
 /// 사진 넘기기의 기본 속도(초당 장수). 서버가 값을 안 주거나 이상한 값을 줄 때 씁니다.
 const double kPatrolDefaultFps = 5;
 
@@ -36,9 +39,12 @@ class PatrolFrames {
 }
 
 class PatrolLogLoader {
-  const PatrolLogLoader({PatrolFetch? fetch}) : _fetch = fetch ?? _httpFetch;
+  const PatrolLogLoader({PatrolFetch? fetch, PatrolProbe? probe})
+      : _fetch = fetch ?? _httpFetch,
+        _probe = probe ?? _httpHead;
 
   final PatrolFetch _fetch;
+  final PatrolProbe _probe;
 
   static String _root(String baseUrl) =>
       '${baseUrl.replaceAll(RegExp(r'/$'), '')}/patrol';
@@ -91,6 +97,22 @@ class PatrolLogLoader {
     return PatrolFrames(frames: frames, fps: _fps(decoded['fps']));
   }
 
+  /// mp4 가 로봇에 있는가. 있으면 true, 404 면 false, 닿지 못했거나 모르는 답이면 null.
+  ///
+  /// 영상을 열지 못했을 때만 한 번 묻습니다 — '로봇에 없음'과 '못 받음'을 가르려는 것입니다.
+  Future<bool?> clipExists(String baseUrl, String clipId) async {
+    final int? status;
+    try {
+      status = await _probe(clipUri(baseUrl, clipId));
+    } catch (_) {
+      return null;
+    }
+    if (status == 200 || status == 206) {
+      return true;
+    }
+    return status == 404 ? false : null;
+  }
+
   /// 서버(map_http_server.clip_fps)와 같은 범위만 받습니다. 그 밖은 기본 속도.
   static double _fps(Object? raw) {
     if (raw is num && raw.isFinite && raw >= 0.5 && raw <= 30) {
@@ -114,6 +136,11 @@ class PatrolLogLoader {
     } catch (_) {
       return null;
     }
+  }
+
+  static Future<int?> _httpHead(Uri uri) async {
+    final response = await http.head(uri).timeout(const Duration(seconds: 8));
+    return response.statusCode;
   }
 
   static Future<String?> _httpFetch(Uri uri) async {

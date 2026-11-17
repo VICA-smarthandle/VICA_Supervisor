@@ -424,6 +424,38 @@ def parse_range(header: str, size: int):
     return start, min(end, size - 1)
 
 
+def browser_brief(user_agent: str) -> str:
+    """User-Agent 를 '브라우저 주버전 OS' 짧은 글로(2026-11-17, 경비 영상 재생 실패 원인 조사용).
+
+    예: 'Chrome 142 Windows', 'Safari 17 iOS', 'Edge 131 Windows'. 모르면 '-'.
+    """
+    ua = user_agent or ""
+    if not ua:
+        return "-"
+    browser = "-"
+    for name, key in (("Edge", "Edg/"), ("Firefox", "Firefox/"), ("Chrome", "Chrome/"),
+                      ("Safari", "Version/")):
+        match = re.search(re.escape(key) + r"(\d+)", ua)
+        if match:
+            browser = f"{name} {match.group(1)}"
+            break
+    if browser == "-" and "Dart/" in ua:
+        browser = "Dart"                       # 안드로이드 앱(http 패키지)
+    if "Android" in ua:
+        system = "Android"
+    elif "iPhone" in ua or "iPad" in ua:
+        system = "iOS"
+    elif "Windows" in ua:
+        system = "Windows"
+    elif "Mac OS X" in ua:
+        system = "macOS"
+    elif "Linux" in ua:
+        system = "Linux"
+    else:
+        system = ""
+    return f"{browser} {system}".strip() or "-"
+
+
 class MapRequestHandler(SimpleHTTPRequestHandler):
     """지도 파일과 경비 기록만, 출처 허락 헤더를 붙여 내보냅니다."""
 
@@ -444,6 +476,17 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
         # 파일은 304(본문 없음)로 끝나 지도 그림을 다시 받지는 않습니다.
         self.send_header("Cache-Control", "no-cache")
         super().end_headers()
+
+    def log_request(self, code="-", size="-") -> None:
+        # /patrol/ 요청에는 브라우저와 요청 범위를 붙인다(2026-11-17). 영상 재생이 실패했을 때
+        # 어느 기기·브라우저가 무엇을 요청했는지(또는 안 했는지) 이 줄로 가린다.
+        if hasattr(code, "value"):
+            code = code.value
+        extra = ""
+        if self.path.startswith(PATROL_PREFIX):
+            extra = (f" | {browser_brief(self.headers.get('User-Agent', ''))}"
+                     f" | Range {self.headers.get('Range') or '-'}")
+        self.log_message('"%s" %s %s%s', self.requestline, str(code), str(size), extra)
 
     def send_head(self):
         # 질의문자열(?v=1)이 붙어 와도 경로만 봅니다.

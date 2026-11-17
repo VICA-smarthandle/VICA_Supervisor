@@ -9,6 +9,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 
@@ -31,13 +32,15 @@ abstract class PatrolClipPlayer implements Listenable {
   void dispose();
 }
 
-/// 영상을 여는 함수. 못 열면 null. 시험은 가짜 재생기를 끼웁니다.
+/// 영상을 여는 함수. 못 열면 [PatrolClipFailure] 를 던집니다(null 은 까닭 모름). 시험은 가짜 재생기를 끼웁니다.
 typedef PatrolClipOpener = Future<PatrolClipPlayer?> Function(
   String baseUrl,
   PatrolRecord record,
 );
 
-/// mp4 를 먼저 열고, 안 되면 사진 넘기기로 엽니다.
+/// mp4 를 먼저 열고, 안 되면 사진 넘기기로 엽니다. 둘 다 안 되면 까닭을 던집니다.
+///
+/// 까닭(2026-11-17): 20초 안에 못 받음 / 브라우저 오류(MEDIA_ERR_*) / 로봇에 없음(mp4 404).
 Future<PatrolClipPlayer?> openPatrolClip(
   String baseUrl,
   PatrolRecord record, {
@@ -46,18 +49,29 @@ Future<PatrolClipPlayer?> openPatrolClip(
   final controller = VideoPlayerController.networkUrl(
     PatrolLogLoader.clipUri(baseUrl, record.clipId),
   );
+  PatrolClipFailure failure;
   try {
     // 서버가 이 요청에서 mp4 를 만들 수도 있습니다(75장에 약 0.7초).
-    await controller.initialize().timeout(const Duration(seconds: 20));
+    await controller.initialize().timeout(kPatrolClipOpenTimeout);
     return _VideoClipPlayer(controller);
+  } on TimeoutException {
+    failure = const PatrolClipFailure(PatrolClipFailureKind.timeout);
+  } on PlatformException catch (error) {
+    failure = PatrolClipFailure(PatrolClipFailureKind.browser, code: error.code);
   } catch (_) {
-    // mp4 가 없거나(변환 실패·저장 중) 이 기기가 재생을 못 합니다.
-    // 만들다 만 재생기는 정리가 끝나지 않을 수 있어 기다리지 않습니다.
-    unawaited(controller.dispose().catchError((Object _) {}));
+    failure = const PatrolClipFailure(PatrolClipFailureKind.browser);
   }
+  // 만들다 만 재생기는 정리가 끝나지 않을 수 있어 기다리지 않습니다.
+  unawaited(controller.dispose().catchError((Object _) {}));
   final set = await loader.loadFrames(baseUrl, record.clipId);
-  // 서버가 알려 준 초당 장수로 넘깁니다 — 영상 길이(clip_sec)와 같은 길이로 보입니다.
-  return set == null ? null : PatrolFramesPlayer(set.frames, fps: set.fps);
+  if (set != null) {
+    // 서버가 알려 준 초당 장수로 넘깁니다 — 영상 길이(clip_sec)와 같은 길이로 보입니다.
+    return PatrolFramesPlayer(set.frames, fps: set.fps);
+  }
+  if (await loader.clipExists(baseUrl, record.clipId) == false) {
+    throw const PatrolClipFailure(PatrolClipFailureKind.missing);
+  }
+  throw failure;
 }
 
 class _VideoClipPlayer implements PatrolClipPlayer {
@@ -271,6 +285,7 @@ class PatrolClipDialog extends StatefulWidget {
 
 class _PatrolClipDialogState extends State<PatrolClipDialog> {
   PatrolClipPlayer? _player;
+  PatrolClipFailure? _failure;
   bool _loading = true;
 
   @override
@@ -281,10 +296,17 @@ class _PatrolClipDialogState extends State<PatrolClipDialog> {
 
   Future<void> _open() async {
     PatrolClipPlayer? player;
+    PatrolClipFailure? failure;
     try {
       player = await widget.opener(widget.baseUrl, widget.record);
+    } on PatrolClipFailure catch (error) {
+      failure = error;
     } catch (_) {
       player = null;
+    }
+    // 까닭 없이 못 열면(시험용 열기 등) 브라우저 오류 '알 수 없는 오류'로 보인다.
+    if (player == null) {
+      failure ??= const PatrolClipFailure(PatrolClipFailureKind.browser);
     }
     if (!mounted) {
       player?.dispose();
@@ -293,6 +315,7 @@ class _PatrolClipDialogState extends State<PatrolClipDialog> {
     player?.addListener(_onTick);
     setState(() {
       _player = player;
+      _failure = failure;
       _loading = false;
     });
     // 열리면 바로 봅니다(목업의 가운데 버튼이 '멈춤'입니다).
@@ -351,7 +374,14 @@ class _PatrolClipDialogState extends State<PatrolClipDialog> {
                       child: CircularProgressIndicator(color: Colors.white),
                     )
                   : player == null
-                      ? const _MediaMessage('영상을 불러오지 못했습니다.')
+                      ? _ClipFailureView(
+                          failure: _failure ??
+                              const PatrolClipFailure(PatrolClipFailureKind.browser),
+                          url: PatrolLogLoader.clipUri(
+                            widget.baseUrl,
+                            record.clipId,
+                          ).toString(),
+                        )
                       : player.buildView(context),
             ),
           ),
@@ -494,6 +524,73 @@ class _MediaFrame extends StatelessWidget {
               ...children,
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 영상 창 검은 화면의 실패 문구 + 주소 + 주소 복사(2026-11-17).
+///
+/// 문구는 띄어쓰기 단위로만 줄을 넘긴다(patrolKeepWords). 주소는 아무 데서나 넘어가도 된다.
+/// 글자를 키우면 검은 화면(4:3)보다 길어질 수 있어 그 안에서 굴린다.
+class _ClipFailureView extends StatefulWidget {
+  const _ClipFailureView({required this.failure, required this.url});
+
+  final PatrolClipFailure failure;
+  final String url;
+
+  @override
+  State<_ClipFailureView> createState() => _ClipFailureViewState();
+}
+
+class _ClipFailureViewState extends State<_ClipFailureView> {
+  bool _copied = false;
+
+  Future<void> _copy() async {
+    try {
+      await Clipboard.setData(ClipboardData(text: widget.url));
+    } catch (_) {
+      return; // 복사를 막는 브라우저 — 주소 글자는 직접 골라 복사할 수 있다.
+    }
+    if (mounted) {
+      setState(() => _copied = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const style = TextStyle(color: PatrolColors.videoLabel, fontSize: 13);
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              patrolKeepWords(patrolClipFailureText(widget.failure)),
+              textAlign: TextAlign.center,
+              style: style,
+            ),
+            if (widget.failure.showsUrl) ...[
+              const SizedBox(height: 10),
+              SelectableText(
+                widget.url,
+                textAlign: TextAlign.center,
+                style: style.copyWith(fontSize: 12),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () => unawaited(_copy()),
+                icon: Icon(_copied ? Icons.check : Icons.copy, size: 16),
+                label: Text(_copied ? '복사했습니다' : '주소 복사'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: PatrolColors.videoLabel,
+                  side: const BorderSide(color: PatrolColors.videoLabel),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );

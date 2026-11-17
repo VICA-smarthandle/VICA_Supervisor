@@ -548,3 +548,22 @@ def test_변환은_장면_기록의_초당_장수를_쓴다(tmp_path):
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# ---- 요청 기록에 브라우저·범위(2026-11-17) ----------------------------------
+
+
+def test_browser_brief_names_the_browser_and_system():
+    chrome = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36")
+    edge = chrome + " Edg/131.0.0.0"
+    safari = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 "
+              "(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1")
+    firefox = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
+    assert mhs.browser_brief(chrome) == "Chrome 142 Windows"
+    assert mhs.browser_brief(edge) == "Edge 131 Windows"
+    assert mhs.browser_brief(safari) == "Safari 17 iOS"
+    assert mhs.browser_brief(firefox) == "Firefox 128 Linux"
+    assert mhs.browser_brief("Dart/3.5 (dart:io)") == "Dart"
+    assert mhs.browser_brief("") == "-"
+
