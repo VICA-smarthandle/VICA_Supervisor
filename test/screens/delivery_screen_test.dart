@@ -117,6 +117,48 @@ void main() {
     expect(startButton(tester).onPressed, isNotNull);
   });
 
+  // 받는 분께 메시지(2026-11-17 사용자 승인, 목업 ①②④). 문자 전체 45자 안.
+  testWidgets('장소를 고르면 메시지 칸과 도착 문자 미리보기가 뜬다', (tester) async {
+    await pump(tester, locations: [_office]);
+    expect(find.text('받는 분께 메시지 (선택)'), findsNothing, reason: '장소를 고르기 전');
+    await tester.tap(find.textContaining('305호'));
+    await tester.pump();
+    expect(find.text('받는 분께 메시지 (선택)'), findsOneWidget);
+    expect(find.text(vicaKeepWords(deliveryArrivalMessage('305호'))), findsOneWidget,
+        reason: '메시지가 없으면 예전 문구');
+    await tester.enterText(find.byType(TextField), '서류 두 장');
+    await tester.pump();
+    expect(find.text('6/31'), findsOneWidget, reason: '305호면 45 - "[305호] 비카 도착: " = 31');
+    expect(find.text(vicaKeepWords('[305호] 비카 도착: 서류 두 장')), findsOneWidget);
+  });
+
+  testWidgets('출발 확인 창에 메시지가 보이고 한도를 넘겨 쓸 수 없다', (tester) async {
+    await pump(tester, locations: [_office]);
+    await tester.tap(find.textContaining('305호'));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'ㄱ' * 50);
+    await tester.pump();
+    expect(find.text('31/31'), findsOneWidget);
+    await tester.tap(find.text('물건을 실었습니다'));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, '배송 출발'));
+    await tester.pumpAndSettle();
+    expect(find.text('305호(으)로 배송 출발'), findsOneWidget);
+    expect(find.text('메시지'), findsOneWidget);
+    expect(find.text('ㄱ' * 31), findsWidgets);
+    await tester.tap(find.text('취소'));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('배송 중 카드에 남긴 메시지가 보인다', (tester) async {
+    final supervisor = await pump(tester, locations: [_office]);
+    supervisor.setDeliveryForTest(
+      DeliveryJob(destination: _office, startedAt: DateTime(2026), note: '서류 두 장입니다'),
+    );
+    await tester.pump();
+    expect(find.text(vicaKeepWords('메시지 · 서류 두 장입니다')), findsOneWidget);
+  });
+
   testWidgets('배송 중에는 새 출발이 잠기고 상태 카드가 뜬다', (tester) async {
     final supervisor = await pump(tester, locations: [_office]);
     supervisor.setDeliveryForTest(

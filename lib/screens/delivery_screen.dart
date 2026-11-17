@@ -7,6 +7,8 @@
 //      물건이 있는지 모른다. 이 확인은 사람의 선언이다.
 //   3. 도착하면 문자를 보내고 결과를 팝업으로 알린다. 팝업은 이 화면이 아니라
 //      앱 셸이 어느 화면에서든 띄운다(widgets/delivery_notice_dialog.dart).
+//   4. 받는 분께 메시지를 남길 수 있다(2026-11-17 사용자 승인, 목업
+//      https://claude.ai/artifact/VLLp435ov8Mo6BKQ6trZf8). 도착 문자에 실려 45자 안으로 나간다.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -36,6 +38,15 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
   // 관리자는 왜 출발 버튼이 잠겼는지 모릅니다.
   String? _selectedId;
   bool _loaded = false;
+
+  /// 받는 분께 메시지. 출발하면 비웁니다(다음 배송에 남지 않게).
+  final TextEditingController _note = TextEditingController();
+
+  @override
+  void dispose() {
+    _note.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -84,8 +95,10 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
             selectedLocationId: _selectedId,
             onSelectLocation: busy
                 ? null
-                : (location) =>
-                    setState(() => _selectedId = location.locationId),
+                : (location) => setState(() {
+                      _selectedId = location.locationId;
+                      _fitNote(location);
+                    }),
           ),
           const SizedBox(height: 20),
           if (job != null) ...[
@@ -129,11 +142,9 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
             ],
           ),
           const SizedBox(height: 6),
-          Text(
-            vicaKeepWords(vicaBreakAtSentences(
-              '연락처가 저장된 장소만 보입니다. 배송을 원하시는 장소는 연락처를 넣어주세요.',
-            )),
-            style: const TextStyle(color: VicaColors.muted, fontSize: 13),
+          const Text(
+            '연락처 있는 장소만',
+            style: TextStyle(color: VicaColors.muted, fontSize: 13),
           ),
           const SizedBox(height: 14),
           if (candidates.isEmpty)
@@ -157,11 +168,26 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
                   ),
                   onSelected: busy
                       ? null
-                      : (_) =>
-                          setState(() => _selectedId = location.locationId),
+                      : (_) => setState(() {
+                            _selectedId = location.locationId;
+                            _fitNote(location);
+                          }),
                 );
               }).toList(),
             ),
+          if (selected != null) ...[
+            const SizedBox(height: 16),
+            _NoteField(
+              controller: _note,
+              limit: deliveryNoteLimit(selected.name),
+              enabled: !busy,
+              onChanged: () => setState(() {}),
+            ),
+            const SizedBox(height: 10),
+            _SmsPreview(
+              text: deliveryArrivalMessage(selected.name, note: _note.text),
+            ),
+          ],
           const SizedBox(height: 14),
           // 로봇은 물건이 실렸는지 모릅니다(적재 센서 없음). 그래서 사람이
           // 선언합니다. 이 체크 없이 출발하면 빈 손으로 가서 "물건 왔습니다"
@@ -195,29 +221,43 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
     LocationPoint location,
   ) async {
     final settings = context.read<SettingsProvider>().settings;
+    final note = deliveryNoteClean(_note.text);
     final confirmed = await showVicaConfirm(
       context,
       icon: Icons.play_arrow_outlined,
-      title: '배송 출발',
-      body: '${location.name}(으)로 물건을 보냅니다. '
-          '도착하면 ${maskContactPhone(location.contactPhone)} 로 문자를 보냅니다.\n\n'
-          '로봇 주변에 사람과 장애물이 없는지 확인하세요.',
+      title: '${location.name}(으)로 배송 출발',
+      rows: [
+        VicaDialogRow(label: '문자', value: maskContactPhone(location.contactPhone)),
+        if (note.isNotEmpty) VicaDialogRow(label: '메시지', value: note),
+      ],
+      body: '로봇 주변 사람·장애물 확인',
       confirmLabel: '출발',
     );
     if (!confirmed || !context.mounted) {
       return;
     }
-    final message = await supervisor.startDelivery(settings, location);
+    final message = await supervisor.startDelivery(settings, location, note: note);
     if (!context.mounted) {
       return;
     }
     if (supervisor.delivery?.isActive == true) {
       // 다음 배송을 위해 적재 확인을 되돌립니다. 지난번 체크가 남아 있으면
-      // 실지도 않은 물건을 실었다고 출발하게 됩니다.
-      setState(() => _loaded = false);
+      // 실지도 않은 물건을 실었다고 출발하게 됩니다. 메시지도 비웁니다.
+      setState(() {
+        _loaded = false;
+        _note.clear();
+      });
     }
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  // 다른 장소를 고르면 메시지 한도가 바뀝니다(장소 이름 길이). 넘친 끝은 자릅니다.
+  void _fitNote(LocationPoint location) {
+    final limit = deliveryNoteLimit(location.name);
+    if (_note.text.length > limit) {
+      _note.text = _note.text.substring(0, limit);
+    }
   }
 
   static LocationPoint? _find(List<LocationPoint> locations, String? id) {
@@ -341,6 +381,14 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
             '발송 수단 ${supervisor.deliveryNotifierLabel}',
             style: const TextStyle(color: VicaColors.muted, fontSize: 13),
           ),
+          if (job.note.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              vicaKeepWords('메시지 · ${job.note}'),
+              style: const TextStyle(
+                  color: VicaColors.text, fontSize: 13, fontWeight: FontWeight.w700),
+            ),
+          ],
           if (job.phase == DeliveryPhase.aborted) ...[
             const SizedBox(height: 6),
             Text(
@@ -480,6 +528,73 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
       onPressed: widget.supervisor.clearDelivery,
       icon: const Icon(Icons.check),
       label: const Text('배송 완료 · 지우기'),
+    );
+  }
+}
+
+/// 받는 분께 메시지 칸. 한도는 장소 이름 길이에 따라 다릅니다([deliveryNoteLimit], 410호면 31).
+class _NoteField extends StatelessWidget {
+  const _NoteField({
+    required this.controller,
+    required this.limit,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final int limit;
+  final bool enabled;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      enabled: enabled,
+      maxLength: limit,
+      minLines: 1,
+      maxLines: 2,
+      // 문자는 한 줄로 나갑니다. 줄바꿈은 받지 않습니다.
+      keyboardType: TextInputType.text,
+      textInputAction: TextInputAction.done,
+      onChanged: (_) => onChanged(),
+      decoration: const InputDecoration(
+        labelText: '받는 분께 메시지 (선택)',
+        hintText: '예: 서류 두 장입니다',
+      ),
+    );
+  }
+}
+
+/// 도착 문자 미리보기. 실제로 나갈 본문 그대로입니다.
+class _SmsPreview extends StatelessWidget {
+  const _SmsPreview({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: VicaColors.surfaceSunken,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '도착 문자 미리보기',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: VicaColors.muted),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            vicaKeepWords(text),
+            style: const TextStyle(fontSize: 13, height: 1.5, color: VicaColors.text),
+          ),
+        ],
+      ),
     );
   }
 }

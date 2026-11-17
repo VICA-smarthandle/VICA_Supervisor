@@ -134,11 +134,13 @@ class RosBridgeClient {
   // publish op 자체는 타입을 받지 않습니다. 그래프에 이미 같은 토픽의 발행자가
   // 있으면 rosbridge 가 타입을 알아내지만, 매핑 중에는 /cmd_vel_req 를 아무도
   // 발행하지 않으므로(Nav2 가 꺼져 있다) 미리 advertise 해야 합니다.
-  void advertise({required String topic, required String type}) {
+  /// [latch] 면 rosbridge 가 마지막 값을 늦게 붙은 구독자에게도 줍니다(TRANSIENT_LOCAL).
+  void advertise({required String topic, required String type, bool latch = false}) {
     _send({
       'op': 'advertise',
       'topic': topic,
       'type': type,
+      if (latch) 'latch': true,
     });
   }
 

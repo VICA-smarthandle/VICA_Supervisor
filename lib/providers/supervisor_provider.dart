@@ -540,6 +540,11 @@ class SupervisorProvider extends ChangeNotifier {
         topic: settings.deliverySmsResultTopic,
         handler: _handleDeliverySmsResult,
       )
+      // 다른 화면이 배송을 보내며 남긴 받는 분께 메시지(2026-11-17). 대신 보낼 때 씁니다.
+      ..subscribe(
+        topic: settings.deliveryNoteTopic,
+        handler: _handleDeliveryNote,
+      )
       // 모드 노드(부팅 자동 기동, 2026-11-16). 없으면 아무것도 안 와서 예전처럼 동작합니다.
       ..subscribe(
         topic: kModeStatusTopic,
@@ -1602,10 +1607,12 @@ class SupervisorProvider extends ChangeNotifier {
   ///
   /// 거부된 요청을 기억해 두면 다음에 누가 그 장소로 안내 주행을 해서 도착했을
   /// 때 엉뚱하게 배송 문자가 나갑니다.
+  /// [note] 는 받는 분께 남길 메시지입니다(2026-11-17). 도착 문자에 실려 45자 안으로 나갑니다.
   Future<String> startDelivery(
     AppSettings settings,
-    LocationPoint location,
-  ) async {
+    LocationPoint location, {
+    String note = '',
+  }) async {
     if (!location.canReceiveDelivery) {
       return '${location.name}에는 도착 문자 연락처가 없습니다. 지도 설정에서 넣어 주세요.';
     }
@@ -1625,9 +1632,17 @@ class SupervisorProvider extends ChangeNotifier {
       return message;
     }
     _cancelDeliveryReturnTimer();
-    _setDelivery(DeliveryJob(destination: location, startedAt: DateTime.now()));
+    final cleanNote = deliveryNoteClean(note);
+    _setDelivery(DeliveryJob(
+      destination: location,
+      startedAt: DateTime.now(),
+      note: cleanNote,
+    ));
+    // 비어 있어도 냅니다 — 대신 보내는 폰이 같은 장소의 지난 메시지를 다시 쓰지 않게.
+    _publishDeliveryNote(settings, location, cleanNote);
     _pendingDeliveryNotice = null;
-    _addLog(LogFilter.delivery, '${location.name} 배송 출발');
+    _addLog(LogFilter.delivery,
+        '${location.name} 배송 출발${cleanNote.isEmpty ? '' : ' · 메시지 ${cleanNote.length}자'}');
     notifyListeners();
     return '${location.name}(으)로 배송을 시작합니다.';
   }
@@ -1828,7 +1843,7 @@ class SupervisorProvider extends ChangeNotifier {
     DeliveryJob job, {
     GoalEvent? arrival,
   }) async {
-    final text = deliveryArrivalMessage(job.destination.name);
+    final text = deliveryArrivalMessage(job.destination.name, note: job.note);
     final key = arrival == null ? null : _arrivalKey(arrival);
     DeliveryNotifyResult result;
     try {
@@ -1983,7 +1998,10 @@ class SupervisorProvider extends ChangeNotifier {
         startedAt: DateTime.now(),
         phase: DeliveryPhase.arrived,
       ),
-      text: deliveryArrivalMessage(location.name),
+      text: deliveryArrivalMessage(
+        location.name,
+        note: _peekDeliveryNote(location.mapId, location.locationId),
+      ),
       result: result,
     );
     notifyListeners();
@@ -2022,7 +2040,11 @@ class SupervisorProvider extends ChangeNotifier {
       try {
         result = await _deliveryNotifier.send(
           phone: location.contactPhone,
-          text: deliveryArrivalMessage(location.name),
+          // 보낸 화면이 남긴 메시지(있으면). 한 번 쓰면 지웁니다 — 다음 배송에 섞이지 않게.
+          text: deliveryArrivalMessage(
+            location.name,
+            note: _takeDeliveryNote(event.mapId, event.locationId),
+          ),
         );
       } catch (error) {
         result = DeliveryNotifyResult(sent: false, detail: '발송 오류: $error');
@@ -2037,6 +2059,68 @@ class SupervisorProvider extends ChangeNotifier {
     );
     _publishRelayedSmsResult(event, result);
     notifyListeners();
+  }
+
+  // ---- 받는 분께 메시지(2026-11-17 사용자 승인) --------------------------------------
+  //
+  // 배송을 보낸 화면이 출발 때 래치 토픽으로 메시지를 냅니다. 문자를 대신 보내는 관리자 유심 폰은
+  // 지도·장소별로 기억했다가 그 장소의 도착 문자에 넣고 지웁니다. 로봇(미션)은 메시지를 모릅니다.
+
+  /// '지도|장소' → (메시지, 받은 시각).
+  final Map<String, (String, DateTime)> _deliveryNotes = {};
+
+  /// 이보다 오래된 메시지는 쓰지 않습니다(배송 한 건은 길어야 수십 분).
+  static const Duration _deliveryNoteTtl = Duration(hours: 3);
+
+  void _publishDeliveryNote(AppSettings settings, LocationPoint location, String note) {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return;
+    }
+    client
+      ..advertise(topic: settings.deliveryNoteTopic, type: 'std_msgs/String', latch: true)
+      ..publishJsonString(
+        topic: settings.deliveryNoteTopic,
+        payload: {
+          'map_id': location.mapId,
+          'location_id': location.locationId,
+          'note': note,
+          'sent_at': DateTime.now().toIso8601String(),
+        },
+      );
+  }
+
+  void _handleDeliveryNote(Map<String, Object?> message) {
+    final decoded = _decodeJsonString(message);
+    if (decoded == null) {
+      return;
+    }
+    final mapId = '${decoded['map_id'] ?? ''}';
+    final locationId = '${decoded['location_id'] ?? ''}';
+    if (mapId.isEmpty || locationId.isEmpty) {
+      return;
+    }
+    _deliveryNotes['$mapId|$locationId'] = (deliveryNoteClean('${decoded['note'] ?? ''}'), DateTime.now());
+    while (_deliveryNotes.length > 20) {
+      _deliveryNotes.remove(_deliveryNotes.keys.first);
+    }
+  }
+
+  @visibleForTesting
+  void handleDeliveryNoteForTest(Map<String, Object?> message) => _handleDeliveryNote(message);
+
+  String _peekDeliveryNote(String mapId, String locationId) {
+    final entry = _deliveryNotes['$mapId|$locationId'];
+    if (entry == null || DateTime.now().difference(entry.$2) > _deliveryNoteTtl) {
+      return '';
+    }
+    return entry.$1;
+  }
+
+  String _takeDeliveryNote(String mapId, String locationId) {
+    final note = _peekDeliveryNote(mapId, locationId);
+    _deliveryNotes.remove('$mapId|$locationId');
+    return note;
   }
 
   void _publishRelayedSmsResult(GoalEvent event, DeliveryNotifyResult result) {

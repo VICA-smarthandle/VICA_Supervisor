@@ -79,6 +79,7 @@ class DeliveryJob {
     this.returnAt,
     this.returnNote = '',
     this.abortReason = '',
+    this.note = '',
   });
 
   /// 어디로 가는가. 연락처는 이 안에 있습니다([LocationPoint.contactPhone]).
@@ -108,6 +109,10 @@ class DeliveryJob {
   final String returnNote;
 
   final String abortReason;
+
+  /// 보내는 분이 받는 분께 남긴 메시지(2026-11-17 사용자 승인). 비면 도착 문자는 예전 문구입니다.
+  /// 출발 순간 값을 들고 있어, 앱을 껐다 켜거나 '도착 처리 · 문자'를 나중에 눌러도 같은 말이 나갑니다.
+  final String note;
 
   /// 목적지로 가는 중인가.
   bool get isActive => phase == DeliveryPhase.driving;
@@ -139,6 +144,7 @@ class DeliveryJob {
       'return_at': returnAt?.toIso8601String(),
       'return_note': returnNote,
       'abort_reason': abortReason,
+      'note': note,
     };
   }
 
@@ -166,6 +172,7 @@ class DeliveryJob {
       returnAt: time(json['return_at']),
       returnNote: json['return_note'] as String? ?? '',
       abortReason: json['abort_reason'] as String? ?? '',
+      note: json['note'] as String? ?? '',
     );
   }
 
@@ -187,24 +194,83 @@ class DeliveryJob {
       returnAt: clearReturnAt ? null : (returnAt ?? this.returnAt),
       returnNote: returnNote ?? this.returnNote,
       abortReason: abortReason ?? this.abortReason,
+      note: note,
     );
   }
 }
 
-/// 도착 문자 본문.
+/// 도착 문자 한 통에 들어가는 글자 수.
 ///
 /// 한글 문자 한 통은 90바이트, 한 글자에 2바이트라 **45자**가 한계입니다. 넘으면
 /// 여러 조각으로 나뉘어 나가고 요금제에 따라 여러 건으로 계산될 수 있습니다.
-/// 그래서 장소 이름은 45자 안에 들어갈 때만 붙입니다.
-String deliveryArrivalMessage(String destinationName) {
-  const base = '비카가 물건을 가지고 문 앞에 와 있습니다. 확인해주세요';
-  const limit = 45;
+/// 메시지를 넣어도 이 안에서 보냅니다(2026-11-17 사용자 결정).
+const int kDeliverySmsLimit = 45;
+
+/// 메시지가 있을 때 본문 앞부분. '[410호] 비카 도착: 서류 두 장입니다.'
+const String kDeliveryNotePrefix = '비카 도착: ';
+
+/// 장소 이름을 붙여도 메시지 칸이 이만큼은 남아야 이름을 붙입니다. 모자라면 이름을 빼서 자리를 늘립니다.
+const int _kDeliveryNoteMinWithName = 20;
+
+String _namePrefix(String name) => '[$name] $kDeliveryNotePrefix';
+
+/// 메시지 칸에 쓸 수 있는 글자 수(UTF-16 단위, 한글 한 자 = 1). 410호면 31, 이름이 길면 38.
+int deliveryNoteLimit(String destinationName) {
   final name = destinationName.trim();
-  if (name.isEmpty) {
-    return base;
+  if (name.isNotEmpty) {
+    final withName = kDeliverySmsLimit - _namePrefix(name).length;
+    if (withName >= _kDeliveryNoteMinWithName) {
+      return withName;
+    }
   }
-  final withName = '[$name] $base';
-  return withName.length <= limit ? withName : base;
+  return kDeliverySmsLimit - kDeliveryNotePrefix.length;
+}
+
+/// 메시지를 문자 한 줄로 다듬습니다(줄바꿈·연속 공백 → 공백 하나).
+String deliveryNoteClean(String note) => note.trim().replaceAll(RegExp(r'\s+'), ' ');
+
+/// 도착 문자 본문.
+///
+/// 메시지가 없으면 '[410호] 비카가 물건을 가지고 문 앞에 와 있습니다. 확인해주세요'(장소 이름은 45자
+/// 안에 들어갈 때만). 메시지가 있으면 '[410호] 비카 도착: {메시지}' — 45자를 넘으면 이름을 빼고,
+/// 그래도 넘으면 메시지 끝을 자릅니다(앱 칸은 [deliveryNoteLimit] 로 막지만 대신 보내는 폰이 받는 값은
+/// 다른 화면이 쓴 것이라 한 번 더 지킵니다).
+String deliveryArrivalMessage(String destinationName, {String note = ''}) {
+  const base = '비카가 물건을 가지고 문 앞에 와 있습니다. 확인해주세요';
+  final name = destinationName.trim();
+  final text = deliveryNoteClean(note);
+  if (text.isEmpty) {
+    if (name.isEmpty) {
+      return base;
+    }
+    final withName = '[$name] $base';
+    return withName.length <= kDeliverySmsLimit ? withName : base;
+  }
+  if (name.isNotEmpty) {
+    final withName = '${_namePrefix(name)}$text';
+    if (withName.length <= kDeliverySmsLimit) {
+      return withName;
+    }
+  }
+  return _cutUnits('$kDeliveryNotePrefix$text', kDeliverySmsLimit);
+}
+
+// 글자(룬) 경계에서 UTF-16 길이 [limit] 안으로 자릅니다 — 이모지 반쪽이 남지 않게.
+String _cutUnits(String text, int limit) {
+  if (text.length <= limit) {
+    return text;
+  }
+  final out = StringBuffer();
+  var units = 0;
+  for (final rune in text.runes) {
+    final width = rune > 0xFFFF ? 2 : 1;
+    if (units + width > limit) {
+      break;
+    }
+    out.writeCharCode(rune);
+    units += width;
+  }
+  return out.toString();
 }
 
 /// 도착 문자 발송 결과를 화면에 한 번 보여주기 위한 묶음.
