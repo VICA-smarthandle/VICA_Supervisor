@@ -211,7 +211,7 @@ void main() {
       await chooseSubmode(tester, '경비');
 
       expect(supervisor.calls, ['drive_start']);
-      expect(find.text('주행 준비'), findsOneWidget);
+      expect(find.text('주행 시작'), findsOneWidget);
       expect(find.text('경비 모드'), findsOneWidget);
       expect(modeProvider.mode, isNull, reason: '다 켜지기 전에는 주행 화면에 들어가지 않는다');
     });
@@ -226,7 +226,7 @@ void main() {
 
       expect(find.text('주행을 켜지 못했습니다'), findsOneWidget);
       expect(find.textContaining(vicaKeepWords('지도 그리기 중입니다')), findsOneWidget);
-      expect(find.text('주행 준비'), findsNothing);
+      expect(find.text('주행 시작'), findsNothing);
     });
 
     testWidgets('다 켜져 있으면 고른 하위 모드로 바로 들어간다', (tester) async {

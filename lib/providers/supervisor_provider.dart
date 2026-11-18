@@ -713,7 +713,7 @@ class SupervisorProvider extends ChangeNotifier {
 
   /// Nav2 만 다시 띄우기.
   Future<(bool, String)> nav2Restart() =>
-      _callModeService(kNav2RestartService, 'Nav2 다시 띄우기');
+      _callModeService(kNav2RestartService, 'Nav2 다시 시작');
 
   /// ⑮ 감지기만 켜고 끄기(잠시 끄기). 주행을 다시 켜면 켜진 상태로 돌아갑니다.
   Future<(bool, String)> setDetector(bool on) => on

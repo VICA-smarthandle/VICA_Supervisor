@@ -157,7 +157,7 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
             ? '지도로 바꾸기'
             : widget.stopOnly
                 ? '주행 끄기'
-                : (widget.mapChange != null ? '지도 바꾸는 중' : '주행 준비')),
+                : (widget.mapChange != null ? '지도 바꾸는 중' : '주행 시작')),
       ),
       body: SafeArea(
         child: Padding(
@@ -189,8 +189,8 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
         _Banner(
           tone: _Tone.info,
           icon: Icons.help_outline,
-          title: '로봇에서 주행 상태를 받지 못했습니다',
-          body: '연결을 확인해 주세요. 상태가 오면 이어서 보여 드립니다.',
+          title: '주행 상태를 받지 못했습니다',
+          body: '연결을 확인해 주세요.',
         ),
       ];
     }
@@ -200,9 +200,8 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
           _Banner(
             tone: _Tone.warning,
             icon: Icons.schedule,
-            title: '끄기 예약됨',
-            body: 'Nav2 가 다 뜬 뒤 끕니다. 늦어도 ${status.stopInSec}초 안에 꺼집니다. '
-                '뜨는 도중에 끄면 노드가 강제 종료되기 쉽습니다.',
+            title: '끄기 예약',
+            body: '준비가 끝나면 바로 끕니다(늦어도 ${status.stopInSec}초).',
           ),
           const SizedBox(height: 14),
           _StepsCard(title: '주행 준비 중', elapsed: _elapsed, steps: _steps(status, pendingStop: true)),
@@ -213,13 +212,13 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
           title: '주행 끄는 중',
           elapsed: _elapsed,
           steps: [
-            const _Step('주행 노드 끄기', _StepState.current, 'Nav2·미션·손잡이·감시'),
+            const _Step('주행 끄기', _StepState.current, 'Nav2·미션·스마트핸들·음성'),
             if (widget.thenMapping)
               const _Step('지도 그리기로', _StepState.todo, '다 꺼지면 넘어갑니다'),
             if (widget.stopOnly)
               const _Step('모드 선택으로', _StepState.todo, '다 꺼지면 돌아갑니다'),
           ],
-          note: status.detail.isEmpty ? '보통 5~15초 걸립니다.' : status.detail,
+          note: status.detail.isEmpty ? '5~15초 걸립니다.' : status.detail,
         ),
       ];
     }
@@ -228,7 +227,7 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
         _Banner(
           tone: _Tone.danger,
           icon: Icons.error_outline,
-          title: _nav2Failed(status) ? 'Nav2 를 띄우지 못했습니다' : '주행 노드에 문제가 있습니다',
+          title: _nav2Failed(status) ? 'Nav2 시작 실패' : '주행 기능 오류',
           body: status.detail,
         ),
         const SizedBox(height: 14),
@@ -236,12 +235,12 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
         _HintCard(
           lines: _nav2Failed(status)
               ? const [
-                  '로봇이 멈춰 있는지 확인하고 Nav2 다시 띄우기를 누릅니다.',
-                  '그래도 안 되면 주행을 끄고 로봇을 재부팅합니다.',
+                  "'Nav2 다시 시작'을 누르세요.",
+                  '안 되면 주행을 끄고 재부팅하세요.',
                 ]
               : const [
-                  '주행을 끈 뒤 다시 켜 봅니다.',
-                  '그래도 안 되면 로봇을 재부팅합니다.',
+                  '주행을 끄고 다시 켜세요.',
+                  '안 되면 재부팅하세요.',
                 ],
         ),
       ];
@@ -268,8 +267,8 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
         elapsed: ready ? null : _elapsed,
         steps: _steps(status),
         note: ready
-            ? '초기 위치를 잡으면 주행을 시작할 수 있습니다.'
-            : '기동이 중단되거나 90초 동안 진행이 없으면 Nav2 를 한 번 자동으로 다시 띄웁니다.',
+            ? '위치를 잡으면 바로 주행할 수 있습니다.'
+            : '90초 안에 준비되지 않으면 한 번 자동으로 다시 시작합니다.',
       ),
     ];
   }
@@ -297,20 +296,20 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
     final nav2Up = status.nav2 == 'waiting_pose' || status.nav2 == 'active';
     return [
       _Step(
-        '주행 노드 켜기',
+        '주행 켜기',
         status.driveOn ? _StepState.done : _StepState.current,
-        'Nav2·미션·손잡이·감시',
+        'Nav2·미션·스마트핸들·음성',
       ),
       _Step(
-        nav2Up ? 'Nav2 준비됨' : 'Nav2 뜨는 중',
+        nav2Up ? 'Nav2 준비 완료' : 'Nav2 준비',
         nav2Up ? _StepState.done : _StepState.current,
-        nav2Up ? '' : '보통 15~40초',
+        nav2Up ? '' : '15~40초',
       ),
       if (pendingStop)
         const _Step('끄기 (예약)', _StepState.todo, '')
       else
         _Step(
-          '초기 위치 대기',
+          '초기 위치 잡기',
           status.state == ModeState.running
               ? _StepState.done
               : (nav2Up ? _StepState.current : _StepState.todo),
@@ -334,7 +333,7 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
                   setState(() => _stopRequested = false);
                   _run(supervisor.driveStart, onRefused: () => _stopRequested = true);
                 },
-          child: const Text('끄기 취소 — 주행 계속'),
+          child: const Text('끄기 취소'),
         ),
       ];
     }
@@ -355,7 +354,7 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
         if (_nav2Failed(status)) ...[
           FilledButton(
             onPressed: _busy ? null : () => _run(supervisor.nav2Restart),
-            child: const Text('Nav2 다시 띄우기'),
+            child: const Text('Nav2 다시 시작'),
           ),
           const SizedBox(height: 10),
         ],

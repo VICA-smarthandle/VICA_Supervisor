@@ -114,7 +114,7 @@ void main() {
     await open(tester, supervisor, status('drive', ModeState.starting));
 
     expect(find.text('주행 준비 중'), findsOneWidget);
-    expect(find.text('Nav2 뜨는 중'), findsOneWidget);
+    expect(find.text('Nav2 준비'), findsOneWidget);
     expect(find.text('안내·배송 모드'), findsOneWidget);
 
     await tester.tap(find.text('주행 끄기'));
@@ -142,8 +142,8 @@ void main() {
       status('drive', ModeState.error, nav2: 'waiting_pose', detail: '실패한 유닛: mission'),
     );
 
-    expect(find.text('주행 노드에 문제가 있습니다'), findsOneWidget);
-    expect(find.text('Nav2 다시 띄우기'), findsNothing);
+    expect(find.text('주행 기능 오류'), findsOneWidget);
+    expect(find.text('Nav2 다시 시작'), findsNothing);
     expect(find.text('주행 끄기'), findsOneWidget);
   });
 
@@ -151,11 +151,11 @@ void main() {
     final supervisor = _FakeSupervisor();
     await open(tester, supervisor, status('drive', ModeState.stopping, stopInSec: 32));
 
-    expect(find.text('끄기 예약됨'), findsOneWidget);
+    expect(find.text('끄기 예약'), findsOneWidget);
     // 안내문은 어절 단위 줄바꿈(vicaKeepWords)을 거치므로 같은 변환으로 찾습니다.
     expect(find.textContaining(vicaKeepWords('32초')), findsOneWidget);
 
-    await tester.tap(find.text('끄기 취소 — 주행 계속'));
+    await tester.tap(find.text('끄기 취소'));
     await tester.pump();
     expect(supervisor.calls, ['drive_start']);
   });
@@ -168,8 +168,8 @@ void main() {
       status('drive', ModeState.error, nav2: 'aborted', detail: 'Nav2 기동 중단(자동 재시도 뒤에도)'),
     );
 
-    expect(find.text('Nav2 를 띄우지 못했습니다'), findsOneWidget);
-    await tester.tap(find.text('Nav2 다시 띄우기'));
+    expect(find.text('Nav2 시작 실패'), findsOneWidget);
+    await tester.tap(find.text('Nav2 다시 시작'));
     await tester.pump();
     expect(supervisor.calls, ['nav2_restart']);
   });
@@ -184,7 +184,8 @@ void main() {
     );
 
     expect(find.text('초기 위치를 잡아 주세요'), findsOneWidget);
-    await tester.tap(find.text('초기 위치 잡기'));
+    // 세 번째 단계 이름도 '초기 위치 잡기'라 버튼을 집어 누릅니다(2026-11-18 문구 정리).
+    await tester.tap(find.widgetWithText(FilledButton, '초기 위치 잡기'));
     await tester.pumpAndSettle();
 
     expect(modes.mode, AppMode.drive);
@@ -255,6 +256,6 @@ void main() {
   testWidgets('상태가 안 오면 기다린다고 알린다', (tester) async {
     await open(tester, _FakeSupervisor(), null);
 
-    expect(find.text('로봇에서 주행 상태를 받지 못했습니다'), findsOneWidget);
+    expect(find.text('주행 상태를 받지 못했습니다'), findsOneWidget);
   });
 }

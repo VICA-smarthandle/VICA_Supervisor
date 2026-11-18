@@ -31,8 +31,8 @@ class _DriveStopButtonState extends State<DriveStopButton> {
       icon: Icons.power_settings_new,
       iconColor: VicaColors.red,
       title: '주행을 끌까요?',
-      body: 'Nav2·미션·손잡이·음성·카메라 감지를 끕니다. 모터·센서·앱 연결은 그대로입니다.\n'
-          '보통 5~15초 걸립니다. 로봇이 움직이는 중이면 끌 수 없습니다.',
+      body: 'Nav2·미션·스마트핸들·음성·카메라 감지를 끕니다. 모터·센서·앱 연결은 그대로입니다.\n'
+          '5~15초 걸립니다. 로봇이 움직이는 중이면 끌 수 없습니다.',
       confirmLabel: '주행 끄기',
       danger: true,
     );
