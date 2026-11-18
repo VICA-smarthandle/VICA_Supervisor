@@ -13,6 +13,7 @@ import 'package:vica_supervisor/providers/app_mode_provider.dart';
 import 'package:vica_supervisor/providers/auth_provider.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
+import 'package:vica_supervisor/ros/ros_bridge_client.dart';
 import 'package:vica_supervisor/screens/mode_select_screen.dart';
 import 'package:vica_supervisor/widgets/vica_ui.dart';
 
@@ -201,6 +202,35 @@ void main() {
       expect(modeProvider.landingTab, '경비');
     });
 
+    // 2026-11-18: 강제 종료된 노드는 노드 목록(/rosapi/nodes)에 20 s 남는다(FastDDS 수명 측정). 주행을
+    // 막 끈 뒤 낡은 목록이 'Nav2 가 떠 있다'고 해도, 모드 노드가 있으면 켜기를 요청해 모드 노드가 판단한다.
+    testWidgets('노드 목록이 Nav2 가 떠 있다고 해도 모드 노드가 꺼짐이면 켜기를 요청한다', (tester) async {
+      final supervisor = _FakeSupervisor();
+      final modeProvider = await pump(tester, supervisor, status: stack(nodes: ['/amcl', '/bt_navigator']));
+      supervisor.injectMode(mode('idle', ModeState.idle));
+      await tester.pump();
+
+      await chooseSubmode(tester, '경비');
+
+      expect(supervisor.calls, ['drive_start']);
+      expect(find.text('주행 시작'), findsOneWidget);
+      expect(modeProvider.mode, isNull);
+    });
+
+    testWidgets('터미널에서 띄운 Nav2 라고 모드 노드가 거절하면 예전처럼 화면만 바꾼다', (tester) async {
+      final supervisor = _FakeSupervisor()..reply = (false, '칸에서 띄운 주행 노드가 있습니다: bt_navigator, amcl');
+      final modeProvider = await pump(tester, supervisor, status: stack(nodes: ['/amcl', '/bt_navigator']));
+      supervisor.injectMode(mode('idle', ModeState.idle));
+      await tester.pump();
+
+      await chooseSubmode(tester, '경비');
+
+      expect(supervisor.calls, ['drive_start']);
+      expect(find.text('주행을 켜지 못했습니다'), findsNothing);
+      expect(modeProvider.mode, AppMode.drive);
+      expect(modeProvider.driveSubmode, DriveSubmode.patrol);
+    });
+
     testWidgets('꺼져 있으면 주행 묶음을 켜고 준비 화면으로 간다', (tester) async {
       final supervisor = _FakeSupervisor();
       final modeProvider = await pump(tester, supervisor);
@@ -309,4 +339,33 @@ void main() {
     expect(find.text('주행 모드 선택'), findsOneWidget);
     expect(find.text('로컬(LOCAL)'), findsNothing);
   });
+
+  // 2026-11-18: 화면이 열려 있는 동안 노드 목록을 5 s 마다 다시 조회한다(한 번만 조회하면 낡은 목록이 굳었다).
+  testWidgets('연결돼 있으면 노드 목록을 5초마다 다시 조회하고, 화면을 떠나면 멈춘다', (tester) async {
+    final supervisor = _CountingSupervisor();
+    await pump(tester, supervisor);
+    final first = supervisor.refreshes;
+    expect(first, 1, reason: '뜨자마자 한 번');
+
+    await tester.pump(const Duration(seconds: 5));
+    expect(supervisor.refreshes, first + 1);
+    await tester.pump(const Duration(seconds: 5));
+    expect(supervisor.refreshes, first + 2);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 15));
+    expect(supervisor.refreshes, first + 2);
+  });
+}
+
+class _CountingSupervisor extends _FakeSupervisor {
+  int refreshes = 0;
+
+  @override
+  RosConnectionState get connectionState => RosConnectionState.connected;
+
+  @override
+  Future<void> refreshStackStatus() async {
+    refreshes += 1;
+  }
 }
