@@ -24,6 +24,7 @@ import 'providers/ui_preferences_provider.dart';
 import 'ros/ros_bridge_client.dart';
 import 'widgets/confirm_logout.dart';
 import 'widgets/delivery_notice_dialog.dart';
+import 'widgets/drive_stop_button.dart';
 import 'widgets/duplicate_run_banner.dart';
 import 'widgets/goal_alert_dialog.dart';
 import 'widgets/help_alert_dialog.dart';
@@ -601,11 +602,8 @@ class _SupervisorShellState extends State<SupervisorShell> {
           ),
           const SizedBox(width: 6),
         ],
-        IconButton(
-          onPressed: () => _changeMode(context),
-          icon: const Icon(Icons.swap_horiz),
-          tooltip: '모드 바꾸기',
-        ),
+        // 주행 중이면 '모드 ▾' 메뉴에 '주행 끄기'가 함께 있습니다(2026-11-18 목업 '폰 C').
+        PhoneModeButton(onChangeMode: () => _changeMode(context)),
         // 설정은 '더보기' 안에도 있지만, 주소를 고칠 일이 잦아 한 번에 갑니다.
         IconButton(
           onPressed: () => setState(() => _index = _settingsIndex),
@@ -695,6 +693,11 @@ class _SupervisorShellState extends State<SupervisorShell> {
           ),
         ),
         const SizedBox(width: 12),
+        // 주행 중에만 — 비상정지와 붙지 않게 모드 바꾸기 왼쪽(2026-11-18 목업 '넓은 화면').
+        if (supervisor.modeStatus?.driveOn ?? false) ...[
+          const DriveStopButton(),
+          const SizedBox(width: 12),
+        ],
         OutlinedButton.icon(
           onPressed: () => _changeMode(context),
           style: OutlinedButton.styleFrom(

@@ -436,17 +436,13 @@ void main() {
     await tester.pump(const Duration(seconds: 15));
   });
 
-  // 2026-11-17 목업 '원격 주행 A': 주행이 켜져 있으면 맨 위 줄에 상태와 '주행 끄기'.
-  testWidgets('주행이 켜져 있으면 지도 선택 위에 주행 끄기 줄을 보인다', (tester) async {
+  // 2026-11-18: '주행 끄기'는 위쪽 막대로 옮겼습니다. 원격 주행 맨 위 줄은 뺐습니다.
+  testWidgets('주행 중이어도 원격 주행 화면 안에는 주행 끄기가 없다', (tester) async {
     final supervisor = await pump(tester);
-    expect(find.widgetWithText(OutlinedButton, '주행 끄기'), findsNothing);
-
     supervisor.setModeStatusForTest(
       const ModeStatus(mode: 'drive', state: ModeState.running, nav2: 'active'),
     );
     await tester.pump();
-    final stop = find.widgetWithText(OutlinedButton, '주행 끄기');
-    expect(stop, findsOneWidget);
-    expect(tester.getTopLeft(stop).dy, lessThan(tester.getTopLeft(find.text('지도 선택').first).dy));
+    expect(find.text('주행 끄기'), findsNothing);
   });
 }

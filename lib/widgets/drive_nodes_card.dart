@@ -3,8 +3,8 @@
 // 사용자 11-16 요청 두 가지:
 //   - 사람 감지(⑮ detector)만 잠시 끄는 켜기/끄기 — 주행을 다시 켜면 켜진 상태로 돌아갑니다.
 //   - 음성을 로컬(LOCAL, 로봇 안 midm2-mini) / 외부 API(클라우드 LLM) 중 고르기.
-// 2026-11-17 사용자 요청: 주행 묶음 전체를 내리는 '주행 끄기'를 머리 줄 오른쪽에(목업 ①).
-// 셋 다 젯슨 모드 노드의 서비스로 갑니다. 지금 상태는 /vica/mode_status 만 보고 그립니다.
+// '주행 끄기'는 2026-11-18 위쪽 막대로 옮겼습니다(drive_stop_button.dart).
+// 둘 다 젯슨 모드 노드의 서비스로 갑니다. 지금 상태는 /vica/mode_status 만 보고 그립니다.
 // 모드 노드가 없거나 주행이 꺼져 있으면 아무것도 그리지 않습니다.
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -12,7 +12,6 @@ import 'package:provider/provider.dart';
 import '../models/mode_status.dart';
 import '../providers/app_mode_provider.dart';
 import '../providers/supervisor_provider.dart';
-import 'drive_stop_button.dart';
 import 'vica_ui.dart';
 import 'voice_alert_snack.dart';
 
@@ -98,9 +97,6 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
-              // 원격 주행 탭 맨 위 줄과 같은 버튼(drive_stop_button.dart).
-              const DriveStopButton(),
             ],
           ),
           const SizedBox(height: 14),

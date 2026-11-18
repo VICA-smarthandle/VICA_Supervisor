@@ -116,11 +116,15 @@ void main() {
           // 첫 상태는 연결 직후로 보아 알림을 기록만 합니다. 그래도 카드의 마지막 알림 줄은 채워집니다.
           supervisor.handleModeStatusForTest(status);
         }
-        await tester.pumpWidget(_app(screen(), supervisor, scale));
-        await tester.pump();
-        await tester.pump();
-        await after?.call(tester);
-        FlutterError.onError = previous;
+        // 중간에 실패해도 오류 가로채기를 되돌립니다. 안 되돌리면 시험 틀이 멈춥니다(2026-11-18).
+        try {
+          await tester.pumpWidget(_app(screen(), supervisor, scale));
+          await tester.pump();
+          await tester.pump();
+          await after?.call(tester);
+        } finally {
+          FlutterError.onError = previous;
+        }
         expect(errors, isEmpty, reason: '$name 이(가) 폭 $width, 글자 배율 $scale 에서 넘쳤습니다.');
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pump(const Duration(seconds: 1));
@@ -166,19 +170,13 @@ void main() {
         () => const Scaffold(body: SingleChildScrollView(child: Padding(padding: EdgeInsets.all(16), child: DriveNodesCard()))));
   });
 
-  testWidgets('주행 끄기 — 대시보드 확인 창·끄는 진행 화면', (tester) async {
-    await check(tester, '주행 끄기 확인 창', _status(),
-        () => const Scaffold(body: SingleChildScrollView(child: Padding(padding: EdgeInsets.all(16), child: DriveNodesCard()))),
-        after: (tester) async {
-      await tester.tap(find.widgetWithText(OutlinedButton, '주행 끄기'));
-      await tester.pumpAndSettle();
-    });
+  // 2026-11-18 위쪽 막대로 옮김: 폰은 '모드 ▾' 메뉴, 넓은 화면은 글자 버튼.
+  testWidgets('주행 끄기 — 넓은 화면 버튼·끄는 진행 화면', (tester) async {
+    // 폰 '모드 ▾' 메뉴는 실제 셸 막대로 drive_stop_button_test.dart 에서 봅니다.
+    await check(tester, '넓은 화면 주행 끄기', _status(),
+        () => const Scaffold(body: Center(child: DriveStopButton())));
     await check(tester, '주행 끄는 중', _status(state: 'stopping', nav2: 'active'),
         () => const DriveBringupScreen(stopOnly: true));
-  });
-
-  testWidgets('원격 주행 상태 줄', (tester) async {
-    await check(tester, '원격 주행 상태 줄', _status(), () => const Scaffold(body: SingleChildScrollView(child: Padding(padding: EdgeInsets.all(16), child: DriveStatusStrip()))));
   });
 
   testWidgets('중복 실행 띠', (tester) async {
