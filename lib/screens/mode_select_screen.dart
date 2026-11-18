@@ -344,8 +344,14 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
           ),
       };
     }
-    if (status != null && status.nav2Running) {
-      return null;
+    // 칸·터미널에서 띄운 Nav2. 모드 노드가 pane_nodes 를 보내면 그것으로, 아니면 노드 목록으로 봅니다
+    // (2026-11-18 B안 — 노드 목록은 강제 종료된 노드를 20 s 남겨 카드가 30 s 늦게 바뀌었습니다).
+    if (_nav2Outside(status, mode)) {
+      return const _CardState(
+        color: VicaColors.primary,
+        label: '주행 노드 실행 중',
+        enabled: true,
+      );
     }
     return const _CardState(
       color: VicaColors.muted,
@@ -353,6 +359,10 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
       enabled: true,
     );
   }
+
+  /// 유닛 밖(칸·터미널)에서 뜬 Nav2 가 있는가. 모드 노드가 알려 주면(pane_nodes) 그것을, 아니면 노드 목록을 봅니다.
+  static bool _nav2Outside(StackStatus? status, ModeStatus? mode) =>
+      mode?.paneNav2 ?? (status?.nav2Running ?? false);
 
   _CardState _mappingState(StackStatus? status, ModeStatus? mode) {
     if (status != null && status.duplicated) {
@@ -394,7 +404,7 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
         hint: '동일 노드가 동시에 실행되고 있습니다.',
       );
     }
-    if (status.nav2Running) {
+    if (_nav2Outside(status, mode)) {
       return const _CardState(
         color: VicaColors.red,
         label: 'Nav2 실행 중',

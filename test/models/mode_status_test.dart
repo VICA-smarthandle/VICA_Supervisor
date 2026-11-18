@@ -128,4 +128,16 @@ void main() {
     expect(status.mapChange, isNull);
     expect(status.paused, isFalse);
   });
+
+  // 2026-11-18 B안: 유닛 밖(칸·터미널)에서 뜬 주행 노드. 칸이 없으면(옛 모드 노드) null — 앱은 노드 목록으로 판단.
+  test('pane_nodes 를 읽고, 그중 Nav2 이름이 있으면 칸 Nav2 로 본다', () {
+    final none = ModeStatus.fromJson({'mode': 'idle', 'state': 'idle', 'pane_nodes': []});
+    expect(none.paneNodes, isEmpty);
+    expect(none.paneNav2, isFalse);
+    final nav2 = ModeStatus.fromJson({'mode': 'idle', 'state': 'idle', 'pane_nodes': ['controller_serv']});
+    expect(nav2.paneNav2, isTrue);
+    final mission = ModeStatus.fromJson({'mode': 'idle', 'state': 'idle', 'pane_nodes': ['mission_manager']});
+    expect(mission.paneNav2, isFalse);
+    expect(ModeStatus.fromJson({'mode': 'idle', 'state': 'idle'}).paneNodes, isNull);
+  });
 }

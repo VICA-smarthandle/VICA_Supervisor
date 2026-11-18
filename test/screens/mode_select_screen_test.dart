@@ -43,8 +43,8 @@ class _FakeSupervisor extends SupervisorProvider {
   }
 }
 
-ModeStatus mode(String m, ModeState state, {List<String> stopTimeouts = const []}) =>
-    ModeStatus(mode: m, state: state, stopTimeouts: stopTimeouts);
+ModeStatus mode(String m, ModeState state, {List<String> stopTimeouts = const [], List<String>? paneNodes}) =>
+    ModeStatus(mode: m, state: state, stopTimeouts: stopTimeouts, paneNodes: paneNodes);
 
 // 주행 카드를 누르면 하위 모드 시트가 뜹니다(2026-11-16 목업 '안 2'). 그중 하나를 고릅니다.
 Future<void> chooseSubmode(WidgetTester tester, String title) async {
@@ -355,6 +355,41 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(seconds: 15));
     expect(supervisor.refreshes, first + 2);
+  });
+
+  // 2026-11-18 B안: 모드 노드가 pane_nodes(유닛 밖에서 뜬 주행 노드)를 보내면 노드 목록 대신 그것을 본다.
+  group('모드 노드의 pane_nodes', () {
+    final stale = stack(nodes: ['/amcl', '/bt_navigator', '/controller_server', '/planner_server']);
+
+    testWidgets('주행을 막 꺼 노드 목록에 Nav2 가 남아 있어도 모드 노드가 없다고 하면 꺼짐으로 보인다', (tester) async {
+      final supervisor = _FakeSupervisor();
+      await pump(tester, supervisor, status: stale);
+      supervisor.injectMode(mode('idle', ModeState.idle, paneNodes: const []));
+      await tester.pump();
+
+      expect(find.textContaining('꺼져 있음'), findsOneWidget);
+      expect(find.text('주행 노드 실행 중'), findsNothing);
+      expect(find.textContaining('Nav2 실행 중'), findsNothing, reason: '지도 카드도 막지 않는다');
+    });
+
+    testWidgets('모드 노드가 터미널에서 띄운 Nav2 를 알리면 노드 목록이 비어도 그렇게 보인다', (tester) async {
+      final supervisor = _FakeSupervisor();
+      await pump(tester, supervisor, status: stack());
+      supervisor.injectMode(mode('idle', ModeState.idle, paneNodes: const ['amcl', 'bt_navigator']));
+      await tester.pump();
+
+      expect(find.text('주행 노드 실행 중'), findsOneWidget);
+      expect(find.textContaining('Nav2 실행 중'), findsOneWidget);
+    });
+
+    testWidgets('옛 모드 노드(pane_nodes 없음)면 예전처럼 노드 목록으로 판단한다', (tester) async {
+      final supervisor = _FakeSupervisor();
+      await pump(tester, supervisor, status: stale);
+      supervisor.injectMode(mode('idle', ModeState.idle));
+      await tester.pump();
+
+      expect(find.text('주행 노드 실행 중'), findsOneWidget);
+    });
   });
 }
 

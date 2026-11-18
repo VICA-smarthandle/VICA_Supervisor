@@ -142,6 +142,7 @@ class ModeStatus {
     this.failedUnits = const [],
     this.missingNodes = const [],
     this.duplicated = const [],
+    this.paneNodes,
     this.stopTimeouts = const [],
     this.stopInSec,
     this.detector = 'none',
@@ -172,6 +173,15 @@ class ModeStatus {
   /// 두 개 이상 떠 있는 감시 프로세스 이름(comm 15자) 또는 유닛 키(명령줄로 알아보는 유닛).
   /// 모드 노드가 1초마다 셉니다. 앱·부팅 유닛과 터미널 칸이 같은 노드를 함께 띄웠을 때 찹니다.
   final List<String> duplicated;
+
+  /// 유닛 밖(칸·터미널)에서 뜬 주행 노드의 감시 이름(모드 노드 pane_nodes, 2026-11-18 B안). 프로세스로 보므로
+  /// 노드 목록(/rosapi/nodes)처럼 강제 종료된 노드가 20 s 남지 않는다. 옛 모드 노드면 null.
+  final List<String>? paneNodes;
+
+  /// 칸·터미널에서 띄운 Nav2 가 떠 있는가. 모르면(옛 모드 노드) null.
+  bool? get paneNav2 => paneNodes?.any(_nav2Guards.contains);
+
+  static const _nav2Guards = {'bt_navigator', 'planner_server', 'controller_serv', 'amcl'};
 
   /// 지난 정지에서 시한을 넘겨 강제 종료된 주행 유닛. 다음에 켜면 사라집니다.
   final List<String> stopTimeouts;
@@ -244,6 +254,7 @@ class ModeStatus {
       failedUnits: strings(json['failed_units']),
       missingNodes: strings(json['missing_nodes']),
       duplicated: strings(json['duplicated']),
+      paneNodes: json.containsKey('pane_nodes') ? strings(json['pane_nodes']) : null,
       stopTimeouts: strings(json['stop_timeouts']),
       stopInSec: stopIn is num ? stopIn.round() : null,
       detector: json['detector'] as String? ?? 'none',
