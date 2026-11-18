@@ -13,6 +13,10 @@ const String kDriveStartService = '/vica/mode/drive_start';
 /// 주행 묶음 끄기. 움직이는 중이면 거부, Nav2 가 뜨는 중이면 다 뜬 뒤(늦어도 45 s) 끈다.
 const String kDriveStopService = '/vica/mode/drive_stop';
 
+/// 로봇 끄기(사용자 11-18): 주행 묶음 → 기본 묶음 → sync → 시스템 종료. 움직이는 중·지도 그리기 중이면
+/// 거부. 받아들이면 바로 답하고 곧 연결이 끊긴다(모드 노드·rosbridge 도 내려간다).
+const String kShutdownService = '/vica/mode/shutdown';
+
 /// Nav2 만 다시 띄우기(기동 실패 뒤 사람이 누름).
 const String kNav2RestartService = '/vica/mode/nav2_restart';
 

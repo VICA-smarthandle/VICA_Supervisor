@@ -711,6 +711,10 @@ class SupervisorProvider extends ChangeNotifier {
   Future<(bool, String)> driveStop() =>
       _callModeService(kDriveStopService, '주행 끄기');
 
+  /// 로봇 끄기(주행·기본 묶음 → sync → 시스템 종료). 받아들여지면 곧 연결이 끊깁니다.
+  Future<(bool, String)> robotShutdown() =>
+      _callModeService(kShutdownService, '로봇 끄기');
+
   /// Nav2 만 다시 띄우기.
   Future<(bool, String)> nav2Restart() =>
       _callModeService(kNav2RestartService, 'Nav2 다시 시작');

@@ -23,6 +23,7 @@ import '../providers/app_mode_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/supervisor_provider.dart';
 import 'drive_bringup_screen.dart';
+import 'robot_shutdown_screen.dart';
 import 'settings_screen.dart';
 import '../ros/ros_bridge_client.dart';
 import '../widgets/confirm_logout.dart';
@@ -193,6 +194,29 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
                 style: const TextStyle(color: VicaColors.muted, fontSize: 12),
               ),
             ],
+            // 로봇 끄기(2026-11-18 사용자 결정, 목업 '로봇 끄기 A'): 모드 카드와 떨어진 맨 아래 한 줄.
+            // 연결이 없으면 보낼 곳이 없어 막습니다.
+            const SizedBox(height: 28),
+            const Divider(height: 1),
+            const SizedBox(height: 14),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: VicaColors.red,
+                side: const BorderSide(color: VicaColors.red, width: 1.5),
+                minimumSize: const Size.fromHeight(48),
+                shape: const StadiumBorder(),
+                textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+              ),
+              onPressed: connected ? () => confirmAndShutdownRobot(context) : null,
+              icon: const Icon(Icons.power_settings_new, size: 20),
+              label: const Text('로봇 끄기'),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              '전원을 내리기 전에 누르세요',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: VicaColors.muted),
+            ),
           ],
         ),
       ),
