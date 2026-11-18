@@ -131,13 +131,13 @@ class _MapDeleteCardState extends State<MapDeleteCard> {
             ),
           ),
           const SizedBox(height: 6),
-          OutlinedButton.icon(
+          PressScale(child: OutlinedButton.icon(
             onPressed: canRename
                 ? () => _rename(context, settings, selectedMap.mapId, typedName)
                 : null,
             icon: const Icon(Icons.drive_file_rename_outline),
             label: const Text('이름 바꾸기'),
-          ),
+          )),
           const Divider(height: 28),
           // -- 삭제 ------------------------------------------------------
           // Material 로 감싸는 이유: 카드(색 있는 Container) 안의 ListTile 은
@@ -160,7 +160,7 @@ class _MapDeleteCardState extends State<MapDeleteCard> {
             ),
           ),
           const SizedBox(height: 6),
-          OutlinedButton.icon(
+          PressScale(child: OutlinedButton.icon(
             // 체크 없이는 열리지 않습니다. 되돌릴 수 없는 일이라 확인을
             // 한 번 더 받습니다.
             onPressed: selected == null || _busy || !_alsoDestinations
@@ -171,7 +171,7 @@ class _MapDeleteCardState extends State<MapDeleteCard> {
             style: OutlinedButton.styleFrom(
               foregroundColor: VicaColors.red,
             ),
-          ),
+          )),
         ],
       ],
     );

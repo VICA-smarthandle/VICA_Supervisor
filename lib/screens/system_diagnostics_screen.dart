@@ -44,7 +44,109 @@ class SystemDiagnosticsScreen extends StatelessWidget {
         _ActiveFaults(health: health),
         const SizedBox(height: 18),
         _EventHistory(events: supervisor.healthEvents),
+        // 맨 아래(2026-11-18 사용자): 주행 중에도 노드를 다시 띄우지 않고 켜고 끈다.
+        const SizedBox(height: 18),
+        const _FrontUltrasonicCard(),
       ],
+    );
+  }
+}
+
+/// 전방 초음파 켜기·끄기(2026-11-18 사용자). 손잡이 드라이버(C++ 판)의
+/// /vica/ultrasonic/front_enable 을 부르고, 상태는 /vica/ultrasonic/front_enabled 로 받습니다.
+/// 주행을 다시 켜면 드라이버가 설정값(켜짐)으로 돌아갑니다. 뒤·뒷바퀴 옆은 도킹용이라 여기와 무관합니다.
+class _FrontUltrasonicCard extends StatelessWidget {
+  const _FrontUltrasonicCard();
+
+  String _distance(double? meters) {
+    if (meters == null) {
+      return '—';
+    }
+    if (meters.isInfinite) {
+      return '없음';
+    }
+    return '${meters.toStringAsFixed(2)} m';
+  }
+
+  Future<void> _toggle(BuildContext context, bool on) async {
+    final supervisor = context.read<SupervisorProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final error = await supervisor.setFrontUltrasonic(on);
+    messenger.showSnackBar(SnackBar(
+      content: Text(error ?? (on ? '전방 초음파를 켰습니다' : '전방 초음파를 껐습니다')),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final supervisor = context.watch<SupervisorProvider>();
+    final on = supervisor.frontUltrasonicOn;
+    final busy = supervisor.frontUltrasonicBusy;
+    // 거리는 초당 여러 번 바뀌어 이 줄만 따로 다시 그립니다(provider 전체를 울리지 않음).
+    final detail = ValueListenableBuilder<int>(
+      valueListenable: supervisor.frontRangeTick,
+      builder: (context, _, __) {
+        final String text;
+        if (busy) {
+          text = '바꾸는 중…';
+        } else if (on == null) {
+          text = '상태를 모릅니다 · 주행을 켜면 바꿀 수 있습니다';
+        } else if (on) {
+          text = '켜짐 · 왼쪽 ${_distance(supervisor.frontRange(0))} · '
+              '오른쪽 ${_distance(supervisor.frontRange(1))}';
+        } else {
+          text = '꺼짐 · costmap 에 넣지 않음 · 주행 다시 켜면 켜짐';
+        }
+        return Text(
+          text,
+          style: const TextStyle(fontSize: 12.5, color: VicaColors.muted),
+        );
+      },
+    );
+    return VicaCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '전방 초음파',
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 2),
+                    detail,
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              if (on != null)
+                VicaStateBadge(
+                  text: on ? '켜짐' : '꺼짐',
+                  color: on ? VicaColors.green : VicaColors.textTertiary,
+                ),
+              const SizedBox(width: 6),
+              Semantics(
+                label: '전방 초음파 켜기·끄기',
+                child: Switch(
+                value: on ?? false,
+                activeThumbColor: VicaColors.card,
+                activeTrackColor: VicaColors.primary,
+                onChanged: on == null || busy ? null : (value) => _toggle(context, value),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '초음파를 끄면 0.38 m보다 낮은 물체를 피하기 어렵습니다.',
+            style: TextStyle(fontSize: 12.5, color: VicaColors.muted),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -535,10 +637,10 @@ class _EventHistoryState extends State<_EventHistory> {
                 if (hidden > 0)
                   Padding(
                     padding: const EdgeInsets.only(top: 6),
-                    child: OutlinedButton(
+                    child: PressScale(child: OutlinedButton(
                       onPressed: () => setState(() => _showAll = !_showAll),
                       child: Text(_showAll ? '최근 1시간만' : '이력 더 보기 ($hidden건)'),
-                    ),
+                    )),
                   ),
               ],
             ),

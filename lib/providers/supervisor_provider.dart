@@ -473,6 +473,10 @@ class SupervisorProvider extends ChangeNotifier {
     _modeStatusAt = null;
     // 다시 붙은 뒤 처음 받는 음성 알림은 끊긴 사이 일이라 기록만 합니다(띄우지 않음).
     _voiceFirstAfterConnect = true;
+    // 전방 초음파 상태·거리도 다시 붙으면 드라이버가 남긴 값으로 채워집니다(2026-11-18).
+    _frontUltrasonicOn = null;
+    _frontRange.fillRange(0, 2, null);
+    _frontRangeAt.fillRange(0, 2, null);
     if (_robotsById.isEmpty) {
       return;
     }
@@ -578,7 +582,136 @@ class SupervisorProvider extends ChangeNotifier {
       ..subscribe(
         topic: kModeStatusTopic,
         handler: _handleModeStatus,
+      )
+      // 전방 초음파 켜기·끄기(2026-11-18 사용자: 시스템 진단 맨 아래). 손잡이 드라이버가 낸다.
+      ..subscribe(
+        topic: frontUltrasonicStateTopic,
+        type: 'std_msgs/Bool',
+        handler: _handleFrontUltrasonicState,
+      )
+      ..subscribe(
+        topic: frontUltrasonicTopics[0],
+        type: 'sensor_msgs/Range',
+        handler: (message) => _handleFrontRange(0, message),
+      )
+      ..subscribe(
+        topic: frontUltrasonicTopics[1],
+        type: 'sensor_msgs/Range',
+        handler: (message) => _handleFrontRange(1, message),
       );
+  }
+
+  // ---- 전방 초음파 켜기·끄기 (2026-11-18 사용자) ------------------------------------
+
+  /// 손잡이 드라이버(C++ 판)가 지금 상태를 남기는 토픽(std_msgs/Bool, TRANSIENT_LOCAL).
+  static const frontUltrasonicStateTopic = '/vica/ultrasonic/front_enabled';
+
+  /// 켜기·끄기 서비스(std_srvs/SetBool). 끄면 드라이버가 '없음'을 3번 보낸 뒤 멈춥니다.
+  static const frontUltrasonicService = '/vica/ultrasonic/front_enable';
+  static const frontUltrasonicTopics = [
+    '/ultrasonic/front_left',
+    '/ultrasonic/front_right',
+  ];
+
+  /// 이보다 오래 값이 안 오면 거리는 모름으로 둡니다(앞은 315 ms 마다 한 번).
+  static const frontRangeStale = Duration(seconds: 2);
+
+  bool? _frontUltrasonicOn;
+  bool _frontUltrasonicBusy = false;
+  final List<double?> _frontRange = [null, null];
+  final List<DateTime?> _frontRangeAt = [null, null];
+
+  /// 거리 값이 올 때마다 울립니다. 초당 6번까지 오므로 provider 전체(notifyListeners)를 울리지
+  /// 않고 진단 카드만 이것을 듣습니다 — 다른 화면까지 다시 그리지 않게.
+  final ValueNotifier<int> frontRangeTick = ValueNotifier<int>(0);
+
+  /// null = 모름(손잡이 드라이버가 안 떠 있거나 아직 상태가 안 옴).
+  bool? get frontUltrasonicOn => _frontUltrasonicOn;
+  bool get frontUltrasonicBusy => _frontUltrasonicBusy;
+
+  /// 왼쪽(0)·오른쪽(1) 최근 거리(m). '없음'(에코 없음)은 double.infinity, 모르면 null.
+  double? frontRange(int side) {
+    final at = _frontRangeAt[side];
+    if (at == null || DateTime.now().difference(at) > frontRangeStale) {
+      return null;
+    }
+    return _frontRange[side];
+  }
+
+  void _handleFrontUltrasonicState(Map<String, Object?> message) {
+    final data = message['data'];
+    if (data is bool && data != _frontUltrasonicOn) {
+      _frontUltrasonicOn = data;
+      notifyListeners();
+    }
+  }
+
+  void _handleFrontRange(int side, Map<String, Object?> message) {
+    if (_disposed) {
+      return;
+    }
+    final range = (message['range'] as num?)?.toDouble();
+    final maxRange = (message['max_range'] as num?)?.toDouble();
+    if (range == null) {
+      return;
+    }
+    final clear = maxRange != null && range >= maxRange - 1e-3;
+    _frontRange[side] = clear ? double.infinity : range;
+    _frontRangeAt[side] = DateTime.now();
+    frontRangeTick.value++;
+  }
+
+  /// 전방 초음파를 켜거나 끕니다. 실패하면 까닭을, 되면 null 을 돌려줍니다.
+  ///
+  /// 끌 때는 드라이버가 '없음'을 3번(약 1 s) 보내 빔 안을 지운 뒤, 빔 밖에 남은 칸까지 지우려고
+  /// local·global costmap 을 한 번 비웁니다. 그 사이 라이다·깊이 칸도 다음 갱신(≤0.2 s)까지
+  /// 비므로 멈춰 있을 때 쓰는 것을 전제로 합니다(사용자 11-18). Nav2 가 없으면 비우기는 건너뜁니다.
+  Future<String?> setFrontUltrasonic(bool on) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return 'ROS Bridge에 연결되지 않았습니다.';
+    }
+    _frontUltrasonicBusy = true;
+    notifyListeners();
+    try {
+      final response = await client.callService(
+        service: frontUltrasonicService,
+        type: 'std_srvs/srv/SetBool',
+        args: {'data': on},
+      );
+      if (!response.success) {
+        final message = response.message.isEmpty
+            ? '전방 초음파를 바꾸지 못했습니다.'
+            : response.message;
+        _addLog(LogFilter.connection, message);
+        return message;
+      }
+      if (!on) {
+        await Future<void>.delayed(const Duration(milliseconds: 1200));
+        for (final service in const [
+          '/local_costmap/clear_entirely_local_costmap',
+          '/global_costmap/clear_entirely_global_costmap',
+        ]) {
+          try {
+            await client.callService(
+              service: service,
+              type: 'nav2_msgs/srv/ClearEntireCostmap',
+              timeout: const Duration(seconds: 3),
+            );
+          } catch (_) {
+            // Nav2 가 꺼져 있으면 비울 costmap 도 없습니다.
+          }
+        }
+      }
+      return null;
+    } catch (error) {
+      final message = '전방 초음파를 바꾸지 못했습니다: $error';
+      _addLog(LogFilter.connection, message);
+      return message;
+    } finally {
+      _frontUltrasonicBusy = false;
+      notifyListeners();
+    }
   }
 
   // ---- 모드 노드 (주행 묶음 켜기·끄기, 2026-11-16) ---------------------------------
@@ -3060,6 +3193,16 @@ class SupervisorProvider extends ChangeNotifier {
   void _handleGoalEvent(Map<String, Object?> message) {
     final event = GoalEvent.fromJson(message, id: _uuid.v4());
 
+    // 음성·다른 기기로 주행·홈 복귀·경비가 시작되면 수동 조종을 그 자리에서 멈춥니다(2026-11-18 검토).
+    // 화면의 막기는 /robot_status(0.5 s 주기)를 기다리므로, 그 사이 두 명령이 섞이지 않게 합니다.
+    if (teleopActive &&
+        (event.kind == GoalEventKind.sent ||
+            event.kind == GoalEventKind.accepted ||
+            event.kind == GoalEventKind.returnHomeSent ||
+            event.kind.isPatrol)) {
+      releaseTeleop();
+    }
+
     // 도움 요청은 주행 사건이 아닙니다 — 일시정지 표시·주행 알림 팝업과 따로 다룹니다.
     if (event.isHelp) {
       _applyHelpEvent(event);
@@ -4187,13 +4330,27 @@ class SupervisorProvider extends ChangeNotifier {
   static const teleopMaxLinear = 0.3;
   static const teleopMaxAngular = 0.3;
 
+  /// 원격 주행의 수동 주행 상한(2026-11-18 사용자: 속도 0.1~0.7 m/s, 회전은 속도와 같이 오르내림).
+  /// 지도 그리기·홈 위치 조종판은 위 0.3 그대로입니다.
+  static const manualDriveMaxLinear = 0.7;
+  static const manualDriveMaxAngular = 0.7;
+
+  /// 수동 주행 가속 상한(2026-11-18 사용자 B안: 3.0). 직진 m/s², 회전 rad/s² 같은 수.
+  /// 출발만 완만히 합니다 — 줄이거나 방향을 바꾸거나 손을 떼면 바로 그 값을 보냅니다.
+  /// 0 → 0.3 m/s 0.1 s, 0 → 0.7 m/s 약 0.23 s. Nav2 없이도 그대로 동작합니다(앱 안 계산).
+  static const manualDriveAccel = 3.0;
+
   // 20 Hz. Safety 의 0.5초 시한보다 10배 촘촘해 한두 장을 놓쳐도 끊기지 않습니다.
   static const _teleopPeriod = Duration(milliseconds: 50);
 
   Timer? _teleopTimer;
   bool _teleopAdvertised = false;
+  // 지금 보내는 값. 가속 상한이 있으면 누르고 있는 값(_teleopTarget*)까지 50 ms 마다 서서히 올라갑니다.
   double _teleopLinear = 0;
   double _teleopAngular = 0;
+  double _teleopTargetLinear = 0;
+  double _teleopTargetAngular = 0;
+  double? _teleopAccel;
 
   bool get teleopActive => _teleopTimer != null;
 
@@ -4202,25 +4359,62 @@ class SupervisorProvider extends ChangeNotifier {
   /// 보는 이유는, 연결이 끊겨 명령이 안 나가는데 버튼만 빛나는 거짓 신호를
   /// 막기 위해서입니다 — 데드맨 조작판에서 색은 "로봇에 명령이 가고 있다"는 뜻입니다.
   bool isTeleopHeld({required double linear, required double angular}) =>
-      teleopActive && _teleopLinear == linear && _teleopAngular == angular;
+      teleopActive &&
+      _teleopTargetLinear == linear &&
+      _teleopTargetAngular == angular;
 
   /// 누르고 있는 동안 부릅니다. 값이 바뀌면 다시 부르면 됩니다.
-  void holdTeleop({required double linear, required double angular}) {
+  /// [maxLinear]·[maxAngular]·[accel] 은 수동 주행만 넘깁니다(기본은 지도 그리기 상한 0.3, 가속 제한 없음).
+  void holdTeleop({
+    required double linear,
+    required double angular,
+    double maxLinear = teleopMaxLinear,
+    double maxAngular = teleopMaxAngular,
+    double? accel,
+  }) {
     final client = _client;
     if (client == null || _connectionState != RosConnectionState.connected) {
       return;
     }
-    _teleopLinear = linear.clamp(-teleopMaxLinear, teleopMaxLinear).toDouble();
-    _teleopAngular =
-        angular.clamp(-teleopMaxAngular, teleopMaxAngular).toDouble();
+    _teleopTargetLinear = linear.clamp(-maxLinear, maxLinear).toDouble();
+    _teleopTargetAngular = angular.clamp(-maxAngular, maxAngular).toDouble();
+    _teleopAccel = accel;
+    _stepTeleop();
 
     if (!_teleopAdvertised) {
       client.advertise(topic: teleopTopic, type: _teleopType);
       _teleopAdvertised = true;
     }
     _publishTeleop();
-    _teleopTimer ??= Timer.periodic(_teleopPeriod, (_) => _publishTeleop());
+    _teleopTimer ??= Timer.periodic(_teleopPeriod, (_) {
+      _stepTeleop();
+      _publishTeleop();
+    });
     notifyListeners();
+  }
+
+  /// 보내는 값을 누르고 있는 값 쪽으로 한 걸음(50 ms) 옮깁니다. 늘릴 때만 가속 상한을 지키고,
+  /// 줄이거나 방향을 바꾸면 기다리지 않습니다(방향을 바꾸면 0 에서 다시 올라갑니다).
+  void _stepTeleop() {
+    final accel = _teleopAccel;
+    if (accel == null) {
+      _teleopLinear = _teleopTargetLinear;
+      _teleopAngular = _teleopTargetAngular;
+      return;
+    }
+    final step = accel * _teleopPeriod.inMicroseconds / 1e6;
+    double toward(double current, double target) {
+      if (current * target < 0) {
+        current = 0;
+      }
+      if (target.abs() <= current.abs()) {
+        return target;
+      }
+      return current + (target - current).clamp(-step, step);
+    }
+
+    _teleopLinear = toward(_teleopLinear, _teleopTargetLinear);
+    _teleopAngular = toward(_teleopAngular, _teleopTargetAngular);
   }
 
   /// 손을 뗐을 때 부릅니다. 0을 한 번 보내고 발행을 멈춥니다.
@@ -4232,6 +4426,8 @@ class SupervisorProvider extends ChangeNotifier {
     _teleopTimer = null;
     _teleopLinear = 0;
     _teleopAngular = 0;
+    _teleopTargetLinear = 0;
+    _teleopTargetAngular = 0;
     if (_teleopAdvertised) {
       _publishTeleop();
     }
@@ -4748,6 +4944,7 @@ class SupervisorProvider extends ChangeNotifier {
     _reconnectStableTimer?.cancel();
     _deliveryReturnTimer?.cancel();
     _patrolClipTimer?.cancel();
+    frontRangeTick.dispose();
     unawaited(_client?.close());
     super.dispose();
   }

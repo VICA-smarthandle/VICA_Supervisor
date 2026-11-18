@@ -11,16 +11,30 @@
 // 이동이 Cartographer 의 예측 탐색 창(0.1 m)에 닿아 지도가 나빠집니다.
 // 회전은 그 문서의 0.4 보다 한 단계 더 내렸습니다 — 직진과 같은 0.3 이 지도가
 // 곱게 나온다는 운영자 관찰(2026-09-03)입니다.
+//
+// [adjustableSpeed](지도 그리기, 2026-11-18 사용자): 속도 칸 0.1~0.7 m/s, 기본 0.3.
+// 적정 속도 0.3 은 문구로만 알립니다. 회전·가속은 수동 주행과 같습니다 — 회전 max(0.2, v),
+// 출발 가속 3.0(provider 의 _stepTeleop). 홈 위치 조종판은 예전 그대로 0.3 고정입니다.
+import 'dart:math' as math;
+
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/supervisor_provider.dart';
 import 'vica_ui.dart';
 
-class TeleopPad extends StatelessWidget {
-  const TeleopPad({super.key, required this.enabled});
+class TeleopPad extends StatefulWidget {
+  const TeleopPad({
+    super.key,
+    required this.enabled,
+    this.adjustableSpeed = false,
+  });
 
   final bool enabled;
+
+  /// true 면 속도 칸(0.1~0.7 m/s)을 보입니다 — 지도 그리기 화면.
+  final bool adjustableSpeed;
 
   /// 다이얼(바깥 원)의 지름과 방향 버튼의 지름입니다. 버튼은 원 가장자리에서
   /// [_dialInset] 만큼 안쪽에 동서남북으로 놓입니다.
@@ -30,68 +44,103 @@ class TeleopPad extends StatelessWidget {
   static const double _buttonSize = 44;
   static const double _dialInset = 10;
 
+  /// 지도 작성 적정 속도(m/s). 속도 칸의 기본값이자 문구의 값입니다.
+  static const double mappingSpeed = SupervisorProvider.teleopMaxLinear;
+
+  @override
+  State<TeleopPad> createState() => _TeleopPadState();
+}
+
+class _TeleopPadState extends State<TeleopPad> {
+  static const double _minSpeed = 0.1;
+  static const double _maxSpeed = SupervisorProvider.manualDriveMaxLinear;
+
+  double _speed = TeleopPad.mappingSpeed;
+
+  /// 누르고 있는 버튼(직진 부호, 회전 부호). 속도를 바꾸거나 조종판이 꺼질 때 씁니다.
+  (int, int)? _held;
+
+  double get _linear =>
+      widget.adjustableSpeed ? _speed : SupervisorProvider.teleopMaxLinear;
+  double get _angular => widget.adjustableSpeed
+      ? math.max(0.2, _speed)
+      : SupervisorProvider.teleopMaxAngular;
+
+  @override
+  void didUpdateWidget(covariant TeleopPad oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 누르는 도중 꺼지면(지도 그리기 끝 등) 떼기 처리기가 사라지므로 여기서 멈춥니다.
+    // build 중이라 provider 알림은 이 프레임 끝에 보냅니다.
+    if (oldWidget.enabled && !widget.enabled && _held != null) {
+      _held = null;
+      final supervisor = context.read<SupervisorProvider>();
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => supervisor.releaseTeleop());
+    }
+  }
+
+  void _hold(int v, int w) {
+    _held = (v, w);
+    final supervisor = context.read<SupervisorProvider>();
+    if (widget.adjustableSpeed) {
+      supervisor.holdTeleop(
+        linear: v * _linear,
+        angular: w * _angular,
+        maxLinear: SupervisorProvider.manualDriveMaxLinear,
+        maxAngular: SupervisorProvider.manualDriveMaxAngular,
+        accel: SupervisorProvider.manualDriveAccel,
+      );
+    } else {
+      supervisor.holdTeleop(linear: v * _linear, angular: w * _angular);
+    }
+  }
+
+  void _release() {
+    _held = null;
+    context.read<SupervisorProvider>().releaseTeleop();
+  }
+
+  void _setSpeed(double value) {
+    setState(() {
+      _speed = (value.clamp(_minSpeed, _maxSpeed) * 10).roundToDouble() / 10;
+    });
+    final held = _held;
+    if (held != null) {
+      _hold(held.$1, held.$2);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final supervisor = context.watch<SupervisorProvider>();
+    final enabled = widget.enabled;
 
     // 버튼 넷의 자리. 화살표는 화면에서 보는 방향 그대로 가리킵니다 — 위는
     // 앞으로, 오른쪽은 오른쪽으로 도는 것입니다. 회전 아이콘(rotate_*)은 어느
     // 쪽으로 도는지 한 박자 생각해야 해서 화살표로 바꿨습니다(2026-09-14 시안).
-    const mid = (_dialSize - _buttonSize) / 2;
-    const far = _dialSize - _buttonSize - _dialInset;
+    const mid = (TeleopPad._dialSize - TeleopPad._buttonSize) / 2;
+    const far =
+        TeleopPad._dialSize - TeleopPad._buttonSize - TeleopPad._dialInset;
+    _PadButton button(
+            IconData icon, String label, double left, double top, int v, int w) =>
+        _PadButton(
+          icon: icon,
+          label: label,
+          left: left,
+          top: top,
+          pressed: supervisor.isTeleopHeld(
+            linear: v * _linear,
+            angular: w * _angular,
+          ),
+          enabled: enabled,
+          onDown: () => _hold(v, w),
+          onUp: _release,
+        );
     final buttons = [
-      _PadButton(
-        icon: Icons.keyboard_arrow_up,
-        label: '앞으로',
-        left: mid,
-        top: _dialInset,
-        pressed: supervisor.isTeleopHeld(
-          linear: SupervisorProvider.teleopMaxLinear,
-          angular: 0,
-        ),
-        enabled: enabled,
-        linear: SupervisorProvider.teleopMaxLinear,
-        angular: 0,
-      ),
-      _PadButton(
-        icon: Icons.keyboard_arrow_right,
-        label: '오른쪽',
-        left: far,
-        top: mid,
-        pressed: supervisor.isTeleopHeld(
-          linear: 0,
-          angular: -SupervisorProvider.teleopMaxAngular,
-        ),
-        enabled: enabled,
-        linear: 0,
-        angular: -SupervisorProvider.teleopMaxAngular,
-      ),
-      _PadButton(
-        icon: Icons.keyboard_arrow_down,
-        label: '뒤로',
-        left: mid,
-        top: far,
-        pressed: supervisor.isTeleopHeld(
-          linear: -SupervisorProvider.teleopMaxLinear,
-          angular: 0,
-        ),
-        enabled: enabled,
-        linear: -SupervisorProvider.teleopMaxLinear,
-        angular: 0,
-      ),
-      _PadButton(
-        icon: Icons.keyboard_arrow_left,
-        label: '왼쪽',
-        left: _dialInset,
-        top: mid,
-        pressed: supervisor.isTeleopHeld(
-          linear: 0,
-          angular: SupervisorProvider.teleopMaxAngular,
-        ),
-        enabled: enabled,
-        linear: 0,
-        angular: SupervisorProvider.teleopMaxAngular,
-      ),
+      button(Icons.keyboard_arrow_up, '앞으로', mid, TeleopPad._dialInset, 1, 0),
+      button(Icons.keyboard_arrow_right, '오른쪽', far, mid, 0, -1),
+      button(Icons.keyboard_arrow_down, '뒤로', mid, far, -1, 0),
+      button(Icons.keyboard_arrow_left, '왼쪽', TeleopPad._dialInset, mid, 0, 1),
     ];
 
     return VicaCard(
@@ -124,9 +173,12 @@ class TeleopPad extends StatelessWidget {
           // 앞 문장과 뜻이 겹쳐 뺐습니다(2026-09-15).
           Text(
             vicaKeepWords(
-              '버튼을 누르고 있는 동안만 움직입니다.\n'
-              '최대 ${SupervisorProvider.teleopMaxLinear} m/s · '
-              '${SupervisorProvider.teleopMaxAngular} rad/s.',
+              widget.adjustableSpeed
+                  ? '버튼을 누르고 있는 동안만 움직입니다.\n'
+                      '지도 작성 적정 속도는 ${TeleopPad.mappingSpeed} m/s입니다.'
+                  : '버튼을 누르고 있는 동안만 움직입니다.\n'
+                      '최대 ${SupervisorProvider.teleopMaxLinear} m/s · '
+                      '${SupervisorProvider.teleopMaxAngular} rad/s.',
             ),
             style: const TextStyle(color: VicaColors.muted, fontSize: 12),
           ),
@@ -135,8 +187,8 @@ class TeleopPad extends StatelessWidget {
           // 일이 없고, 있으면 "눌러야 멈춘다"는 오해를 줍니다.
           Center(
             child: Container(
-              width: _dialSize,
-              height: _dialSize,
+              width: TeleopPad._dialSize,
+              height: TeleopPad._dialSize,
               decoration: BoxDecoration(
                 color: VicaColors.surfaceSunken,
                 shape: BoxShape.circle,
@@ -145,6 +197,37 @@ class TeleopPad extends StatelessWidget {
               child: Stack(children: buttons),
             ),
           ),
+          if (widget.adjustableSpeed) ...[
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                const Text('속도', style: TextStyle(fontSize: 13)),
+                const SizedBox(width: 12),
+                // 좁은 폭·큰 글자에서는 띄어쓰기 자리에서 줄을 바꿉니다(넘침 방지).
+                Expanded(
+                  child: Text(
+                    vicaKeepWords('${_linear.toStringAsFixed(2)} m/s · 회전 '
+                        '${_angular.toStringAsFixed(2)} rad/s'),
+                    textAlign: TextAlign.end,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: VicaColors.primaryDark,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            Slider(
+              value: _speed,
+              min: _minSpeed,
+              max: _maxSpeed,
+              divisions: 6,
+              label: '${_speed.toStringAsFixed(1)} m/s',
+              onChanged: enabled ? _setSpeed : null,
+            ),
+          ],
         ],
       ),
     );
@@ -159,8 +242,8 @@ class _PadButton extends StatelessWidget {
     required this.top,
     required this.enabled,
     required this.pressed,
-    required this.linear,
-    required this.angular,
+    required this.onDown,
+    required this.onUp,
   });
 
   final IconData icon;
@@ -174,12 +257,11 @@ class _PadButton extends StatelessWidget {
   final bool enabled;
   // 이 버튼의 명령이 실제로 나가고 있는가(provider 가 판정). 눌림 표시용.
   final bool pressed;
-  final double linear;
-  final double angular;
+  final VoidCallback onDown;
+  final VoidCallback onUp;
 
   @override
   Widget build(BuildContext context) {
-    final supervisor = context.read<SupervisorProvider>();
     // GestureDetector 의 onTap 이 아니라 Listener 의 포인터 이벤트를 씁니다.
     // onTap 은 손을 뗀 뒤에야 불리므로 "누르고 있는 동안"을 표현할 수 없습니다.
     return Positioned(
@@ -187,11 +269,19 @@ class _PadButton extends StatelessWidget {
       top: top,
       child: Listener(
         onPointerDown: enabled
-            ? (_) => supervisor.holdTeleop(linear: linear, angular: angular)
+            ? (event) {
+                // 마우스는 왼쪽 버튼만(2026-11-18 검토): 오른쪽 버튼은 브라우저 메뉴가 떼기를
+                // 먹어 손을 뗀 뒤에도 계속 갈 수 있습니다.
+                if (event.kind == PointerDeviceKind.mouse &&
+                    event.buttons != kPrimaryButton) {
+                  return;
+                }
+                onDown();
+              }
             : null,
-        onPointerUp: enabled ? (_) => supervisor.releaseTeleop() : null,
+        onPointerUp: enabled ? (_) => onUp() : null,
         // 손가락이 버튼 밖으로 미끄러지거나 시스템이 제스처를 가로채도 멈춥니다.
-        onPointerCancel: enabled ? (_) => supervisor.releaseTeleop() : null,
+        onPointerCancel: enabled ? (_) => onUp() : null,
         child: Semantics(
           button: true,
           label: label,

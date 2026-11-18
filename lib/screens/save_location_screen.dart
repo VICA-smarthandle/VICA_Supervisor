@@ -884,7 +884,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
           const SizedBox(height: 14),
           _DraftSummary(location: draft),
           const SizedBox(height: 12),
-          OutlinedButton.icon(
+          PressScale(child: OutlinedButton.icon(
             onPressed: () => _editDraft(
               context,
               supervisor,
@@ -894,13 +894,13 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
             ),
             icon: const Icon(Icons.edit_outlined),
             label: const Text('임시 저장 장소 수정'),
-          ),
+          )),
           const SizedBox(height: 10),
-          FilledButton.icon(
+          PressScale(child: FilledButton.icon(
             onPressed: () => _saveDraftToRos(context, supervisor, settings),
             icon: const Icon(Icons.cloud_upload),
             label: const Text('ROS2에 장소 저장'),
-          ),
+          )),
         ],
       ],
     );
@@ -952,22 +952,22 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
             // 지도에서 바로 보입니다(2026-09-03 사용자 결정). 임시 저장이 있는
             // 동안은 잠급니다 — 두 장소를 동시에 편집하면 어느 쪽이 저장되는지
             // 화면이 말해 주지 못합니다.
-            child: OutlinedButton.icon(
+            child: PressScale(child: OutlinedButton.icon(
               onPressed: draft != null
                   ? null
                   : () => _editSavedLocation(context, target, settings),
               icon: const Icon(Icons.edit_location_alt_outlined),
               label: Text(vicaKeepWords('선택 장소 수정')),
-            ),
+            )),
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: OutlinedButton.icon(
+            child: PressScale(child: OutlinedButton.icon(
               onPressed: () =>
                   _deleteDestination(context, supervisor, settings, target),
               icon: const Icon(Icons.delete_outline),
               label: Text(vicaKeepWords('선택 장소 삭제')),
-            ),
+            )),
           ),
         ],
       ),
@@ -975,7 +975,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       // 없으면 '입구 오른쪽' 같은 말을 정할 수 없어 잠급니다.
       if (spot == null) ...[
         const SizedBox(height: 10),
-        OutlinedButton(
+        PressScale(child: OutlinedButton(
           onPressed: target.doorYaw == null || draft != null
               ? null
               : () => _startWaitPick(target),
@@ -984,7 +984,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
             side: const BorderSide(color: VicaColors.primary),
           ),
           child: Text(vicaKeepWords('${target.name}에 대기 장소 추가')),
-        ),
+        )),
         if (target.doorYaw == null) ...[
           const SizedBox(height: 6),
           _hint('입구 방향이 없어 대기 장소를 정할 수 없습니다. '
@@ -1038,30 +1038,30 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       const SizedBox(height: 12),
       // '가보기'는 등록 확인용이라 지도 설정에만 둡니다(목업 6·9). 원격 주행 목록과
       // 지도에는 대기 장소가 나오지 않습니다.
-      FilledButton.icon(
+      PressScale(child: FilledButton.icon(
         onPressed: _canSendRobot(supervisor)
             ? () => _goTryWaitSpot(context, supervisor, settings, target)
             : null,
         icon: const Icon(Icons.near_me_outlined),
         label: Text(vicaKeepWords('대기 장소로 가보기 (확인용)')),
-      ),
+      )),
       const SizedBox(height: 10),
       Row(
         children: [
           Expanded(
-            child: OutlinedButton(
+            child: PressScale(child: OutlinedButton(
               onPressed: () => _startWaitPick(target, keep: true),
               child: Text(vicaKeepWords('대기 장소 옮기기')),
-            ),
+            )),
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: OutlinedButton(
+            child: PressScale(child: OutlinedButton(
               onPressed: () =>
                   _removeWaitSpot(context, supervisor, settings, target),
               style: OutlinedButton.styleFrom(foregroundColor: VicaColors.red),
               child: Text(vicaKeepWords('대기 장소만 지우기')),
-            ),
+            )),
           ),
         ],
       ),
@@ -1168,7 +1168,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
         Row(
           children: [
             Expanded(
-              child: FilledButton(
+              child: PressScale(child: FilledButton(
                 onPressed: _doorDirection == null
                     ? null
                     : () => _showLocationInfoSheet(
@@ -1182,16 +1182,16 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                 child: Text(vicaKeepWords(
                   editing == null ? '장소 정보 입력' : '수정 내용 입력',
                 )),
-              ),
+              )),
             ),
             const SizedBox(width: 10),
             // Expanded 가 없으면 버튼 테마의 최소 폭(무한대) 때문에 "무한 폭"
             // 배치 오류가 나서 이 화면 전체가 안 그려집니다(2026-09-14).
             Expanded(
-              child: OutlinedButton(
+              child: PressScale(child: OutlinedButton(
                 onPressed: _clearPickedLocation,
                 child: Text(editing == null ? '선택 취소' : '수정 취소'),
-              ),
+              )),
             ),
           ],
         ),
@@ -1298,7 +1298,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
           children: [
             Expanded(
               flex: 2,
-              child: FilledButton(
+              child: PressScale(child: FilledButton(
                 onPressed: canSave
                     ? () => _saveWaitSpot(
                           context,
@@ -1314,14 +1314,14 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                         )
                     : null,
                 child: Text(vicaKeepWords('대기 장소 저장')),
-              ),
+              )),
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: OutlinedButton(
+              child: PressScale(child: OutlinedButton(
                 onPressed: () => setState(_clearWaitPick),
                 child: const Text('취소'),
-              ),
+              )),
             ),
           ],
         ),
@@ -1504,7 +1504,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
 
   /// 새 목적지를 젯슨에 저장한 직후 묻습니다(목업 3).
   Future<void> _askWaitSpot(BuildContext context, LocationPoint saved) async {
-    final pick = await showDialog<bool>(
+    final pick = await showVicaDialog<bool>(
       context: context,
       builder: (dialogContext) => VicaDialog(
         icon: Icons.place_outlined,
@@ -1516,15 +1516,15 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const SizedBox(height: 4),
-            FilledButton(
+            PressScale(child: FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
               child: const Text('대기 장소 찍기'),
-            ),
+            )),
             const SizedBox(height: 8),
-            OutlinedButton(
+            PressScale(child: OutlinedButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
               child: const Text('지정하지 않기'),
-            ),
+            )),
           ],
         ),
       ),
@@ -1871,7 +1871,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   /// 홈에 붙일 이름을 묻습니다. 비워도 됩니다 — 로봇은 쓰지 않습니다.
   Future<String?> _askHomeLabel(BuildContext context) async {
     final controller = TextEditingController();
-    final value = await showDialog<String>(
+    final value = await showVicaDialog<String>(
       context: context,
       builder: (dialogContext) => VicaDialog(
         icon: Icons.home_outlined,
@@ -1889,10 +1889,10 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
             onPressed: () => Navigator.of(dialogContext).pop(''),
             label: '이름 없이 저장',
           ),
-          FilledButton(
+          PressScale(child: FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(controller.text),
             child: const Text('저장'),
-          ),
+          )),
         ],
       ),
     );
@@ -1973,7 +1973,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     final meters =
         supervisor.routeGraphFor(draft.mapId)?.distanceTo(draft.x, draft.y);
     if (meters != null && meters > kRailHandoffMeters && context.mounted) {
-      final editRail = await showDialog<bool>(
+      final editRail = await showVicaDialog<bool>(
         context: context,
         builder: (_) => RailFarPlaceDialog(name: draft.name, meters: meters),
       );
@@ -2274,7 +2274,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                             },
                           ),
                           const SizedBox(height: 14),
-                          FilledButton.icon(
+                          PressScale(child: FilledButton.icon(
                             onPressed: _pickedRos == null
                                 ? null
                                 : () {
@@ -2327,13 +2327,13 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                                       ? '임시 저장'
                                       : '수정 내용 저장',
                             ),
-                          ),
+                          )),
                           const SizedBox(height: 10),
-                          OutlinedButton.icon(
+                          PressScale(child: OutlinedButton.icon(
                             onPressed: () => Navigator.of(sheetContext).pop(),
                             icon: const Icon(Icons.close),
                             label: const Text('취소'),
-                          ),
+                          )),
                         ],
                       ),
                     ),
@@ -2970,7 +2970,7 @@ class _PositionStep extends StatelessWidget {
           // 초록 바탕 흰 글자의 작은 버튼(목업 13차 사용자 확정, 30px).
           SizedBox(
             height: 30,
-            child: FilledButton(
+            child: PressScale(child: FilledButton(
               onPressed: onStartMove,
               style: FilledButton.styleFrom(
                 minimumSize: const Size(0, 30),
@@ -2982,7 +2982,7 @@ class _PositionStep extends StatelessWidget {
                     const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
               ),
               child: const Text('위치 옮기기'),
-            ),
+            )),
           ),
         ],
       );
@@ -2990,7 +2990,7 @@ class _PositionStep extends StatelessWidget {
     Widget pad(PoseDirection direction, String arrow, String label) {
       return SizedBox(
         height: 44,
-        child: OutlinedButton(
+        child: PressScale(child: OutlinedButton(
           onPressed: () => onStep(direction),
           style: OutlinedButton.styleFrom(
             minimumSize: const Size(0, 44),
@@ -3003,7 +3003,7 @@ class _PositionStep extends StatelessWidget {
             label: label,
             child: Text(arrow, style: const TextStyle(fontSize: 16)),
           ),
-        ),
+        )),
       );
     }
 
@@ -3039,14 +3039,14 @@ class _PositionStep extends StatelessWidget {
               ),
               SizedBox(
                 height: 32,
-                child: FilledButton(
+                child: PressScale(child: FilledButton(
                   onPressed: onDoneMove,
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(0, 32),
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                   ),
                   child: const Text('완료'),
-                ),
+                )),
               ),
             ],
           ),
@@ -3105,10 +3105,10 @@ class _PositionStep extends StatelessWidget {
           ),
           if (onRestore != null) ...[
             const SizedBox(height: 10),
-            OutlinedButton(
+            PressScale(child: OutlinedButton(
               onPressed: onRestore,
               child: Text(vicaKeepWords('원래 자리로 되돌리기')),
-            ),
+            )),
           ],
         ],
       ),
@@ -3218,7 +3218,7 @@ class _DirectionChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       height: 36,
-      child: OutlinedButton(
+      child: PressScale(child: OutlinedButton(
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
           minimumSize: const Size(0, 36),
@@ -3235,7 +3235,7 @@ class _DirectionChip extends StatelessWidget {
           ),
         ),
         child: Text(label),
-      ),
+      )),
     );
   }
 }
@@ -3283,7 +3283,7 @@ class _DoorDirectionRow extends StatelessWidget {
           const SizedBox(width: 8),
           SizedBox(
             height: 36,
-            child: OutlinedButton(
+            child: PressScale(child: OutlinedButton(
               onPressed: onChange,
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size(0, 36),
@@ -3293,7 +3293,7 @@ class _DoorDirectionRow extends StatelessWidget {
                 side: const BorderSide(color: VicaColors.primary),
               ),
               child: const Text('바꾸기'),
-            ),
+            )),
           ),
         ],
       ),

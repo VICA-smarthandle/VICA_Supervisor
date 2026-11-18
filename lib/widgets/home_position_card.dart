@@ -121,10 +121,10 @@ class HomePositionCard extends StatelessWidget {
                 ),
               ),
               if (mode != HomeCardMode.idle)
-                TextButton(
+                PressScale(child: TextButton(
                   onPressed: busy ? null : onCancel,
                   child: const Text('취소'),
-                ),
+                )),
             ],
           ),
           const SizedBox(height: 4),
@@ -182,19 +182,19 @@ class HomePositionCard extends StatelessWidget {
         _InfoBox(icon: Icons.lock_outline, text: blockedReason),
         const SizedBox(height: 12),
       ],
-      FilledButton.icon(
+      PressScale(child: FilledButton.icon(
         onPressed: busy || !canSendRobot ? null : onGoHome,
         icon: const Icon(Icons.navigation_outlined),
         label: Text(saved.visitedOk ? '홈으로 주행(다시 확인)' : '홈으로 주행'),
-      ),
+      )),
       const SizedBox(height: 10),
       _pickButtons(context, relabel: true),
       const SizedBox(height: 10),
-      OutlinedButton.icon(
+      PressScale(child: OutlinedButton.icon(
         onPressed: busy ? null : onDelete,
         icon: const Icon(Icons.delete_outline, size: 18),
         label: const Text('홈 지우기'),
-      ),
+      )),
     ];
   }
 
@@ -202,17 +202,17 @@ class HomePositionCard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        OutlinedButton.icon(
+        PressScale(child: OutlinedButton.icon(
           onPressed: busy ? null : onStartPicking,
           icon: const Icon(Icons.touch_app_outlined, size: 18),
           label: Text(relabel ? '지도에서 다시 선택' : '지도에서 선택'),
-        ),
+        )),
         const SizedBox(height: 8),
-        OutlinedButton.icon(
+        PressScale(child: OutlinedButton.icon(
           onPressed: busy ? null : onStartStanding,
           icon: const Icon(Icons.adjust, size: 18),
           label: Text(relabel ? '지금 위치로 갱신' : '지금 로봇이 있는 위치로'),
-        ),
+        )),
       ],
     );
   }
@@ -249,11 +249,11 @@ class HomePositionCard extends StatelessWidget {
         onSelected: onDirection,
       ),
       const SizedBox(height: 14),
-      FilledButton.icon(
+      PressScale(child: FilledButton.icon(
         onPressed: busy || spot == null || direction == null ? null : onSave,
         icon: const Icon(Icons.save_outlined),
         label: const Text('홈으로 저장'),
-      ),
+      )),
     ];
   }
 
@@ -277,22 +277,22 @@ class HomePositionCard extends StatelessWidget {
         TeleopPad(enabled: !busy && canSendRobot),
         const SizedBox(height: 12),
       ],
-      OutlinedButton.icon(
+      PressScale(child: OutlinedButton.icon(
         onPressed: busy ? null : onCheckStanding,
         icon: const Icon(Icons.search),
         label: Text(result == null ? '위치 확인' : '다시 확인'),
-      ),
+      )),
       if (result != null) ...[
         const SizedBox(height: 12),
         _ScoreBox(result: result),
         const SizedBox(height: 12),
-        FilledButton.icon(
+        PressScale(child: FilledButton.icon(
           // 확정 가능 여부는 앱이 판정하지 않습니다. 노드가 보낸 ok 를 그대로
           // 씁니다 — 앱에서 다시 계산하면 두 기준이 갈립니다.
           onPressed: busy || !result.ok ? null : onSave,
           icon: const Icon(Icons.save_outlined),
           label: const Text('홈으로 저장'),
-        ),
+        )),
       ],
     ];
   }

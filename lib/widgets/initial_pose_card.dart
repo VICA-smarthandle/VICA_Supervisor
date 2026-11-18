@@ -93,10 +93,10 @@ class InitialPoseCard extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
               ),
-              TextButton(
+              PressScale(child: TextButton(
                 onPressed: busy ? null : onClose,
                 child: const Text('닫기'),
-              ),
+              )),
             ],
           ),
           const SizedBox(height: 12),
@@ -156,7 +156,7 @@ class InitialPoseCard extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 16),
-          FilledButton.icon(
+          PressScale(child: FilledButton.icon(
             onPressed: spot == null || busy ? null : onCheck,
             icon: busy
                 ? const SizedBox(
@@ -166,7 +166,7 @@ class InitialPoseCard extends StatelessWidget {
                   )
                 : const Icon(Icons.search),
             label: Text(busy ? '확인 중…' : '확인'),
-          ),
+          )),
           if (result != null) ...[
             const SizedBox(height: 16),
             _Score(result: result!),
@@ -187,7 +187,7 @@ class InitialPoseCard extends StatelessWidget {
                 return Row(
                   children: [
                     Expanded(
-                      child: FilledButton.icon(
+                      child: PressScale(child: FilledButton.icon(
                         // 확정 가능 여부는 **노드가 판정합니다.** 앱은 그 결과를
                         // 그대로 씁니다. 앱에서 다시 계산하면 두 기준이 갈립니다.
                         onPressed: result!.ok && !busy ? onCommit : null,
@@ -196,15 +196,15 @@ class InitialPoseCard extends StatelessWidget {
                           oneLine ? '지금 위치로 확정' : '지금 위치\n확정',
                           textAlign: TextAlign.center,
                         ),
-                      ),
+                      )),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: OutlinedButton.icon(
+                      child: PressScale(child: OutlinedButton.icon(
                         onPressed: busy ? null : onReset,
                         icon: const Icon(Icons.refresh),
                         label: const Text('다시 선택'),
-                      ),
+                      )),
                     ),
                   ],
                 );

@@ -53,10 +53,10 @@ class DeliveryNoticeDialog extends StatelessWidget {
         ],
       ),
       actions: [
-        FilledButton(
+        PressScale(child: FilledButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('확인'),
-        ),
+        )),
       ],
     );
   }

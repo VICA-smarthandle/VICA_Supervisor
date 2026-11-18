@@ -86,23 +86,23 @@ class _MappingShellState extends State<MappingShell> {
       appBar: AppBar(
         title: const Text('지도'),
         actions: [
-          TextButton.icon(
+          PressScale(child: TextButton.icon(
             onPressed: () => _changeMode(context, status),
             icon: const Icon(Icons.swap_horiz),
             label: const Text('모드 바꾸기'),
-          ),
-          IconButton(
+          )),
+          PressScale(child: IconButton(
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
             ),
             icon: const Icon(Icons.settings_outlined),
             tooltip: '설정',
-          ),
-          IconButton(
+          )),
+          PressScale(child: IconButton(
             onPressed: () => confirmLogout(context),
             icon: const Icon(Icons.logout),
             tooltip: '로그아웃',
-          ),
+          )),
           const SizedBox(width: 8),
         ],
       ),
@@ -245,7 +245,7 @@ class _MappingShellState extends State<MappingShell> {
     }
     // 바르게 세워 저장할지 묻습니다(2026-10-07, 목업 13번). 기울기는 미리보기가
     // 저장 스크립트와 같은 계산으로 재 보냅니다. 못 쟀으면 그 줄만 숨습니다.
-    final choice = await showDialog<_SaveChoice>(
+    final choice = await showVicaDialog<_SaveChoice>(
       context: context,
       builder: (_) => _SaveAlignDialog(
         name: name,
@@ -439,7 +439,7 @@ class _EmergencyResetCard extends StatelessWidget {
             style: const TextStyle(fontSize: 12),
           ),
           const SizedBox(height: 10),
-          FilledButton.icon(
+          PressScale(child: FilledButton.icon(
             onPressed:
                 busy ? null : () => supervisor.resetEmergencyStop(settings),
             icon: const Icon(Icons.lock_open),
@@ -448,7 +448,7 @@ class _EmergencyResetCard extends StatelessWidget {
                   ? '해제 다시 시도'
                   : '비상정지 해제',
             ),
-          ),
+          )),
           const SizedBox(height: 8),
           Text(
             vicaKeepWords(vicaBreakAtSentences(
@@ -589,11 +589,11 @@ class _PrepareStep extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 6),
-        FilledButton.icon(
+        PressScale(child: FilledButton.icon(
           onPressed: canStart ? onStart : null,
           icon: const Icon(Icons.play_arrow),
           label: const Text('매핑 시작'),
-        ),
+        )),
         const SizedBox(height: 8),
         Text(
           // 두 문장이 띄어쓰기 없이 붙어 보였습니다(2026-09-15 검토). 마침표
@@ -637,21 +637,24 @@ class _MappingStep extends StatelessWidget {
           _MappingPreview(settings: settings),
           const SizedBox(height: 12),
         ],
-        TeleopPad(enabled: status?.state == MappingState.mapping),
+        TeleopPad(
+          enabled: status?.state == MappingState.mapping,
+          adjustableSpeed: true,
+        ),
         const SizedBox(height: 4),
         // 버튼 둘을 위아래로 놓습니다(2026-09-14 시안). 전에는 Row 에 두었는데,
         // 버튼 테마의 최소 폭이 무한대라 Expanded 없이 놓인 '취소'가 "무한 폭"
         // 배치 오류를 내고 이 화면 전체가 그려지지도, 눌리지도 않았습니다.
-        FilledButton.icon(
+        PressScale(child: FilledButton.icon(
           onPressed: status?.canSave == true ? onGoSave : null,
           icon: const Icon(Icons.save_outlined),
           label: const Text('지도 작성 완료'),
-        ),
+        )),
         const SizedBox(height: 8),
-        OutlinedButton(
+        PressScale(child: OutlinedButton(
           onPressed: onStop,
           child: const Text('취소'),
-        ),
+        )),
       ],
     );
   }
@@ -756,13 +759,13 @@ class _SaveStep extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        FilledButton.icon(
+        PressScale(child: FilledButton.icon(
           // 저장 중에는 막습니다. 누르면 정렬 팝업부터 뜨고 고른 뒤에야 감독
           // 노드가 거부해 한 단계를 헛걸음하게 됩니다(2026-10-07 검토).
           onPressed: status?.state == MappingState.saving ? null : onSave,
           icon: const Icon(Icons.save),
           label: const Text('저장'),
-        ),
+        )),
         // 노드가 보내는 상태 설명은 저장 중·오류일 때만 보입니다. 지도를 그리는
         // 중이라는 말은 이 단계에선 뻔한 소리라 뺐습니다(2026-09-15). 거부 사유는
         // 저장 응답이 상태 설명으로 오므로 그때는 그대로 보여야 합니다.
@@ -840,7 +843,7 @@ class _DoneStep extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
-                child: OutlinedButton.icon(
+                child: PressScale(child: OutlinedButton.icon(
                   onPressed: onRefreshMaps,
                   icon: const Icon(Icons.refresh),
                   // 폰 폭(360~412)에서는 한 줄에 못 들어가 '새로고' + '침'으로
@@ -849,14 +852,14 @@ class _DoneStep extends StatelessWidget {
                     '지도 목록\n새로고침',
                     textAlign: TextAlign.center,
                   ),
-                ),
+                )),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: FilledButton(
+                child: PressScale(child: FilledButton(
                   onPressed: onFinish,
                   child: const Text('매핑 종료'),
-                ),
+                )),
               ),
             ],
           ),
@@ -1047,27 +1050,27 @@ class _SaveAlignDialog extends StatelessWidget {
               const SizedBox(height: 14),
               SizedBox(
                 height: 48,
-                child: FilledButton(
+                child: PressScale(child: FilledButton(
                   onPressed: () => Navigator.of(context).pop(_SaveChoice.align),
                   child: const Text('정렬해서 저장'),
-                ),
+                )),
               ),
               const SizedBox(height: 8),
               SizedBox(
                 height: 48,
-                child: OutlinedButton(
+                child: PressScale(child: OutlinedButton(
                   onPressed: () => Navigator.of(context).pop(_SaveChoice.plain),
                   child: const Text('정렬하지 않고 저장'),
-                ),
+                )),
               ),
               const SizedBox(height: 4),
-              TextButton(
+              PressScale(child: TextButton(
                 onPressed: () => Navigator.of(context).pop(_SaveChoice.cancel),
                 child: const Text(
                   '취소',
                   style: TextStyle(color: VicaColors.muted),
                 ),
-              ),
+              )),
             ],
           ),
         ),

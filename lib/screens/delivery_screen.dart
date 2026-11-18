@@ -225,14 +225,14 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
             title: const Text('물건을 실었습니다'),
           ),
           const SizedBox(height: 6),
-          FilledButton.icon(
+          PressScale(child: FilledButton.icon(
             // 요청 가능 여부(권한·접근성·E-stop·Nav2)는 Mission Manager가 판정합니다.
             onPressed: selected == null || !_loaded || busy || _typedPhone == null
                 ? null
                 : () => _confirmStart(context, supervisor, selected),
             icon: Icon(busy ? Icons.local_shipping : Icons.send),
             label: Text(busy ? '배송 중' : '배송 출발'),
-          ),
+          )),
         ],
       ),
     );
@@ -304,7 +304,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
   ) async {
     final settings = context.read<SettingsProvider>().settings;
     // 창이 입력 칸 컨트롤러를 스스로 들고 정리합니다 — 닫히는 애니메이션 중에 버리면 오류가 납니다.
-    final result = await showDialog<String>(
+    final result = await showVicaDialog<String>(
       context: context,
       builder: (_) => _ContactEditDialog(location: location),
     );
@@ -514,22 +514,22 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
       return Row(
         children: [
           Expanded(
-            child: FilledButton.icon(
+            child: PressScale(child: FilledButton.icon(
               onPressed: hasHome
                   ? () =>
                       sendRobotCommand(context, supervisor.returnDeliveryNow)
                   : null,
               icon: const Icon(Icons.home),
               label: const Text('지금 복귀'),
-            ),
+            )),
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: OutlinedButton.icon(
+            child: PressScale(child: OutlinedButton.icon(
               onPressed: supervisor.cancelDeliveryReturn,
               icon: const Icon(Icons.timer_off_outlined),
               label: const Text('복귀 취소'),
-            ),
+            )),
           ),
         ],
       );
@@ -537,21 +537,21 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
     return Row(
       children: [
         Expanded(
-          child: OutlinedButton.icon(
+          child: PressScale(child: OutlinedButton.icon(
             onPressed: hasHome
                 ? () => sendRobotCommand(context, supervisor.returnDeliveryNow)
                 : null,
             icon: const Icon(Icons.home_outlined),
             label: Text(hasHome ? '홈으로 복귀' : '홈이 없습니다'),
-          ),
+          )),
         ),
         const SizedBox(width: 10),
         Expanded(
-          child: OutlinedButton.icon(
+          child: PressScale(child: OutlinedButton.icon(
             onPressed: supervisor.clearDelivery,
             icon: const Icon(Icons.check),
             label: const Text('지우기'),
-          ),
+          )),
         ),
       ],
     );
@@ -564,31 +564,31 @@ class _DeliveryStatusCardState extends State<_DeliveryStatusCard> {
     return Row(
       children: [
         Expanded(
-          child: FilledButton.icon(
+          child: PressScale(child: FilledButton.icon(
             onPressed: () => sendRobotCommand(
                 context, (_) => supervisor.confirmDeliveryArrival()),
             icon: const Icon(Icons.sms_outlined),
             label: const Text('도착 처리 · 문자'),
-          ),
+          )),
         ),
         const SizedBox(width: 10),
         Expanded(
-          child: OutlinedButton.icon(
+          child: PressScale(child: OutlinedButton.icon(
             onPressed: supervisor.clearDelivery,
             icon: const Icon(Icons.delete_outline),
             label: const Text('지우기'),
-          ),
+          )),
         ),
       ],
     );
   }
 
   Widget _finishedButtons() {
-    return OutlinedButton.icon(
+    return PressScale(child: OutlinedButton.icon(
       onPressed: widget.supervisor.clearDelivery,
       icon: const Icon(Icons.check),
       label: const Text('배송 완료 · 지우기'),
-    );
+    ));
   }
 }
 
@@ -728,7 +728,7 @@ class _ContactsCard extends StatelessWidget {
           else
             for (final (index, location) in locations.indexed) ...[
               if (index > 0) const Divider(height: 1),
-              InkWell(
+              PressScale(child: InkWell(
                 onTap: () => onEdit(location),
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(minHeight: 52),
@@ -755,7 +755,7 @@ class _ContactsCard extends StatelessWidget {
                     ],
                   ),
                 ),
-              ),
+              )),
             ],
         ],
       ),
@@ -808,16 +808,16 @@ class _ContactEditDialogState extends State<_ContactEditDialog> {
       ),
       actions: [
         if (widget.location.contactPhone.isNotEmpty)
-          TextButton(
+          PressScale(child: TextButton(
             onPressed: () => Navigator.of(context).pop(''),
             style: TextButton.styleFrom(foregroundColor: VicaColors.red),
             child: const Text('지우기'),
-          ),
+          )),
         VicaCancelButton(onPressed: () => Navigator.of(context).pop()),
-        FilledButton(
+        PressScale(child: FilledButton(
           onPressed: valid ? () => Navigator.of(context).pop(digits) : null,
           child: const Text('저장'),
-        ),
+        )),
       ],
     );
   }

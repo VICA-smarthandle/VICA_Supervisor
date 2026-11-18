@@ -83,10 +83,10 @@ class _HelpAlertDialogState extends State<HelpAlertDialog> {
             VicaDialogRow(label: '요청 시각', value: supervisor.helpRequestedAt),
         ],
         actions: [
-          FilledButton(
+          PressScale(child: FilledButton(
             onPressed: _sending ? null : () => _acknowledge(supervisor),
             child: const Text('확인'),
-          ),
+          )),
         ],
       ),
     );

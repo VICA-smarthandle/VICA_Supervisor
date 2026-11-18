@@ -130,25 +130,25 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
                 ),
               ),
             ),
-          IconButton(
+          PressScale(child: IconButton(
             onPressed: supervisor.stackStatusLoading
                 ? null
                 : () => supervisor.refreshStackStatus(),
             icon: const Icon(Icons.refresh),
             tooltip: '로봇 상태 다시 확인',
-          ),
-          IconButton(
+          )),
+          PressScale(child: IconButton(
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
             ),
             icon: const Icon(Icons.settings_outlined),
             tooltip: '설정',
-          ),
-          IconButton(
+          )),
+          PressScale(child: IconButton(
             onPressed: () => confirmLogout(context),
             icon: const Icon(Icons.logout),
             tooltip: '로그아웃',
-          ),
+          )),
           const SizedBox(width: 8),
         ],
       ),
@@ -222,7 +222,7 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
             const SizedBox(height: 28),
             const Divider(height: 1),
             const SizedBox(height: 14),
-            OutlinedButton.icon(
+            PressScale(child: OutlinedButton.icon(
               style: OutlinedButton.styleFrom(
                 foregroundColor: VicaColors.red,
                 side: const BorderSide(color: VicaColors.red, width: 1.5),
@@ -233,7 +233,7 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
               onPressed: connected ? () => confirmAndShutdownRobot(context) : null,
               icon: const Icon(Icons.power_settings_new, size: 20),
               label: const Text('로봇 끄기'),
-            ),
+            )),
             const SizedBox(height: 6),
             const Text(
               '전원을 내리기 전에 누르세요',
@@ -588,10 +588,10 @@ Future<(DriveSubmode, VoiceChoice?)?> showDriveSubmodeSheet(
                   ),
                   const SizedBox(height: 10),
                 ],
-                TextButton(
+                PressScale(child: TextButton(
                   onPressed: () => Navigator.of(sheetContext).pop(),
                   child: const Text('닫기'),
-                ),
+                )),
               ],
             ),
           ),
@@ -671,7 +671,7 @@ class _SubmodeButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
+    return PressScale(child: Material(
       color: VicaColors.card,
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
@@ -720,7 +720,7 @@ class _SubmodeButton extends StatelessWidget {
           ),
         ),
       ),
-    );
+    ));
   }
 }
 
@@ -787,7 +787,7 @@ class _ModeCard extends StatelessWidget {
     final enabled = state.enabled;
     return Opacity(
       opacity: enabled ? 1 : 0.55,
-      child: Material(
+      child: PressScale(child: Material(
         color: VicaColors.card,
         // 본문 카드(12)보다 크게 두어 '더 큰 면'으로 읽히게 합니다.
         borderRadius: BorderRadius.circular(16),
@@ -870,7 +870,7 @@ class _ModeCard extends StatelessWidget {
             ),
           ),
         ),
-      ),
+      )),
     );
   }
 }

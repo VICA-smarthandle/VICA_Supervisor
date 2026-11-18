@@ -65,10 +65,10 @@ class _GoalAlertDialogState extends State<GoalAlertDialog> {
           VicaDialogRow(label: label, value: value),
       ],
       actions: [
-        FilledButton(
+        PressScale(child: FilledButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('확인'),
-        ),
+        )),
       ],
     );
   }

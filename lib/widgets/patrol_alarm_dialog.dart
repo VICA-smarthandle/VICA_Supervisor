@@ -118,13 +118,13 @@ class _PatrolAlarmDialogState extends State<PatrolAlarmDialog> {
           ],
         ),
         actions: [
-          FilledButton(
+          PressScale(child: FilledButton(
             onPressed: _sending ? null : () => _acknowledge(supervisor),
             style: intruder
                 ? FilledButton.styleFrom(backgroundColor: VicaColors.red)
                 : null,
             child: Text(kind.ackLabel),
-          ),
+          )),
         ],
       ),
     );

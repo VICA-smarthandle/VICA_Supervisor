@@ -13,6 +13,7 @@ import '../widgets/initial_pose_card.dart';
 import '../widgets/drive_control_bar.dart';
 import '../widgets/drive_map_canvas.dart';
 import '../widgets/drive_map_change.dart';
+import '../widgets/manual_drive_card.dart';
 import '../widgets/map_canvas.dart';
 import '../widgets/map_picker.dart';
 import '../widgets/map_work_layout.dart';
@@ -32,6 +33,12 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
   bool _picking = false;
   Offset? _picked;
   PoseDirection? _direction = PoseDirection.right;
+
+  // 목적지 주행 / 수동 주행(2026-11-18 사용자). 수동 주행은 누르는 동안만 움직입니다.
+  bool _manual = false;
+
+  /// 수동 주행을 열어 두는 미션 상태(mission_logic.State). 그 밖은 모두 막습니다.
+  static const _manualIdleStates = {'', 'idle', 'none', 'arrived', 'failed', 'estopped'};
 
   @override
   Widget build(BuildContext context) {
@@ -65,6 +72,20 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     // 받지 않아 '접근 취소' 하나만 둡니다.
     final activity = MissionActivity.of(robot);
     final busy = driving || paused || activity != null;
+    // 수동 주행은 로봇이 할 일이 없을 때만(허용 목록, 2026-11-18 검토). 경비 구간·찾기(Spin)는
+    // current_goal 을 비워 두므로 busy 만으로는 못 막습니다. 대화 중(확인·다음 장소 묻기)도 사용자가
+    // 손잡이를 잡고 있을 수 있어 막습니다. 상태를 못 받았으면 알 수 없으니 막습니다.
+    final String? manualBlocked;
+    if (robot == null) {
+      manualBlocked = '로봇 상태를 받지 못해 쓸 수 없습니다.';
+    } else if (busy ||
+        robot.status == 'moving' ||
+        supervisor.patrolPhase.active ||
+        !_manualIdleStates.contains(robot.dialogState.trim())) {
+      manualBlocked = kManualDriveBusyMessage;
+    } else {
+      manualBlocked = null;
+    }
 
     // 넓은 화면은 지도 왼쪽 + 카드 오른쪽, 세로 태블릿은 지도 위 고정(map_work_layout.dart).
     // 본문 제목은 뺐습니다 — 제목줄과 같은 말입니다(2026-11-17 제목·문구 간결화, 사용자 승인).
@@ -91,9 +112,34 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
         const SizedBox(height: 18),
         // 보는 지도가 주행 지도와 다르면 '이 지도로 주행'(2026-11-17 목업 ③⑥).
         DriveMapBanner(viewedMapId: supervisor.selectedMapId),
-        if (map == null)
-          const NoMapCard()
-        else ...[
+        Center(
+          child: SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: false, label: Text('목적지 주행')),
+              ButtonSegment(value: true, label: Text('수동 주행')),
+            ],
+            selected: {_manual},
+            showSelectedIcon: false,
+            onSelectionChanged: (value) => setState(() {
+              _manual = value.first;
+              if (_manual) {
+                // 초기 위치 잡기를 하던 중이면 접습니다 — 지도 탭과 조종이 섞이지 않게.
+                _picking = false;
+                _picked = null;
+                supervisor.clearPoseCheck();
+              }
+            }),
+          ),
+        ),
+        const SizedBox(height: 14),
+        if (map == null) ...[
+          const NoMapCard(),
+          // 수동 주행은 지도가 없어도 됩니다 — 누르는 동안 바퀴만 움직입니다.
+          if (_manual) ...[
+            const SizedBox(height: 20),
+            ManualDriveCard(blockedMessage: manualBlocked),
+          ],
+        ] else ...[
           // 홈·금지구역·로봇 위치는 주행 화면 공통(DriveMapCanvas). 이 화면은
           // 장소 전체를 보이고, 초기 위치 잡기의 짚은 점·자세·라이다 점만 얹습니다.
           DriveMapCanvas(
@@ -135,7 +181,9 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                 : (location) => supervisor.selectLocation(location.locationId),
           ),
           const SizedBox(height: 20),
-          if (_picking)
+          if (_manual)
+            ManualDriveCard(blockedMessage: manualBlocked)
+          else if (_picking)
             InitialPoseCard(
               picked: _picked,
               direction: _direction,
@@ -160,7 +208,9 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
             )
           else
             _initialPoseEntry(context, supervisor, busy),
-          const SizedBox(height: 20),
+          // 수동 주행 중에는 목적지 목록을 접습니다(2026-11-18 사용자).
+          if (!_manual) const SizedBox(height: 20),
+          if (!_manual)
           VicaCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -173,7 +223,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ),
-                    OutlinedButton(
+                    PressScale(child: OutlinedButton(
                       onPressed: null,
                       // 개수 배지라 내용 폭만 씁니다. 테마의 최소 폭(무한대)을
                       // 그대로 두면 Row 안에서 "무한 폭" 배치 오류가 납니다.
@@ -182,7 +232,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                       ),
                       child: Text('${locations.length}개'),
-                    ),
+                    )),
                   ],
                 ),
                 const SizedBox(height: 14),
@@ -232,7 +282,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                   ),
                   const SizedBox(height: 10),
                 ],
-                FilledButton.icon(
+                PressScale(child: FilledButton.icon(
                   // 요청 가능 여부(권한·접근성·E-stop·Nav2)는 Mission Manager가 판정합니다.
                   // 앱은 장소 선택 여부와 진행 중인 주행만 보고 버튼 상태를 정합니다.
                   onPressed: selected == null || busy
@@ -245,10 +295,10 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                           : Icons.navigation),
                   label: Text(activity?.lockedRequestLabel ??
                       (driving ? '주행 중' : '선택 장소로 주행 요청')),
-                ),
+                )),
                 if (activity != null && activity.cancellable) ...[
                   const SizedBox(height: 10),
-                  OutlinedButton.icon(
+                  PressScale(child: OutlinedButton.icon(
                     onPressed: () => _confirmActivityCancel(
                       context,
                       supervisor,
@@ -256,7 +306,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                     ),
                     icon: const Icon(Icons.cancel_outlined),
                     label: Text(activity.cancelLabel),
-                  ),
+                  )),
                 ] else if (activity == null && (driving || paused)) ...[
                   const SizedBox(height: 10),
                   // 물류 배송과 같은 버튼 한 벌(2026-09-03 통일).
@@ -277,7 +327,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                     supervisor.home != null) ...[
                   const SizedBox(height: 10),
                   const Divider(height: 20),
-                  OutlinedButton.icon(
+                  PressScale(child: OutlinedButton.icon(
                     onPressed: busy
                         ? null
                         : () => _confirmReturnHome(context, supervisor),
@@ -286,7 +336,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                       activity?.homeLockedLabel ??
                           (driving || paused ? '주행 중에는 홈으로 부를 수 없습니다' : '홈으로 복귀'),
                     ),
-                  ),
+                  )),
                   if (!supervisor.home!.visitedOk) ...[
                     const SizedBox(height: 6),
                     Text(
@@ -451,12 +501,12 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
             style: const TextStyle(color: VicaColors.muted, fontSize: 13),
           ),
           const SizedBox(height: 12),
-          OutlinedButton.icon(
+          PressScale(child: OutlinedButton.icon(
             onPressed:
                 blocked.isEmpty ? () => _enterPosePicking(supervisor) : null,
             icon: const Icon(Icons.add_location_alt_outlined),
             label: const Text('초기 위치 잡기'),
-          ),
+          )),
         ],
       ),
     );

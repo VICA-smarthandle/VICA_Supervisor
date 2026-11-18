@@ -82,7 +82,7 @@ class _DriveStopButtonState extends State<DriveStopButton> {
       return const SizedBox.shrink();
     }
     // 비상정지(빨강 채움)와 구별되게 테두리만 빨강. 크기는 옆 '모드 바꾸기'와 같습니다.
-    return OutlinedButton.icon(
+    return PressScale(child: OutlinedButton.icon(
       style: OutlinedButton.styleFrom(
         foregroundColor: VicaColors.red,
         side: const BorderSide(color: VicaColors.red, width: 1.5),
@@ -94,7 +94,7 @@ class _DriveStopButtonState extends State<DriveStopButton> {
       onPressed: !_busy && canStopDrive(status) ? _press : null,
       icon: const Icon(Icons.power_settings_new, size: 18),
       label: const Text('주행 끄기'),
-    );
+    ));
   }
 }
 
@@ -109,11 +109,11 @@ class PhoneModeButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final status = context.watch<SupervisorProvider>().modeStatus;
     if (status == null || !status.driveOn) {
-      return IconButton(
+      return PressScale(child: IconButton(
         onPressed: onChangeMode,
         icon: const Icon(Icons.swap_horiz),
         tooltip: '모드 바꾸기',
-      );
+      ));
     }
     final stoppable = canStopDrive(status);
     return PopupMenuButton<_ModeMenu>(

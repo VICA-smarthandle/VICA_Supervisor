@@ -77,7 +77,7 @@ class _Banner extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
-      child: Material(
+      child: PressScale(child: Material(
         color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(10),
         child: InkWell(
@@ -130,7 +130,7 @@ class _Banner extends StatelessWidget {
             ),
           ),
         ),
-      ),
+      )),
     );
   }
 }

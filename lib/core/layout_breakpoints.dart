@@ -18,10 +18,6 @@ class VicaBreakpoints {
   /// 본문 최대 폭입니다. 더 넓어지면 한 줄이 길어져 오히려 읽기 어렵습니다.
   static const double contentMaxWidth = 1280;
 
-  /// 대시보드 숫자 줄(VicaCountStrip)의 최대 폭입니다. 본문보다 좁게 두어 카드가 과하게
-  /// 늘어나지 않게 합니다.
-  static const double metricGridMaxWidth = 1040;
-
   /// 지도 화면을 '지도 왼쪽 + 설정 칸 오른쪽'으로 나누는 본문 폭입니다(2026-11-09 사용자 요청).
   ///
   /// 오른쪽 칸 최소 폭(400)과 사이를 빼고 지도가 280px 넘게 남는 폭입니다. 1024×768

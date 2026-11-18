@@ -325,7 +325,7 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
     }
     if (status.stopPending) {
       return [
-        FilledButton(
+        PressScale(child: FilledButton(
           onPressed: _busy
               ? null
               : () {
@@ -334,13 +334,13 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
                   _run(supervisor.driveStart, onRefused: () => _stopRequested = true);
                 },
           child: const Text('끄기 취소'),
-        ),
+        )),
       ];
     }
     if (_stopRequested || status.state == ModeState.stopping) {
       return const [];
     }
-    final stopButton = OutlinedButton(
+    final stopButton = PressScale(child: OutlinedButton(
       style: OutlinedButton.styleFrom(
         foregroundColor: VicaColors.red,
         side: const BorderSide(color: VicaColors.red),
@@ -348,14 +348,14 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
       ),
       onPressed: _busy ? null : () => _stop(supervisor),
       child: const Text('주행 끄기'),
-    );
+    ));
     if (status.state == ModeState.error) {
       return [
         if (_nav2Failed(status)) ...[
-          FilledButton(
+          PressScale(child: FilledButton(
             onPressed: _busy ? null : () => _run(supervisor.nav2Restart),
             child: const Text('Nav2 다시 시작'),
-          ),
+          )),
           const SizedBox(height: 10),
         ],
         stopButton,
@@ -363,13 +363,13 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
     }
     if (status.state == ModeState.needInitialPose) {
       return [
-        FilledButton(
+        PressScale(child: FilledButton(
           // 초기 위치 카드는 원격 주행 탭에 있습니다. 그 탭으로 들어갑니다.
           onPressed: () => _leave(
             (modes) => modes.enterDrive(widget.submode, landingTab: '원격 주행'),
           ),
           child: const Text('초기 위치 잡기'),
-        ),
+        )),
         const SizedBox(height: 10),
         stopButton,
       ];

@@ -54,10 +54,10 @@ class RailFarPlaceDialog extends StatelessWidget {
           onPressed: () => Navigator.of(context).pop(false),
           label: '확인',
         ),
-        FilledButton(
+        PressScale(child: FilledButton(
           onPressed: () => Navigator.of(context).pop(true),
           child: const Text('레일 편집'),
-        ),
+        )),
       ],
     );
   }

@@ -323,12 +323,12 @@ class PatrolRecordTile extends StatelessWidget {
               label: _playLabel(record.clipSec),
               button: true,
               excludeSemantics: true,
-              child: OutlinedButton.icon(
+              child: PressScale(child: OutlinedButton.icon(
                 onPressed: onPlay,
                 style: patrolSmallButtonStyle(),
                 icon: const Icon(Icons.play_arrow, size: 16),
                 label: Text(record.clipLength, style: patrolSmallButtonText),
-              ),
+              )),
             ),
           ] else if (record.hasPhoto && onPhoto != null) ...[
             const SizedBox(width: 8),
@@ -336,11 +336,11 @@ class PatrolRecordTile extends StatelessWidget {
               label: record.kind.shortTitle,
               button: true,
               excludeSemantics: true,
-              child: OutlinedButton(
+              child: PressScale(child: OutlinedButton(
                 onPressed: onPhoto,
                 style: patrolSmallButtonStyle(),
                 child: const Icon(Icons.image_outlined, size: 16),
-              ),
+              )),
             ),
           ],
         ],

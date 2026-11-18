@@ -720,6 +720,8 @@ void main() {
       ));
       await tester.pump();
       await tester.pump();
+      // 탭을 바꾸면 새 화면이 옆에서 밀려 들어온다(2026-11-18 전환 효과 ②) — 끝날 때까지 넘긴다.
+      await tester.pump(kVicaTransition);
       await _answerRoute(tester, server, 6);
 
       await tester.ensureVisible(find.text('경비 종료'));
