@@ -292,6 +292,25 @@ def map_paths(maps_root: Path, map_id: str) -> dict[str, Path]:
     }
 
 
+def _write_atomic(targets: list[tuple[Path, bytes]]) -> None:
+    """km.write_all_atomic 과 같되, 이미 있던 파일의 권한을 그대로 둡니다.
+
+    임시 파일은 600 으로 만들어져 바꾼 뒤에도 600 이 남았습니다(11-19 실기, 664 → 600).
+    """
+    modes = {}
+    for path, _ in targets:
+        try:
+            modes[path] = path.stat().st_mode & 0o7777
+        except OSError:
+            pass
+    km.write_all_atomic(targets)
+    for path, mode in modes.items():
+        try:
+            os.chmod(path, mode)
+        except OSError:
+            pass   # 권한만 못 돌린 것 — 내용은 이미 바뀌었고 같은 사용자는 읽습니다
+
+
 def write_map_pixels(maps_root: Path, map_id: str, pixels: np.ndarray) -> None:
     """pgm 과 png 를 임시 파일로 다 쓴 뒤 한꺼번에 바꿉니다. 크기가 다르면 쓰지 않습니다."""
     try:
@@ -302,7 +321,7 @@ def write_map_pixels(maps_root: Path, map_id: str, pixels: np.ndarray) -> None:
         raise MapFixError("bad_map", "지도 크기가 달라 쓰지 않았습니다.")
     paths = map_paths(maps_root, map_id)
     try:
-        km.write_all_atomic([
+        _write_atomic([
             (paths["pgm"], encode_pgm(pixels)),
             (paths["png"], encode_png(pixels)),
         ])
@@ -491,7 +510,7 @@ def restore_backup(maps_root: Path, map_id: str, backup: Path) -> None:
     except OSError:
         raise MapFixError("io_error", "백업에 지도 그림이 없어 되돌리지 못했습니다.") from None
     try:
-        km.write_all_atomic(targets)
+        _write_atomic(targets)
     except km.KeepoutError as error:
         raise MapFixError(error.reason, error.message) from None
 
@@ -536,6 +555,6 @@ def snapshot(maps_root: Path, map_id: str) -> list[tuple[Path, bytes]]:
 def write_snapshot(targets: list[tuple[Path, bytes]]) -> None:
     """snapshot 으로 들어 둔 파일들을 원자적으로 도로 씁니다."""
     try:
-        km.write_all_atomic(targets)
+        _write_atomic(targets)
     except km.KeepoutError as error:
         raise MapFixError(error.reason, error.message) from None

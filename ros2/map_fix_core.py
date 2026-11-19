@@ -237,14 +237,26 @@ class MapFixCore:
         return True, reason, MESSAGES[done] if applied else message, result
 
     def retry_pending(self) -> None:
-        """응답이 없어 확인 못 한 반영을 다시 겁니다. 노드가 몇 초마다 부릅니다."""
+        """응답이 없어 확인 못 한 반영을 다시 겁니다(시험·단순 호출용 — 노드는 아래 둘을 나눠 부릅니다)."""
+        map_id = self.retry_target()
+        if map_id:
+            self.finish_retry(map_id, self._apply(map_id))
+
+    def retry_target(self) -> str:
+        """지금 다시 걸 지도. 없으면 ''. 노드는 이것만 잠금 안에서 묻고, Nav2 응답은 잠금 밖에서 기다립니다
+        (11-19 실기: 잠금을 쥔 채 10 s 씩 6번 기다려 그동안 앱 요청이 답을 못 받았다)."""
         map_id = self.pending_apply
-        if not map_id or self.lock():
-            return
+        if not map_id or self.session is not None or self.lock():
+            return ""
         if map_id != self._current_map_id():
             self.pending_apply = ""
-            return
-        applied, reason, message = self._apply(map_id)
+            return ""
+        return map_id
+
+    def finish_retry(self, map_id: str, outcome: tuple) -> None:
+        applied, reason, message = outcome
+        if self.pending_apply != map_id:
+            return                     # 기다리는 사이 다른 수정이 새로 걸었습니다
         if applied or reason != "apply_timeout":
             # no_nav2 면 Nav2 가 켜질 때 파일을 읽으므로 더 할 일이 없습니다.
             self.pending_apply = ""

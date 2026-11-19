@@ -179,51 +179,118 @@ def test_scan_input_drops_beams_on_the_body():
     assert taken.ranges[0] == 2.0 and math.isnan(taken.ranges[1])
 
 
-def _hold_core_lock(fake):
+class _NeverAnswers:
+    """요청은 받되 응답이 오지 않는 load_map 클라이언트(11-19 19:35 실기: map_server 는 7번 다 읽었는데
+    노드는 앞 6번의 응답을 받지 못했다)."""
+
+    def __init__(self):
+        from rclpy.task import Future
+
+        self.sent = []
+        self._future = Future
+
+    def service_is_ready(self):
+        return True
+
+    def call_async(self, request):
+        self.sent.append(request.map_url)
+        return self._future()
+
+    def remove_pending_request(self, future):
+        pass
+
+
+def _apply_node(timeout_sec: float):
     import threading
+    from pathlib import Path as _Path
 
-    held, release = threading.Event(), threading.Event()
+    fake = node.MapFixNode.__new__(node.MapFixNode)
+    fake._load_map_client = _NeverAnswers()
+    fake._load_map_made_at = 0.0
+    fake._load_map_type = SimpleNamespace(Request=lambda: SimpleNamespace(map_url=""))
+    fake.maps_root = _Path("/maps")
+    fake._apply_cond = threading.Condition()
+    fake._map_loaded_wall = 0.0
+    fake.get_parameter = lambda name: SimpleNamespace(value={"apply_timeout_sec": timeout_sec}[name])
+    quiet = SimpleNamespace(warn=lambda *a, **k: None, info=lambda *a, **k: None, error=lambda *a, **k: None)
+    fake.get_logger = lambda: quiet
+    return fake
 
-    def hold():
-        with fake._core_lock:
-            held.set()
-            release.wait(5.0)
 
-    thread = threading.Thread(target=hold)
-    thread.start()
-    held.wait(1.0)
-    return release, thread
+def _map_message(load_wall: float):
+    sec = int(load_wall)
+    return SimpleNamespace(info=SimpleNamespace(map_load_time=SimpleNamespace(
+        sec=sec, nanosec=int((load_wall - sec) * 1e9))))
 
 
-def test_odom_and_scan_do_not_wait_while_an_apply_holds_the_core():
-    """11-19 실기: scan_apply 가 load_map 응답을 기다리는 10 s 동안 잠금을 쥐고 있어, 오도메트리·스캔
-    콜백이 잠금을 기다리며 실행 스레드를 다 묶었다 → load_map 응답을 받을 스레드가 없어 apply_timeout,
-    그동안 앱 요청도 답을 못 받았다. 잠금이 잡혀 있으면 그 표본은 버리고 바로 돌아온다."""
+def test_apply_is_confirmed_by_the_new_map_when_the_answer_is_lost():
+    """응답이 사라져도 map_server 가 다시 낸 /map(읽은 시각이 요청 뒤)으로 반영을 확인한다 —
+    헛되이 시간 초과·재요청(AMCL 이 지도를 또 받음)하지 않는다."""
     import threading
     import time
 
+    fake = _apply_node(timeout_sec=3.0)
+    threading.Timer(0.2, lambda: fake._on_map(_map_message(time.time()))).start()
+
+    start = time.monotonic()
+    applied, reason, _ = fake._apply("m")
+
+    assert (applied, reason) == (True, "") and time.monotonic() - start < 1.0
+    assert fake._load_map_client.sent == ["/maps/m.yaml"]
+
+
+def test_an_older_map_does_not_confirm_the_apply():
+    import threading
+    import time
+
+    fake = _apply_node(timeout_sec=0.6)
+    threading.Timer(0.1, lambda: fake._on_map(_map_message(time.time() - 30.0))).start()
+
+    applied, reason, _ = fake._apply("m")
+
+    assert (applied, reason) == (False, "apply_timeout")
+
+
+def test_apply_waits_five_seconds_by_default():
+    import inspect
+
+    assert '"apply_timeout_sec", 5.0' in inspect.getsource(node.MapFixNode.__init__)
+
+
+def test_retry_waits_for_nav2_outside_the_core_lock():
+    """11-19 실기: 재요청이 잠금을 쥔 채 10 s 씩 6번 기다려, 그동안 앱 요청이 답을 못 받았다(call_30 시간 초과)."""
+    import threading
+
     fake = node.MapFixNode.__new__(node.MapFixNode)
     fake._core_lock = threading.RLock()
-    fed = []
-    fake.core = SimpleNamespace(session=object(), feed_motion=lambda *a: fed.append(a),
-                                feed_scan=lambda taken: fed.append(taken))
-    fake._scan_event = threading.Event()
-    fake._scan_input = lambda msg: "taken"
-    odom = SimpleNamespace(twist=SimpleNamespace(twist=SimpleNamespace(
-        linear=SimpleNamespace(x=0.0), angular=SimpleNamespace(z=0.0))))
-    release, thread = _hold_core_lock(fake)
-    try:
-        start = time.monotonic()
-        fake._on_odom(odom)
-        fake._on_scan(SimpleNamespace())
-        took = time.monotonic() - start
-    finally:
-        release.set()
-        thread.join()
+    seen = {}
 
-    assert took < 0.5 and fed == []
-    fake._on_odom(odom)                     # 잠금이 풀리면 평소대로
-    assert len(fed) == 1
+    def apply(map_id):
+        free = threading.Event()
+
+        def try_lock():
+            if fake._core_lock.acquire(timeout=0.5):
+                fake._core_lock.release()
+                free.set()
+
+        probe = threading.Thread(target=try_lock)
+        probe.start()
+        probe.join()
+        seen["lock_free_while_waiting"] = free.is_set()
+        return False, "apply_timeout", ""
+
+    finished = []
+    fake.core = SimpleNamespace(retry_target=lambda: "m", finish_retry=lambda *a: finished.append(a),
+                                pending_apply="m")
+    fake._apply = apply
+    fake._retry_at = 0.0
+    fake._retry_gap = node.RETRY_FIRST_SEC
+
+    fake._retry_once()
+
+    assert seen == {"lock_free_while_waiting": True}
+    assert finished == [("m", (False, "apply_timeout", ""))]
+    assert fake._retry_gap == 2 * node.RETRY_FIRST_SEC                  # 실패하면 간격을 늘린다
 
 
 def test_importing_the_node_does_not_load_numpy():

@@ -432,3 +432,22 @@ def test_importing_the_core_does_not_load_numpy():
     )
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "[]"
+
+
+def test_retry_is_split_so_the_node_can_wait_outside_the_lock(tmp_path):
+    rig = Rig(tmp_path)
+    rig.core.pending_apply = MAP
+
+    assert rig.core.retry_target() == MAP
+    rig.core.finish_retry(MAP, (False, "apply_timeout", ""))
+    assert rig.core.pending_apply == MAP                            # 아직 확인 못 함
+    rig.core.finish_retry(MAP, (True, "", ""))
+    assert rig.core.pending_apply == "" and rig.core.retry_target() == ""
+
+
+def test_no_retry_while_a_scan_session_runs(tmp_path):
+    rig = Rig(tmp_path)
+    rig.core.pending_apply = MAP
+    rig.core.session = object()
+
+    assert rig.core.retry_target() == ""

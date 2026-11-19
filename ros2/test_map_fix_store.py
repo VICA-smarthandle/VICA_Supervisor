@@ -200,6 +200,23 @@ def test_pgm_png_roundtrip_and_files_written_atomically(tmp_path):
     assert sorted(path.name for path in root.iterdir()) == [f"{MAP}.pgm", f"{MAP}.png", f"{MAP}.yaml"]
 
 
+def test_writing_keeps_the_file_permissions(tmp_path):
+    """11-19 실기: 고친 지도 파일이 664 → 600 으로 바뀌었다(임시 파일 권한이 그대로 남음).
+    다른 사용자·서비스가 지도를 읽지 못하게 될 수 있어, 쓰기 전 권한을 그대로 둔다."""
+    root = make_map(tmp_path)
+    store.write_map_pixels(root, MAP, store.load_map_image(root, MAP).pixels)   # png 를 만든다
+    for name in (f"{MAP}.pgm", f"{MAP}.png"):
+        os.chmod(root / name, 0o664)
+    pixels = store.load_map_image(root, MAP).pixels.copy()
+    pixels[2, 3] = store.OCCUPIED
+
+    store.write_map_pixels(root, MAP, pixels)
+    store.write_snapshot([(root / f"{MAP}.png", (root / f"{MAP}.png").read_bytes())])
+
+    assert {name: (root / name).stat().st_mode & 0o777 for name in (f"{MAP}.pgm", f"{MAP}.png")} == {
+        f"{MAP}.pgm": 0o664, f"{MAP}.png": 0o664}
+
+
 def test_write_rejects_a_different_size(tmp_path):
     root = make_map(tmp_path)
     wrong = np.full((HEIGHT, WIDTH + 1), store.FREE, dtype=np.uint8)

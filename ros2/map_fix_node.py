@@ -55,6 +55,12 @@ WARM_ACTIONS = {"get", "scan_check", "scan_start"}
 # 마지막 요청 뒤 이만큼 지나면 /robot_status 구독을 닫습니다.
 IDLE_CLOSE_SEC = 120.0
 HOUSEKEEPING_SEC = 5.0
+# 적용을 확인 못 했을 때(apply_timeout) 다시 거는 간격. 실패할 때마다 두 배, 최대 RETRY_MAX_SEC.
+# 다시 걸 때마다 map_server 가 /map 을 새로 내고 AMCL 이 지도를 다시 받으므로 자주 걸지 않습니다.
+RETRY_FIRST_SEC = 5.0
+RETRY_MAX_SEC = 60.0
+# /map 의 map_load_time 이 요청을 보낸 시각보다 이만큼 앞서도 '이번 요청으로 읽힌 지도'로 봅니다(시계 반올림).
+MAP_CONFIRM_SLACK_SEC = 0.05
 SESSION_TICK_SEC = 0.5   # 세션을 0.5초마다 한 걸음 진행합니다
 STATE_HEARTBEAT_SEC = 2.0   # 상태가 그대로일 때 토픽을 다시 내는 간격(늦게 연 화면용)
 
@@ -175,13 +181,14 @@ class MapFixNode(Node):
         self.maps_root = Path(str(self.get_parameter("maps_root").value)).expanduser()
         # nav2_map_server::MapServer 가 여는 서비스입니다. 노드 이름이 앞에 붙습니다.
         self.declare_parameter("map_load_service", "/map_server/load_map")
-        self.declare_parameter("apply_timeout_sec", 10.0)
+        self.declare_parameter("apply_timeout_sec", 5.0)
         self.declare_parameter("robot_status_topic", "/robot_status")
         self.declare_parameter("odom_topic", "/odom")
         self.declare_parameter("scan_topic", "/scan")
         self.declare_parameter("base_frame", "base_footprint")
         self.declare_parameter("map_frame", "map")
         self.declare_parameter("odom_frame", "odom")
+        self.declare_parameter("map_topic", "/map")
         self.declare_parameter("robot_footprint", DEFAULT_FOOTPRINT)
         self.declare_parameter("body_margin_m", 0.20)
 
@@ -229,6 +236,12 @@ class MapFixNode(Node):
         self._load_map_type = None
         self._load_map_tried = False
         self._load_map_made_at = 0.0
+        # 적용 확인: load_map 응답이나, map_server 가 다시 낸 /map(읽은 시각이 요청 뒤) 중 먼저 오는 것.
+        self._apply_cond = threading.Condition()
+        self._map_loaded_wall = 0.0
+        self._map_sub = None
+        self._retry_at = 0.0
+        self._retry_gap = RETRY_FIRST_SEC
         self._setup_service()
         # 정리·세션 타이머는 각자 한 번에 하나만 돕니다(MutuallyExclusive). Reentrant 로 두면 Nav2
         # load_map 이 답하지 않는 동안 같은 타이머가 계속 새 스레드에서 돌아 대기 스레드가 쌓이고,
@@ -266,6 +279,25 @@ class MapFixNode(Node):
         self._load_map_client = self.create_client(
             LoadMap, str(self.get_parameter("map_load_service").value), callback_group=self._callbacks)
         self._load_map_made_at = time.monotonic()
+        # 11-19 19:35 실기: map_server 는 요청 7번을 다 읽었는데(AMCL 도 매번 새 지도를 받음) 앞 6번의
+        # 응답이 1분 동안 이 노드에 오지 않았다. 응답과 따로 /map 으로도 확인합니다. 클라이언트와 같은 때
+        # 열어 두어야 실제 적용 때는 이미 발견이 끝나 있습니다. 메시지는 지도를 다시 읽을 때만 옵니다.
+        from nav_msgs.msg import OccupancyGrid
+        from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+
+        latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                             durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self._map_sub = self.create_subscription(
+            OccupancyGrid, str(self.get_parameter("map_topic").value), self._on_map, latched,
+            callback_group=self._callbacks)
+
+    def _on_map(self, msg) -> None:
+        stamp = msg.info.map_load_time
+        loaded = float(stamp.sec) + float(stamp.nanosec) * 1e-9
+        with self._apply_cond:
+            if loaded > self._map_loaded_wall:
+                self._map_loaded_wall = loaded
+            self._apply_cond.notify_all()
 
     # ------------------------------------------------------------------
     # 요청
@@ -326,9 +358,25 @@ class MapFixNode(Node):
         except Exception as error:  # noqa: BLE001 - 타이머 예외가 spin 까지 올라가면 노드가 끝납니다.
             self.get_logger().error(f"정리 중 예외: {error!r}")
 
-    def _housekeeping_once(self) -> None:
+    def _retry_once(self) -> None:
+        """확인 못 한 적용을 다시 겁니다. Nav2 응답은 **잠금 밖에서** 기다립니다 — 11-19 실기에서는 잠금을
+        쥔 채 10 s 씩 6번 기다려 그동안 앱 요청이 답을 못 받았습니다(rosbridge call_30 시간 초과)."""
+        if time.monotonic() < self._retry_at:
+            return
         with self._core_lock:
-            self.core.retry_pending()
+            map_id = self.core.retry_target()
+        if not map_id:
+            self._retry_gap = RETRY_FIRST_SEC
+            return
+        outcome = self._apply(map_id)
+        with self._core_lock:
+            self.core.finish_retry(map_id, outcome)
+            still = self.core.pending_apply == map_id
+        self._retry_gap = min(self._retry_gap * 2, RETRY_MAX_SEC) if still else RETRY_FIRST_SEC
+        self._retry_at = time.monotonic() + self._retry_gap
+
+    def _housekeeping_once(self) -> None:
+        self._retry_once()
         idle = time.monotonic() - self._last_request
         if self._scan_sub is not None and self.core.session is None and idle > IDLE_CLOSE_SEC:
             self._close_sensors()
@@ -440,29 +488,18 @@ class MapFixNode(Node):
         ranges = scan.mask_body(msg.ranges, msg.angle_min, msg.angle_increment, sensor, *self._body)
         return mfc.ScanInput(ranges, msg.angle_min, msg.angle_increment, guess, sensor)
 
-    # 스캔·오도메트리 콜백은 코어 잠금을 기다리지 않습니다. scan_apply 는 load_map 응답을 기다리는 동안
-    # (최대 apply_timeout_sec) 잠금을 쥡니다. 그때 초당 수십 번 오는 이 콜백들이 잠금을 기다리면 실행
-    # 스레드가 전부 여기 묶여 load_map 응답을 받을 스레드가 남지 않습니다(11-19 실기: Nav2 는 0.06 s 에
-    # 읽었는데 apply_timeout, 그동안 앱 요청도 답을 못 받음). 잠금이 잡혀 있으면 그 표본은 버립니다 —
-    # 다음 표본이 0.1 s 안에 옵니다.
     def _on_scan(self, msg) -> None:
         self._scan_msg = msg
         self._scan_event.set()
         if self.core.session is not None:
             taken = self._scan_input(msg)
-            if self._core_lock.acquire(blocking=False):
-                try:
-                    self.core.feed_scan(taken)
-                finally:
-                    self._core_lock.release()
+            with self._core_lock:
+                self.core.feed_scan(taken)
 
     def _on_odom(self, msg) -> None:
         twist = msg.twist.twist
-        if self._core_lock.acquire(blocking=False):
-            try:
-                self.core.feed_motion(float(twist.linear.x), float(twist.angular.z))
-            finally:
-                self._core_lock.release()
+        with self._core_lock:
+            self.core.feed_motion(float(twist.linear.x), float(twist.angular.z))
 
     def _grab_scan(self) -> Optional[mfc.ScanInput]:
         """scan_check 용 — 센서를 잠깐 열어 스캔 한 장을 받습니다."""
@@ -518,11 +555,28 @@ class MapFixNode(Node):
             return False, "no_nav2", "Nav2가 실행되면 적용됩니다."
         request = self._load_map_type.Request()
         request.map_url = str(self.maps_root / f"{map_id}.yaml")
+        sent_wall = time.time()      # map_server 의 map_load_time 도 시스템 시계입니다
         future = client.call_async(request)
-        done = threading.Event()
-        future.add_done_callback(lambda _: done.set())
+
+        def wake(_future) -> None:
+            with self._apply_cond:
+                self._apply_cond.notify_all()
+
+        future.add_done_callback(wake)
+
+        def by_map() -> bool:
+            return self._map_loaded_wall >= sent_wall - MAP_CONFIRM_SLACK_SEC
+
         timeout = float(self.get_parameter("apply_timeout_sec").value)
-        if not done.wait(timeout):
+        with self._apply_cond:
+            self._apply_cond.wait_for(lambda: future.done() or by_map(), timeout)
+        if not future.done():
+            remover = getattr(client, "remove_pending_request", None)
+            if remover is not None:
+                remover(future)      # 늦게 온 응답이 남지 않게
+            if by_map():
+                self.get_logger().info(f"지도 다시 읽힘(/map 으로 확인 — 응답은 아직 없음): {map_id}")
+                return load_map_outcome(done=True, error=None, result_code=0, timeout=timeout)
             return load_map_outcome(done=False, error=None, result_code=None, timeout=timeout)
         try:
             result = future.result()
