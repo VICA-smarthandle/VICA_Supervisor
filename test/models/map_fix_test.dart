@@ -190,6 +190,28 @@ void main() {
     expect(mapFixPercent(state.scoreAfter), '91 %');
   });
 
+  test('반경 원의 중심(라이다 자리)을 읽는다 — 없으면 null', () {
+    // 노드는 라이다 자리를 중심으로 반경을 잽니다. 로봇 자리보다 0.185 m 앞입니다(11-19 독립 검토 3).
+    expect(
+      MapFixScanState.fromJson({
+        'phase': 'step_back',
+        'centre': [1.185, 2.0],
+      }).centre,
+      const Offset(1.185, 2.0),
+    );
+    expect(MapFixScanState.fromJson({'phase': 'refine', 'centre': []}).centre,
+        isNull);
+    expect(
+      MapFixScanCheck.fromResult({
+        'ok': true,
+        'score': 80.0,
+        'centre': [3.0, -1.5],
+      }).centre,
+      const Offset(3.0, -1.5),
+    );
+    expect(MapFixScanCheck.fromResult({'ok': false}).centre, isNull);
+  });
+
   test('refine·step_back·scanning 은 진행 중이다', () {
     for (final phase in ['refine', 'step_back', 'scanning']) {
       expect(

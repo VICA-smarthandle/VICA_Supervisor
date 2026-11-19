@@ -159,8 +159,12 @@ class _MapFixPanelState extends State<MapFixPanel> {
     final supervisor = context.watch<SupervisorProvider>();
     final connected =
         supervisor.connectionState == RosConnectionState.connected;
-    final driving =
-        (supervisor.primaryRobot?.currentGoal.trim() ?? '').isNotEmpty;
+    // 목적지가 있거나 미션이 쉬는 상태가 아니면(순찰·대기·접근·도킹) 노드가 잠급니다. 칸도 같은
+    // 기준으로 '주행 중'을 보이고, 끝나면 잠금을 한 번 다시 묻습니다(11-19 독립 검토 7).
+    final robot = supervisor.primaryRobot;
+    final driving = robot != null &&
+        (robot.currentGoal.trim().isNotEmpty ||
+            !kMapFixIdleDialogStates.contains(robot.dialogState.trim()));
     // 주행이 끝난 것을 봤으면 잠금을 한 번 다시 묻습니다(주기적으로 묻지는 않습니다).
     if (_wasDriving && !driving && _expanded) {
       WidgetsBinding.instance.addPostFrameCallback((_) {

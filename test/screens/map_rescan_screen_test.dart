@@ -419,6 +419,32 @@ void main() {
     expect(start.onPressed, isNull);
   });
 
+  test('반경 원의 중심 — 진행 중이면 그 세션의 라이다 자리, 아니면 확인한 라이다 자리, 없으면 로봇', () {
+    const robot = Offset(1.0, 2.0);
+    const checked = Offset(1.185, 2.0);
+    const running = Offset(1.2, 2.01);
+    expect(
+      mapFixRadiusCentre(
+        scanCentre: running,
+        checkCentre: checked,
+        robot: robot,
+      ),
+      running,
+    );
+    expect(
+      mapFixRadiusCentre(scanCentre: null, checkCentre: checked, robot: robot),
+      checked,
+    );
+    expect(
+      mapFixRadiusCentre(scanCentre: null, checkCentre: null, robot: robot),
+      robot,
+    );
+    expect(
+      mapFixRadiusCentre(scanCentre: null, checkCentre: null, robot: null),
+      isNull,
+    );
+  });
+
   test('mapFixFailText 사유별 글자', () {
     expect(
       mapFixFailText('ambiguous', ambiguous: ['forward']),

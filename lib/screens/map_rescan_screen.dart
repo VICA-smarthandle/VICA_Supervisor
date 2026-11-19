@@ -57,6 +57,17 @@ String mapFixFailText(
   return message.isEmpty ? '부분 스캔을 마치지 못했습니다.' : message;
 }
 
+/// 반경 원을 그릴 자리. 노드는 로봇이 아니라 **라이다 자리**를 중심으로 반경을 잽니다 — 로봇
+/// 자리에 그리면 '이 원 밖으로' 선 바로 앞에 선 사람이 실제로는 반경 안에 들어 지도에 찍힙니다
+/// (11-19 독립 검토 3). 진행 중이면 그 세션의 라이다 자리, 아니면 확인한 라이다 자리, 둘 다
+/// 없으면 로봇 자리입니다.
+Offset? mapFixRadiusCentre({
+  required Offset? scanCentre,
+  required Offset? checkCentre,
+  required Offset? robot,
+}) =>
+    scanCentre ?? checkCentre ?? robot;
+
 /// 'forward' → '앞뒤', 'lateral' → '좌우', 'yaw' → '방향'. 모르는 값은 버립니다.
 List<String> mapFixAmbiguousWords(List<String> ambiguous) => [
       if (ambiguous.contains('forward')) '앞뒤',
@@ -307,6 +318,13 @@ class _MapRescanScreenState extends State<MapRescanScreen> {
     final preview = scan?.isPreview ?? false;
     final robot = supervisor.primaryRobot;
     final radius = (scan != null && scan.radiusM > 0) ? scan.radiusM : _radius;
+    final centre = mapFixRadiusCentre(
+      scanCentre: scan?.centre,
+      checkCentre: (running || preview) ? null : _check?.centre,
+      robot: (robot != null && robot.mapId == map.mapId)
+          ? Offset(robot.x, robot.y)
+          : null,
+    );
 
     return PopScope(
       // 스캔 중과 미리보기에서는 뒤로 갈 수 없습니다 — [중지]·[적용]·[버리기]로만 나갑니다.
@@ -331,11 +349,11 @@ class _MapRescanScreenState extends State<MapRescanScreen> {
                       ? const []
                       : (_check?.hits ?? const []),
                   overlayBuilder: (toPixel) => [
-                    if (robot != null && robot.mapId == map.mapId)
+                    if (centre != null)
                       ...mapFixRadiusOverlay(
                         toPixel,
-                        x: robot.x,
-                        y: robot.y,
+                        x: centre.dx,
+                        y: centre.dy,
                         radiusM: radius,
                         style: preview
                             ? MapFixCircleStyle.outline

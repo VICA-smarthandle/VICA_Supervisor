@@ -68,6 +68,22 @@ class _FakeSupervisor extends SupervisorProvider {
   void requestMapList(AppSettings settings) => mapListRequests++;
 
   int count(String action) => actions.where((a) => a == action).length;
+
+  void robot({String dialogState = '', String goal = ''}) =>
+      handleRobotStatusForTest({
+        'robot_id': 'vica_robot_01',
+        'robot_name': 'VICA 1호기',
+        'status': 'idle',
+        'x': 1.0,
+        'y': 2.0,
+        'yaw': 0.0,
+        'current_location': '',
+        'current_goal': goal,
+        'error_reason': '',
+        'waiting_reason': '',
+        'map_id': 'map_a',
+        'dialog_state': dialogState,
+      });
 }
 
 void main() {
@@ -123,6 +139,23 @@ void main() {
     expect(find.text('부분 스캔'), findsOneWidget);
     expect(find.text(vicaKeepWords('지우기 · 1곳')), findsOneWidget);
     expect(find.text('되돌리기'), findsOneWidget);
+  });
+
+  testWidgets('목적지가 없어도 순찰·대기 중이면 주행 중으로 보이고, 끝나면 다시 묻는다', (tester) async {
+    // 노드의 잠금은 dialog_state 도 봅니다(11-19 독립 검토 7). 칸도 같은 기준으로 보입니다.
+    final supervisor = _FakeSupervisor();
+    await tester.pumpWidget(host(supervisor));
+    await open(tester);
+    expect(supervisor.count('get'), 1);
+
+    supervisor.robot(dialogState: 'patrol');
+    await tester.pump();
+    expect(find.text(kMapFixWordDriving), findsOneWidget);
+
+    supervisor.robot(dialogState: 'idle');
+    await tester.pump();
+    await tester.pump();
+    expect(supervisor.count('get'), 2);
   });
 
   testWidgets('연결이 끊겨 있으면 접힌 채로도 오프라인이 보인다', (tester) async {

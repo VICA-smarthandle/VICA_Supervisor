@@ -201,117 +201,123 @@ class _MapEraseScreenState extends State<MapEraseScreen> {
       orElse: () => widget.map,
     );
     final draft = _draft;
-    return Scaffold(
-      appBar: AppBar(title: const Text('지도 부분 지우기')),
-      body: SafeArea(
-        child: MapWorkLayout(
-          children: [
-            ResponsiveMapFrame(
-              map: map,
-              child: MapCanvas(
+    // 지우는 동안에는 뒤로 갈 수 없습니다 — 노드는 지우는데 결과(알림·지도 그림 다시 받기)가
+    // 버려집니다(11-19 독립 검토 5).
+    return PopScope(
+      canPop: !_erasing,
+      child: Scaffold(
+        appBar: AppBar(title: const Text('지도 부분 지우기')),
+        body: SafeArea(
+          child: MapWorkLayout(
+            children: [
+              ResponsiveMapFrame(
                 map: map,
-                settings: settings,
-                locations: const [],
-                robot: supervisor.primaryRobot,
-                // [구역 표시]일 때만 드래그가 사각형 그리기입니다. 그동안 지도 이동·확대는
-                // 잠기고, [지도 이동]으로 바꾸면 풀립니다. 그려 둔 사각형은 그대로 남습니다.
-                keepoutEditMode: !_moving,
-                onKeepoutPanStart: _panStart,
-                onKeepoutPanUpdate: _panUpdate,
-                onKeepoutPanEnd: _panEnd,
-                overlayBuilder: (toPixel) =>
-                    mapFixEraseOverlay(toPixel, rects: _rects, draft: draft),
+                child: MapCanvas(
+                  map: map,
+                  settings: settings,
+                  locations: const [],
+                  robot: supervisor.primaryRobot,
+                  // [구역 표시]일 때만 드래그가 사각형 그리기입니다. 그동안 지도 이동·확대는
+                  // 잠기고, [지도 이동]으로 바꾸면 풀립니다. 그려 둔 사각형은 그대로 남습니다.
+                  keepoutEditMode: !_moving,
+                  onKeepoutPanStart: _panStart,
+                  onKeepoutPanUpdate: _panUpdate,
+                  onKeepoutPanEnd: _panEnd,
+                  overlayBuilder: (toPixel) =>
+                      mapFixEraseOverlay(toPixel, rects: _rects, draft: draft),
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: MapFixChoiceButton(
-                    label: '구역 표시',
-                    selected: !_moving,
-                    onTap: _erasing ? null : () => _setMoving(false),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: MapFixChoiceButton(
-                    label: '지도 이동',
-                    selected: _moving,
-                    onTap: _erasing ? null : () => _setMoving(true),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            MapFixHint(
-              _moving ? '지도를 움직이거나 확대·축소할 수 있습니다.' : '지울 곳을 드래그해서 표시하세요',
-            ),
-            const SizedBox(height: 12),
-            VicaCard(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+              const SizedBox(height: 12),
+              Row(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          vicaKeepWords('고른 구역'),
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ),
-                      Text(
-                        '${_rects.length}곳',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: VicaColors.muted,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  for (var i = 0; i < _rects.length; i++) _row(i),
-                  if (_rects.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    _total(),
-                  ],
-                  if (_note.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      vicaKeepWords(vicaBreakAtSentences(_note)),
-                      style: const TextStyle(
-                        fontSize: 12.5,
-                        height: 1.45,
-                        color: VicaColors.red,
-                      ),
+                  Expanded(
+                    child: MapFixChoiceButton(
+                      label: '구역 표시',
+                      selected: !_moving,
+                      onTap: _erasing ? null : () => _setMoving(false),
                     ),
-                  ],
-                  const SizedBox(height: 14),
-                  VicaButtonRow(
-                    foldWidth: 240,
-                    children: [
-                      PressScale(
-                        child: FilledButton(
-                          onPressed: (_rects.isEmpty ||
-                                  _count == null ||
-                                  _counting ||
-                                  _erasing)
-                              ? null
-                              : _erase,
-                          child: Text(_erasing ? '지우는 중...' : '지우기'),
-                        ),
-                      ),
-                      VicaCancelButton(
-                        onPressed:
-                            _erasing ? null : () => Navigator.of(context).pop(),
-                      ),
-                    ],
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: MapFixChoiceButton(
+                      label: '지도 이동',
+                      selected: _moving,
+                      onTap: _erasing ? null : () => _setMoving(true),
+                    ),
                   ),
                 ],
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              MapFixHint(
+                _moving ? '지도를 움직이거나 확대·축소할 수 있습니다.' : '지울 곳을 드래그해서 표시하세요',
+              ),
+              const SizedBox(height: 12),
+              VicaCard(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            vicaKeepWords('고른 구역'),
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                        Text(
+                          '${_rects.length}곳',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: VicaColors.muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    for (var i = 0; i < _rects.length; i++) _row(i),
+                    if (_rects.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      _total(),
+                    ],
+                    if (_note.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        vicaKeepWords(vicaBreakAtSentences(_note)),
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          height: 1.45,
+                          color: VicaColors.red,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    VicaButtonRow(
+                      foldWidth: 240,
+                      children: [
+                        PressScale(
+                          child: FilledButton(
+                            onPressed: (_rects.isEmpty ||
+                                    _count == null ||
+                                    _counting ||
+                                    _erasing)
+                                ? null
+                                : _erase,
+                            child: Text(_erasing ? '지우는 중...' : '지우기'),
+                          ),
+                        ),
+                        VicaCancelButton(
+                          onPressed: _erasing
+                              ? null
+                              : () => Navigator.of(context).pop(),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

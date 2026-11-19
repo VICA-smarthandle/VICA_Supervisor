@@ -2,6 +2,8 @@
 //
 // 로봇과 주고받는 모양(MapFix.srv)은 test/providers/map_fix_provider_test.dart 가 봅니다.
 // 여기서는 mapFix 를 가짜로 바꿔 화면이 무엇을 언제 요청하는지만 봅니다.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -40,6 +42,10 @@ class _FakeSupervisor extends SupervisorProvider {
     Duration? timeout,
   }) async {
     calls.add((action: action, args: args));
+    final held = holds[action];
+    if (held != null) {
+      return held.future;
+    }
     final fixed = replies[action];
     if (fixed != null) {
       return fixed;
@@ -61,6 +67,9 @@ class _FakeSupervisor extends SupervisorProvider {
       },
     );
   }
+
+  /// 여기 넣은 action 은 시험이 [Completer] 를 끝낼 때까지 답하지 않습니다.
+  final holds = <String, Completer<MapFixResult>>{};
 
   List<_Call> of(String action) =>
       calls.where((call) => call.action == action).toList();
@@ -284,6 +293,35 @@ void main() {
     );
     expect(closed, isTrue);
     expect(closedWith!.applied, isTrue);
+    expect(find.byType(MapEraseScreen), findsNothing);
+  });
+
+  testWidgets('지우는 동안에는 뒤로 갈 수 없다', (tester) async {
+    // 뒤로 가면 노드는 지우는데 결과(알림·지도 그림 다시 받기)가 버려집니다(11-19 독립 검토 5).
+    final supervisor = await pumpScreen(tester);
+    final pending = Completer<MapFixResult>();
+    supervisor.holds['erase'] = pending;
+    await drag(tester, const Offset(1, 1), const Offset(2, 2));
+
+    await tester.tap(find.widgetWithText(FilledButton, '지우기'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '지우기').last);
+    await tester.pump();
+    expect(find.text('지우는 중...'), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(find.byType(MapEraseScreen), findsOneWidget);
+
+    pending.complete(
+      const MapFixResult(
+        accepted: true,
+        reason: '',
+        message: '',
+        result: {'applied': true},
+      ),
+    );
+    await tester.pumpAndSettle();
     expect(find.byType(MapEraseScreen), findsNothing);
   });
 

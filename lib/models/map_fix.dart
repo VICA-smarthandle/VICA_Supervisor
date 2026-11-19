@@ -25,6 +25,17 @@ double _number(Object? value) => value is num ? value.toDouble() : 0;
 
 double? _numberOrNull(Object? value) => value is num ? value.toDouble() : null;
 
+/// [x, y] 를 점으로 읽습니다. 모양이 다르면 null.
+Offset? _point(Object? value) {
+  if (value is List &&
+      value.length >= 2 &&
+      value[0] is num &&
+      value[1] is num) {
+    return Offset((value[0] as num).toDouble(), (value[1] as num).toDouble());
+  }
+  return null;
+}
+
 Map<String, Object?> _object(Object? value) =>
     value is Map ? value.cast<String, Object?>() : const {};
 
@@ -281,6 +292,7 @@ class MapFixScanCheck {
     required this.score,
     this.ambiguous = const [],
     this.hits = const [],
+    this.centre,
   });
 
   final bool ok;
@@ -294,6 +306,9 @@ class MapFixScanCheck {
 
   /// 맞춘 자세에서 본 라이다 점(ROS 좌표).
   final List<Offset> hits;
+
+  /// 반경 원의 중심 — 맞춘 자세의 라이다 자리(ROS 좌표). 노드는 여기서 반경을 잽니다.
+  final Offset? centre;
 
   factory MapFixScanCheck.fromResult(Map<String, Object?> result) {
     final hits = result['hits'];
@@ -309,6 +324,7 @@ class MapFixScanCheck {
               .map((hit) => Offset(_number(hit[0]), _number(hit[1])))
               .toList(growable: false)
           : const [],
+      centre: _point(result['centre']),
     );
   }
 }
@@ -342,6 +358,7 @@ class MapFixScanState {
     this.removed = 0,
     this.cells = const [],
     this.ambiguous = const [],
+    this.centre,
   });
 
   final String session;
@@ -363,6 +380,9 @@ class MapFixScanState {
   final int removed;
   final List<MapFixCell> cells;
   final List<String> ambiguous;
+
+  /// 반경 원의 중심 — 이 세션의 라이다 자리(ROS 좌표). 자세를 맞추기 전에는 null.
+  final Offset? centre;
 
   factory MapFixScanState.fromJson(Map<String, Object?> json) {
     final cells = json['cells'];
@@ -394,6 +414,7 @@ class MapFixScanState {
               .toList(growable: false)
           : const [],
       ambiguous: jsonStringList(json['ambiguous']),
+      centre: _point(json['centre']),
     );
   }
 

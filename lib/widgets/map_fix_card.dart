@@ -13,6 +13,17 @@ const kMapFixWordDriving = '주행 중';
 const kMapFixWordOffline = '오프라인';
 const kMapFixWordUnknown = '확인 불가';
 
+/// 미션이 쉬는 상태(dialog_state). 이 밖이면 노드가 지도 수정을 잠급니다 — 노드의
+/// IDLE_DIALOG_STATES, 수동 주행의 _manualIdleStates 와 같은 목록입니다.
+const kMapFixIdleDialogStates = {
+  '',
+  'idle',
+  'none',
+  'arrived',
+  'failed',
+  'estopped'
+};
+
 /// 미션이 켜져 있어 미션은 옛 지도를 계속 쓸 때 끝 알림에 덧붙이는 말(2026-11-19 사용자 — 목업 99).
 ///
 /// 두 문장을 줄로 나눕니다. 뒤 문장이 짧아 [vicaBreakAtSentences] 가 앞 문장에 붙여 버리므로
