@@ -37,6 +37,11 @@ class VicaBreakpoints {
   /// 세로로 든 태블릿(폭 [compact]~[medium])은 지도를 위에 고정하고 높이를 화면의
   /// 약 3분의 1로 둡니다. 창이 이보다 낮으면 지금처럼 쌓습니다.
   static const double mapPinnedTopMinHeight = 640;
+
+  /// 폰 세로(폭 < [compact])도 지도를 위에 고정합니다(2026-11-19 사용자). 키보드를 뺀 본문이
+  /// 이보다 낮으면(작은 폰·글자 크게) 지금처럼 함께 스크롤합니다 — 390×844 폰 본문은 약 627px,
+  /// 360×640 은 약 480px 입니다.
+  static const double mapPinnedTopPhoneMinHeight = 560;
   static const double mapPinnedTopMinMapHeight = 220;
   static const double mapPinnedTopMaxMapHeight = 440;
 

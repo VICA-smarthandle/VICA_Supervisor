@@ -87,7 +87,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
       manualBlocked = null;
     }
 
-    // 넓은 화면은 지도 왼쪽 + 카드 오른쪽, 세로 태블릿은 지도 위 고정(map_work_layout.dart).
+    // 넓은 화면은 지도 왼쪽 + 카드 오른쪽, 세로 태블릿·폰 세로는 지도 위 고정(map_work_layout.dart).
     // 본문 제목은 뺐습니다 — 제목줄과 같은 말입니다(2026-11-17 제목·문구 간결화, 사용자 승인).
     return MapWorkLayout(
       children: [
