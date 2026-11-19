@@ -478,6 +478,8 @@ class SupervisorProvider extends ChangeNotifier {
     _frontUltrasonicOn = null;
     _frontRange.fillRange(0, 2, null);
     _frontRangeAt.fillRange(0, 2, null);
+    // 빔포밍 회전도 다시 붙으면 음성 노드가 남긴 값으로 채워집니다(2026-11-19).
+    _wakeDoaTurnOn = null;
     if (_robotsById.isEmpty) {
       return;
     }
@@ -589,6 +591,12 @@ class SupervisorProvider extends ChangeNotifier {
         topic: frontUltrasonicStateTopic,
         type: 'std_msgs/Bool',
         handler: _handleFrontUltrasonicState,
+      )
+      // 빔포밍 회전(2026-11-19 사용자: 대시보드 주행 설정). 음성 호출 노드가 낸다.
+      ..subscribe(
+        topic: wakeDoaTurnStateTopic,
+        type: 'std_msgs/Bool',
+        handler: _handleWakeDoaTurnState,
       )
       ..subscribe(
         topic: frontUltrasonicTopics[0],
@@ -718,6 +726,66 @@ class SupervisorProvider extends ChangeNotifier {
       _frontUltrasonicBusy = false;
       notifyListeners();
     }
+  }
+
+  // ---- 빔포밍 회전 켜기·끄기 (2026-11-19 사용자, 캔버스 101번 보드) ----------------------
+  //
+  // 켜면 대기 중 '비카야'가 온 방향으로 로봇이 돈다(음성 VICA_WAKE_DOA_TURN). 음성을 다시 띄우면
+  // .env 값으로 돌아갑니다. 표시는 노드가 남긴 상태 토픽만 따릅니다 — 응답만 보고 미리 바꾸지 않습니다.
+
+  /// 음성 호출 노드가 지금 상태를 남기는 토픽(std_msgs/Bool, TRANSIENT_LOCAL).
+  static const wakeDoaTurnStateTopic = '/vica/wake_doa_turn/enabled';
+
+  /// 켜기·끄기 서비스(std_srvs/SetBool). 응답 문구('빔포밍 회전을 켰습니다' 등)를 그대로 띄웁니다.
+  static const wakeDoaTurnService = '/vica/wake_doa_turn/enable';
+
+  bool? _wakeDoaTurnOn;
+
+  /// null = 모름(음성이 안 떠 있거나 아직 상태가 안 옴).
+  bool? get wakeDoaTurnOn => _wakeDoaTurnOn;
+
+  void _handleWakeDoaTurnState(Map<String, Object?> message) {
+    final data = message['data'];
+    if (data is bool && data != _wakeDoaTurnOn) {
+      _wakeDoaTurnOn = data;
+      notifyListeners();
+    }
+  }
+
+  /// 빔포밍 회전을 켜거나 끕니다. (받아들였는가, 보일 문구)
+  Future<(bool, String)> setWakeDoaTurn(bool on) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return (false, 'ROS Bridge에 연결되지 않았습니다.');
+    }
+    const fallback = '빔포밍 회전을 바꾸지 못했습니다.';
+    try {
+      final response = await client.callService(
+        service: wakeDoaTurnService,
+        type: 'std_srvs/srv/SetBool',
+        args: {'data': on},
+      );
+      if (!response.success) {
+        final message = response.message.isEmpty ? fallback : response.message;
+        _addLog(LogFilter.connection, message);
+        return (false, message);
+      }
+      if (response.message.isEmpty) {
+        return (true, on ? '빔포밍 회전을 켰습니다' : '빔포밍 회전을 껐습니다');
+      }
+      return (true, response.message);
+    } catch (error) {
+      final message = '빔포밍 회전을 바꾸지 못했습니다: $error';
+      _addLog(LogFilter.connection, message);
+      return (false, message);
+    }
+  }
+
+  /// 음성 노드 없이 화면 규칙만 검증하기 위한 주입 지점입니다.
+  @visibleForTesting
+  void setWakeDoaTurnForTest(bool? on) {
+    _wakeDoaTurnOn = on;
+    notifyListeners();
   }
 
   // ---- 모드 노드 (주행 묶음 켜기·끄기, 2026-11-16) ---------------------------------
