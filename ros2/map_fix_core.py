@@ -333,6 +333,8 @@ class MapFixCore:
             "ambiguous": list(got.ambiguous),
             "x": round(got.x, 3), "y": round(got.y, 3), "yaw": round(got.yaw, 4),
             "centre": [round(value, 3) for value in scan.sensor_position((got.x, got.y, got.yaw), taken.sensor)],
+            # 왜 통과 못 했는지 보려고(실기 진단). 앱은 쓰지 않는다.
+            "rms_m": round(got.rms_m, 4), "moved_m": round(got.moved_m, 3), "moved_deg": round(got.moved_deg, 2),
             "hits": [[round(float(x), 3), round(float(y), 3)] for x, y in got.hits[:MAX_HITS]],
         }
         return True, "", "", result

@@ -182,6 +182,49 @@ def test_closing_sensors_while_scans_pour_in_does_not_kill_the_node():
     assert out.stdout.strip().splitlines()[-1:] == ["alive"], (out.stdout[-400:], out.stderr[-1200:])
 
 
+def test_tf_still_arrives_while_the_core_is_busy_and_odom_pours_in():
+    """11-19 17:5x 실기: scan_check 가 _core_lock 을 쥔 동안 /odom(수십 Hz)이 올 때마다 같은 잠금을
+    기다리며 실행 스레드를 하나씩 붙잡아, TF 를 받을 스레드가 남지 않았다 — 8 s 기다려도 'TF 없음'.
+
+    로컬 전용 도메인(98)에서 /odom 을 200 Hz 로 흘리고 잠금을 3 s 쥔 채, 그동안 보낸 TF 가 들어오는지 본다.
+    """
+    code = (
+        "import sys, threading, time; sys.path.insert(0, %r)\n"
+        "import rclpy, map_fix_node\n"
+        "from rclpy.executors import MultiThreadedExecutor\n"
+        "from nav_msgs.msg import Odometry\n"
+        "from geometry_msgs.msg import TransformStamped\n"
+        "from tf2_ros import TransformBroadcaster\n"
+        "from rclpy.qos import qos_profile_sensor_data\n"
+        "rclpy.init()\n"
+        "node = map_fix_node.MapFixNode()\n"
+        "feeder = rclpy.create_node('odom_tf_feeder')\n"
+        "pub = feeder.create_publisher(Odometry, '/odom', qos_profile_sensor_data)\n"
+        "feeder.create_timer(0.005, lambda: pub.publish(Odometry()))\n"
+        "tfb = TransformBroadcaster(feeder)\n"
+        "def send_tf():\n"
+        "    t = TransformStamped(); t.header.stamp = feeder.get_clock().now().to_msg()\n"
+        "    t.header.frame_id = 'map'; t.child_frame_id = 'base_footprint'; t.transform.rotation.w = 1.0\n"
+        "    tfb.sendTransform(t)\n"
+        "ex = MultiThreadedExecutor(); ex.add_node(node); ex.add_node(feeder)\n"
+        "stop = threading.Event()\n"
+        "th = threading.Thread(target=map_fix_node.spin_forgiving, args=(ex, stop.is_set)); th.start()\n"
+        "node._open_sensors(); time.sleep(1.5)\n"
+        "with node._core_lock:\n"
+        "    t0 = time.monotonic(); ok = False\n"
+        "    while time.monotonic() - t0 < 3.0:\n"
+        "        send_tf(); time.sleep(0.05)\n"
+        "        if node._tf_buffer.can_transform('map', 'base_footprint', rclpy.time.Time()):\n"
+        "            ok = True; break\n"
+        "print('tf ok' if ok else 'tf starved')\n"
+        "stop.set(); th.join(timeout=10)\n"
+        "ex.shutdown(); node.destroy_node(); feeder.destroy_node(); rclpy.shutdown()\n" % str(HERE)
+    )
+    env = {**os.environ, "ROS_DOMAIN_ID": "98", "ROS_LOCALHOST_ONLY": "1"}
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=120)
+    assert out.stdout.strip().splitlines()[-1:] == ["tf ok"], (out.stdout[-400:], out.stderr[-1200:])
+
+
 def test_launch_starts_the_map_fix_node(tmp_path):
     pytest.importorskip("launch")
     from launch import LaunchContext

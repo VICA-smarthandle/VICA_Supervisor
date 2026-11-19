@@ -388,6 +388,13 @@ class MapFixNode(Node):
         if guess is None or sensor is None:
             missing = [f"{a}→{b}" for ok, a, b in ((guess, world, base), (sensor, base, msg.header.frame_id))
                        if ok is None]
+            buffer = self._tf_buffer
+            if buffer is not None:
+                parts = {f"{a}→{b}": buffer.can_transform(a, b, rclpy.time.Time())
+                         for a, b in ((world, "odom"), ("odom", base), (world, base))}
+                frames = buffer.all_frames_as_string().count("Frame ")
+                self.get_logger().warn(f"TF 진단: 구독 연 지 {time.monotonic() - self._sensors_opened_at:.1f} s · "
+                                       f"프레임 {frames}개 · {parts}", throttle_duration_sec=5.0)
             self.get_logger().warn(f"자세를 못 얻음 — TF {', '.join(missing)} 없음(초기 위치·Nav2 확인)",
                                    throttle_duration_sec=5.0)
             return None
