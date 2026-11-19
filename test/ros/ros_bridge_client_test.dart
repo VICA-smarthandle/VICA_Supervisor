@@ -131,4 +131,26 @@ void main() {
       expect(response?.message, 'ok');
     });
   });
+
+  test('서비스 호출에 rosbridge 쪽 시간 제한(초)을 함께 보낸다', () {
+    // 운영 rosbridge 의 default_call_service_timeout 은 5초라, 앱이 더 기다리는 호출(지도 수정
+    // 위치 맞춤·적용 8~15초)도 rosbridge 가 먼저 끊었다(11-19 확인). 호출마다 앱의 시간 제한을 싣는다.
+    fakeAsync((async) {
+      client.connect('ws://robot:9090');
+      async.flushMicrotasks();
+
+      unawaited(
+        client
+            .callService(
+              service: '/vica/map_fix',
+              timeout: const Duration(seconds: 15),
+            )
+            .then<void>((_) {}, onError: (Object _) {}),
+      );
+      async.flushMicrotasks();
+
+      expect(server.last.sent.last['timeout'], 15.0);
+      async.elapse(const Duration(seconds: 16));
+    });
+  });
 }

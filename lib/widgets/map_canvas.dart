@@ -271,7 +271,16 @@ class MapCanvas extends StatelessWidget {
       robotOutline != null ||
       ghostPoint != null;
 
-  String get _imageUrl {
+  String get _imageUrl => _versioned(_plainImageUrl);
+
+  // 지도 수정(2026-11-19) 뒤에는 주소는 같은데 그림 내용이 바뀝니다. 그림 버전을 주소에 붙여
+  // 앱과 브라우저의 그림 캐시가 옛 그림을 내주지 않게 합니다. 지도 서버는 물음표 뒤를 버립니다.
+  // 새 그림이 올 때까지는 아래 gaplessPlayback 이 옛 그림을 그대로 둡니다.
+  String _versioned(String url) => map.imageVersion <= 0
+      ? url
+      : '$url${url.contains('?') ? '&' : '?'}v=${map.imageVersion}';
+
+  String get _plainImageUrl {
     if (map.imageUrl.startsWith('http://') ||
         map.imageUrl.startsWith('https://')) {
       return map.imageUrl;

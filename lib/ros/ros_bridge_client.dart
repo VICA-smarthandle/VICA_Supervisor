@@ -212,6 +212,9 @@ class RosBridgeClient {
       'service': service,
       'type': type,
       'args': args,
+      // rosbridge 도 같은 시간까지 기다리게 합니다. 안 실으면 rosbridge 의 기본값(운영 5초)에서
+      // 먼저 끊겨, 앱이 더 기다리는 호출(지도 수정 8~15초)이 중간에 실패합니다.
+      'timeout': timeout.inMilliseconds / 1000.0,
     });
     return completer.future.timeout(
       timeout,

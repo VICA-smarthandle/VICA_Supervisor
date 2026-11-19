@@ -16,6 +16,7 @@ import '../models/delivery_job.dart';
 import '../models/goal_event.dart';
 import '../models/home_position.dart';
 import '../models/keepout_zone.dart';
+import '../models/map_fix.dart';
 import '../models/location_point.dart';
 import '../models/robot_event.dart';
 import '../models/robot_health.dart';
@@ -465,6 +466,10 @@ class SupervisorProvider extends ChangeNotifier {
     // 오래된 %를 보고 확정을 누르게 됩니다.
     _poseCheck = null;
     _poseChecking = false;
+    // 지도 수정의 잠금·부분 스캔 진행도 끊긴 뒤에는 현재 사실이 아닙니다.
+    _mapFixStatus = null;
+    _mapFixStatusMapId = '';
+    _mapFixScan = null;
     // 노드 목록도 현재 사실이 아닙니다. 남겨 두면 모드 선택 화면이 "아무것도 안
     // 떠 있다"고 잘못된 안심을 줄 수 있습니다 — 그래서 '확인 불가'로 되돌립니다.
     _stackStatus = null;
@@ -581,6 +586,11 @@ class SupervisorProvider extends ChangeNotifier {
         topic: settings.deliveryNoteTopic,
         handler: _handleDeliveryNote,
       )
+      // 지도 수정의 부분 스캔 진행(2026-11-19). 스캔 세션이 있을 때만 옵니다.
+      ..subscribe(
+        topic: mapFixStateTopic,
+        handler: _handleMapFixState,
+      )
       // 모드 노드(부팅 자동 기동, 2026-11-16). 없으면 아무것도 안 와서 예전처럼 동작합니다.
       ..subscribe(
         topic: kModeStatusTopic,
@@ -694,9 +704,8 @@ class SupervisorProvider extends ChangeNotifier {
         args: {'data': on},
       );
       if (!response.success) {
-        final message = response.message.isEmpty
-            ? '전방 초음파를 바꾸지 못했습니다.'
-            : response.message;
+        final message =
+            response.message.isEmpty ? '전방 초음파를 바꾸지 못했습니다.' : response.message;
         _addLog(LogFilter.connection, message);
         return message;
       }
@@ -3658,6 +3667,127 @@ class SupervisorProvider extends ChangeNotifier {
   @visibleForTesting
   void handleGoalEventForTest(Map<String, Object?> message) =>
       _handleGoalEvent(message);
+
+  // ---- 지도 수정 (2026-11-19, 목업 75~82) --------------------------------
+  //
+  // 지우기·부분 스캔·되돌리기는 전부 젯슨의 map_fix_node 가 합니다. 앱은 서비스
+  // /vica/map_fix 하나로 요청하고, 부분 스캔의 진행은 토픽 /vica/map_fix/state 로 받습니다.
+  // 수정할 수 있는지(잠금)도 노드가 정합니다 — 앱은 그 답을 보여 주기만 합니다.
+
+  static const mapFixService = '/vica/map_fix';
+  static const mapFixStateTopic = '/vica/map_fix/state';
+
+  // 지도 파일을 쓰고 Nav2 가 다시 읽기를 기다리거나(노드 쪽 10 s), 스캔을 받아 자세를 맞추는
+  // 요청입니다. 나머지는 파일을 읽기만 합니다.
+  static const _mapFixSlowActions = {
+    'erase',
+    'undo',
+    'scan_apply',
+    'scan_check',
+    'scan_start',
+  };
+
+  // 거절되면 '지도 설정' 기록에 남기는 요청(지도 파일을 바꾸는 것).
+  static const _mapFixLoggedActions = {'erase', 'undo', 'scan_apply'};
+
+  MapFixStatus? _mapFixStatus;
+  String _mapFixStatusMapId = '';
+  MapFixScanState? _mapFixScan;
+
+  /// [mapId] 지도의 마지막 `get` 결과(잠금·최근 수정). 아직 못 받았거나 다른 지도면 null.
+  MapFixStatus? mapFixStatusFor(String? mapId) =>
+      (mapId != null && _mapFixStatusMapId == mapId) ? _mapFixStatus : null;
+
+  /// 부분 스캔의 최신 진행. 세션이 없거나 연결이 끊기면 null.
+  MapFixScanState? get mapFixScan => _mapFixScan;
+
+  /// 지도 수정 요청 하나를 보냅니다([action] 은 MapFix.srv 의 목록).
+  ///
+  /// 연결이 없거나 노드가 답하지 않으면 예외 대신 `reason: 'offline'` 응답을 돌려줍니다.
+  Future<MapFixResult> mapFix(
+    String mapId,
+    String action, {
+    Map<String, Object?> args = const {},
+    Duration? timeout,
+  }) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return MapFixResult.offline('ROS Bridge에 연결되지 않았습니다.');
+    }
+    MapFixResult reply;
+    var detail = '';
+    try {
+      final response = await client.callService(
+        service: mapFixService,
+        type: 'vica_interfaces/srv/MapFix',
+        args: {
+          'map_id': mapId,
+          'action': action,
+          'args_json': args.isEmpty ? '' : jsonEncode(args),
+        },
+        timeout: timeout ??
+            Duration(seconds: _mapFixSlowActions.contains(action) ? 15 : 8),
+      );
+      reply = MapFixResult.fromValues(response.values);
+    } catch (error) {
+      // 화면에는 쉬운 말만, 오류 원문(시간 초과·서비스 없음)은 기록에만 남깁니다.
+      reply = MapFixResult.offline(kMapFixNoReplyText);
+      detail = ' (map_fix_node: $error)';
+    }
+    if (!reply.accepted &&
+        !_disposed &&
+        _mapFixLoggedActions.contains(action)) {
+      _addLog(
+        LogFilter.coordinateTransfer,
+        '지도 수정 실패: ${reply.message}$detail',
+      );
+    }
+    // 지도 그림이 바뀌었으면 목록을 다시 받아 그림 버전(image_version)을 갱신합니다. 주소가 같으면
+    // 앱이 옛 그림을 그대로 씁니다(11-19 실기).
+    final settings = _lastSettings;
+    if (reply.accepted &&
+        !_disposed &&
+        settings != null &&
+        _mapFixChangesImage.contains(action)) {
+      requestMapList(settings);
+    }
+    return reply;
+  }
+
+  static const _mapFixChangesImage = {'erase', 'scan_apply', 'undo'};
+
+  /// 잠금 상태와 최근 수정 기록을 다시 받습니다. 못 받으면 비웁니다(버튼이 꺼집니다).
+  Future<MapFixResult> refreshMapFix(String mapId) async {
+    final reply = await mapFix(mapId, 'get');
+    if (_disposed) {
+      return reply;
+    }
+    _mapFixStatus =
+        reply.accepted ? MapFixStatus.fromResult(reply.result) : null;
+    _mapFixStatusMapId = reply.accepted ? mapId : '';
+    notifyListeners();
+    return reply;
+  }
+
+  void _handleMapFixState(Map<String, Object?> message) {
+    final state = MapFixScanState.fromJson(message);
+    // 끝난 세션('done')은 남기지 않습니다 — 화면이 '세션 없음'으로 돌아갑니다.
+    _mapFixScan = state.phase == 'done' ? null : state;
+    notifyListeners();
+  }
+
+  /// 화면이 다 본 진행(실패 알림을 닫았을 때 등)을 치웁니다.
+  void clearMapFixScan() {
+    if (_mapFixScan == null) {
+      return;
+    }
+    _mapFixScan = null;
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  void handleMapFixStateForTest(Map<String, Object?> message) =>
+      _handleMapFixState(message);
 
   // ---- Nav2 초기 위치 잡기 ----------------------------------------------
   //

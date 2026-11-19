@@ -69,6 +69,33 @@ ORIGINAL_DIRNAME = ".original"
 ORIGINAL_SUFFIXES = (".pgm", ".json")
 
 
+# 지도 수정(map_fix_node)이 고치기 전 그림을 두는 곳입니다 — maps/.fix_backup/<map_id>/.
+# 점 폴더라 목록(maps/*.png)에는 안 잡히지만, 지도를 지울 때 같이 지우지 않으면 같은 이름의
+# 새 지도에서 '되돌리기'가 옛 지도의 그림을 되살립니다(map_fix_store.BACKUP_DIRNAME 과 같은 값).
+FIX_BACKUP_DIRNAME = ".fix_backup"
+
+
+def fix_backup_dir(maps_root: Path, map_id: str) -> Path:
+    return maps_root / FIX_BACKUP_DIRNAME / map_id
+
+
+def remove_fix_backups(maps_root: Path, map_id: str) -> Path | None:
+    """그 지도의 수정 백업 폴더를 지우고 지운 경로를 돌려줍니다. 없으면 None."""
+    folder = fix_backup_dir(maps_root, map_id)
+    if not folder.is_dir():
+        return None
+    shutil.rmtree(folder)
+    return folder
+
+
+def image_version(image_path: Path) -> int:
+    """지도 그림의 수정 시각(ms). 앱이 그림 주소 뒤에 붙여, 그림이 바뀌면 다시 받습니다."""
+    try:
+        return image_path.stat().st_mtime_ns // 1_000_000
+    except OSError:
+        return 0
+
+
 def map_file_targets(maps_root: Path, map_id: str) -> list[Path]:
     """지도 하나를 지울 때 지울 파일 전부. 숨김 원본까지 포함한다."""
     targets = [maps_root / f"{map_id}{suffix}" for suffix in MAP_SUFFIXES]
@@ -217,6 +244,14 @@ class MapListNode(Node):
                 response.removed = removed
                 return response
 
+        try:
+            backups = remove_fix_backups(self.maps_root, map_id)
+            if backups is not None:
+                removed.append(str(backups))
+        except OSError as error:
+            # 지도는 이미 지워졌다. 사실만 알리고 성공으로 둔다(아래 카탈로그와 같은 처리).
+            self.get_logger().warn(f"수정 백업 정리 실패: {error}")
+
         if request.delete_destinations:
             catalog = self.destination_root / map_id
             if catalog.is_dir():
@@ -288,6 +323,7 @@ def build_map_list(
                 # 계속 map_id 를 쓴다 — 앱도 map_id 로만 장소·홈·금지구역을 찾는다.
                 "map_name": display_name or image_path.stem,
                 "image_url": f"/maps/{image_path.name}",
+                "image_version": image_version(image_path),
                 "resolution": float(metadata.get("resolution", 0.05)),
                 "origin_x": float(metadata.get("origin_x", 0.0)),
                 "origin_y": float(metadata.get("origin_y", 0.0)),
