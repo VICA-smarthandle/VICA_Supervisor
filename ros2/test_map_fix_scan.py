@@ -25,7 +25,9 @@ _NAV2 = nav2_src()
 if _NAV2 is not None:
     sys.path.insert(0, str(_NAV2))
 
-from vica_nav2.pose_score import MapGrid  # noqa: E402
+from vica_nav2.pose_score import (  # noqa: E402
+    MAX_DIST, MapGrid, build_likelihood_field, filter_beams, score_pose,
+)
 
 import map_fix_scan as scan  # noqa: E402
 
@@ -58,8 +60,13 @@ def box_cells(x0: float, y0: float, x1: float, y1: float) -> set[tuple[int, int]
 
 
 def cast(grid: MapGrid, pose, sensor=NO_OFFSET, count: int = 720, max_range: float = 9.0,
-         step: float = 0.005):
-    """지도를 광선으로 훑어 360° 스캔을 만듭니다. 맞지 않은 빔은 inf 입니다."""
+         step: float = 0.005, depth: float = 0.0):
+    """지도를 광선으로 훑어 360° 스캔을 만듭니다. 맞지 않은 빔은 inf 입니다.
+
+    depth 는 맞은 거리에 더하는 값입니다. 실제 지도는 스캔 끝점이 떨어진 칸을 검은 칸으로
+    칠해 만들어서 벽 면이 평균적으로 칸 가운데에 있습니다 — 자세 맞춤 시험은 depth 를 반 칸
+    (RES / 2)으로 줘 그 모양을 흉내 냅니다. 0 이면 끝점이 칸의 앞 면에 떨어집니다.
+    """
     x, y, yaw = pose
     sx, sy, syaw = sensor
     lx = x + math.cos(yaw) * sx - math.sin(yaw) * sy
@@ -76,7 +83,7 @@ def cast(grid: MapGrid, pose, sensor=NO_OFFSET, count: int = 720, max_range: flo
     blocked = np.zeros(px.shape, dtype=bool)
     blocked[inside] = grid.data[rows[inside], cols[inside]] >= 65
     first = blocked.argmax(axis=1)
-    ranges = np.where(blocked.any(axis=1), distance[first], np.inf)
+    ranges = np.where(blocked.any(axis=1), distance[first] + depth, np.inf)
     return ranges, angle_min, increment
 
 
@@ -271,3 +278,190 @@ def test_patched_grid_and_cell_centres():
     assert (patched.resolution, patched.origin_x, patched.origin_y) == (RES, 0.0, 0.0)
     centres = scan.cell_centres(saved, changes.added)
     assert np.allclose(centres, [[40.5 * RES, 30.5 * RES]])  # (x, y) = 열·행 가운데
+
+
+# ---------------------------------------------------------------------------
+# 자세 다시 맞춤 · 구분 검사
+# ---------------------------------------------------------------------------
+
+HALF = RES / 2.0
+TRUE = (2.5, 2.0, 0.3)
+
+
+def refine(saved: MapGrid, real: MapGrid, true_pose, guess, **cast_kwargs):
+    cast_kwargs.setdefault("depth", HALF)
+    ranges, angle_min, increment = cast(real, true_pose, LASER, **cast_kwargs)
+    field = build_likelihood_field(saved)
+    return scan.refine_pose(saved, field, ranges, angle_min, increment, guess, LASER)
+
+
+def off(pose, dx: float, dy: float, dyaw_deg: float):
+    return (pose[0] + dx, pose[1] + dy, pose[2] + math.radians(dyaw_deg))
+
+
+def test_refine_recovers_a_shifted_guess_in_a_room():
+    saved = room(6.0, 5.0)
+
+    got = refine(saved, saved, TRUE, off(TRUE, 0.06, -0.04, 1.5))
+
+    assert got.ok and got.reason == ""
+    assert abs(got.x - TRUE[0]) <= 0.01 and abs(got.y - TRUE[1]) <= 0.01
+    assert abs(got.yaw - TRUE[2]) <= math.radians(0.2)
+    assert got.rms_m <= scan.MAX_RMS_M
+    assert math.isclose(got.moved_m, math.hypot(got.x - (TRUE[0] + 0.06), got.y - (TRUE[1] - 0.04)), abs_tol=1e-9)
+    assert abs(got.moved_deg - 1.5) <= 0.2
+    assert got.hits.shape == (got.used_beams, 2) and got.used_beams <= 180
+
+
+def test_refine_ignores_a_moved_object():
+    plain = room(6.0, 5.0)
+    saved = with_box(plain, 1.2, 1.8, 1.6, 2.2)   # 지도에는 상자가 로봇 왼쪽
+    real = with_box(plain, 3.6, 1.8, 4.0, 2.2)    # 실제로는 오른쪽으로 옮겨졌습니다
+
+    got = refine(saved, real, TRUE, off(TRUE, 0.04, -0.03, 1.0))
+
+    assert got.ok
+    assert math.hypot(got.x - TRUE[0], got.y - TRUE[1]) <= 0.012
+    assert got.kept_beams < got.used_beams
+
+
+def test_long_corridor_is_ambiguous_forward():
+    data = np.full((80, 640), 100, dtype=np.int8)   # 32 × 4 m 판
+    data[20:60, 20:620] = 0                          # 폭 2 m · 길이 30 m 복도
+    corridor = MapGrid(data, RES, 0.0, 0.0)
+    middle = (16.0, 2.0, 0.0)                        # 양 끝 벽이 15 m 밖(라이다 유효 11 m 밖)
+
+    got = refine(corridor, corridor, middle, off(middle, 0.03, 0.02, 0.5), max_range=16.0)
+
+    assert not got.ok and got.reason == "ambiguous"
+    assert got.ambiguous == ("forward",)
+
+
+def test_room_corner_is_not_ambiguous():
+    saved = room(6.0, 5.0)
+    corner = (1.3, 1.3, 0.7)
+
+    got = refine(saved, saved, corner, off(corner, -0.03, 0.03, -1.0))
+
+    assert got.ok and got.ambiguous == ()
+
+
+def test_mostly_unmatched_scan_is_low_match():
+    saved = room(6.0, 5.0)
+    real = saved
+    for box in ((1.3, 0.8, 1.5, 3.2), (1.3, 3.0, 3.7, 3.2), (1.3, 0.8, 3.7, 1.0)):  # 로봇을 세 면에서 가린 칸막이
+        real = with_box(real, *box)
+
+    got = refine(saved, real, TRUE, TRUE)
+
+    assert not got.ok and got.reason == "low_match"
+    assert got.kept_beams < scan.MIN_KEPT_RATIO * got.used_beams
+
+
+def test_open_space_with_few_beams_is_low_match():  # Review Focus 3
+    saved = room(6.0, 5.0)
+
+    got = refine(saved, saved, TRUE, TRUE, count=40)
+
+    assert got.used_beams == 40
+    assert not got.ok and got.reason == "low_match"
+
+
+def test_empty_scan_is_low_match():
+    saved = room(6.0, 5.0)
+    field = build_likelihood_field(saved)
+    got = scan.refine_pose(saved, field, np.full(360, np.inf), -math.pi, 2 * math.pi / 360, TRUE, LASER)
+    assert not got.ok and got.reason == "low_match" and got.used_beams == 0
+
+
+def test_score_is_the_pose_score_percent():
+    saved = room(6.0, 5.0)
+    ranges, angle_min, increment = cast(saved, TRUE, LASER, depth=HALF)
+    field = build_likelihood_field(saved)
+
+    got = scan.refine_pose(saved, field, ranges, angle_min, increment, TRUE, LASER)
+
+    beams = filter_beams(ranges, angle_min, increment)
+    want = score_pose(field, saved, beams, got.x, got.y, got.yaw, sensor=LASER)
+    assert math.isclose(got.score, want, abs_tol=1e-6)
+    same = scan.pose_score_percent(saved, field, ranges, angle_min, increment, (got.x, got.y, got.yaw), LASER)
+    assert math.isclose(same, want, abs_tol=1e-6)
+
+
+def test_interp_field_is_linear_between_cell_centres():
+    data = np.zeros((6, 6), dtype=np.int8)
+    data[2, 2] = 100
+    grid = MapGrid(data, RES, 0.0, 0.0)
+    field = build_likelihood_field(grid)
+
+    def at(col: float, row: float) -> float:  # 칸 번호(가운데 기준)로 묻습니다
+        wx = np.array([(col + 0.5) * RES])
+        wy = np.array([(row + 0.5) * RES])
+        return float(scan.interp_field(field, grid, wx, wy, MAX_DIST)[0])
+
+    assert math.isclose(at(2, 2), 0.0, abs_tol=1e-12)
+    assert math.isclose(at(3, 2), RES, rel_tol=1e-9)
+    assert math.isclose(at(2.5, 2), RES / 2, rel_tol=1e-9)       # 두 칸 가운데 사이의 절반
+    assert math.isclose(at(2, 3.25), RES * 1.25, rel_tol=1e-9)
+    assert at(40, 2) == MAX_DIST                                  # 지도 밖
+
+
+def test_small_square_room_is_not_ambiguous():
+    """3 × 3 m 방. 벽이 가까우면 2° 돌려도 끝점이 벽에서 거의 안 벗어나지만 방향은 정해집니다."""
+    small = room(3.0, 3.0)
+    pose = (2.0, 2.0, 0.2)
+
+    got = refine(small, small, pose, off(pose, 0.03, -0.02, 1.0))
+
+    assert got.ok and got.ambiguous == ()
+
+
+def test_round_room_is_ambiguous_in_yaw():
+    """로봇이 둥근 방 한가운데면 어느 쪽을 보는지 벽으로는 알 수 없습니다."""
+    size = 120
+    rows, cols = np.mgrid[0:size, 0:size]
+    distance = np.hypot((cols + 0.5) * RES - 3.0, (rows + 0.5) * RES - 3.0)
+    data = np.where(distance < 2.0, 0, 100).astype(np.int8)
+    round_room = MapGrid(data, RES, 0.0, 0.0)
+    centre = (3.0, 3.0, 0.4)
+
+    ranges, angle_min, increment = cast(round_room, centre, NO_OFFSET, depth=HALF)
+    field = build_likelihood_field(round_room)
+    got = scan.refine_pose(round_room, field, ranges, angle_min, increment, centre, NO_OFFSET)
+
+    assert not got.ok and got.reason == "ambiguous"
+    assert got.ambiguous == ("yaw",)
+
+
+def test_refine_refuses_to_jump_far_from_the_guess():
+    """출발 자세에서 너무 멀리 옮겨야 맞는다면 믿지 않습니다 — 초기 위치부터 다시 잡을 일입니다."""
+    saved = room(6.0, 5.0)
+    far_guess = off(TRUE, 0.42, 0.0, 0.0)   # 0.42 m 틀린 출발값. 거친 탐색(±0.5 m)은 참값을 찾습니다
+
+    got = refine(saved, saved, TRUE, far_guess)
+
+    assert not got.ok and got.reason == "low_match"
+    assert got.moved_m > scan.MAX_MOVE_M
+
+
+def test_thick_wall_does_not_let_the_fit_sink_in():
+    """벽이 두꺼워도 끝점이 벽 속으로 들어가는 자세를 좋게 보지 않습니다(겉 칸 기준)."""
+    saved = room(6.0, 5.0)   # 벽 두께 0.5 m
+    surface = scan.build_surface_field(saved)
+    deep = np.array([0.25]), np.array([2.0])     # 왼쪽 벽 속 0.25 m (벽 면은 x 0.5)
+    face = np.array([0.475]), np.array([2.0])    # 벽 겉 칸의 가운데
+    assert float(scan.interp_field(surface, saved, *face, MAX_DIST)[0]) < 0.005
+    assert float(scan.interp_field(surface, saved, *deep, MAX_DIST)[0]) > 0.20
+
+
+def test_noisy_scan_is_low_match():
+    """거리 잡음이 커서 벽에 고르게 안 붙으면(RMS 0.03 m 초과) 믿지 않습니다."""
+    saved = room(6.0, 5.0)
+    ranges, angle_min, increment = cast(saved, TRUE, LASER, depth=HALF)
+    noisy = ranges + np.random.default_rng(7).normal(0.0, 0.05, ranges.shape)
+    field = build_likelihood_field(saved)
+
+    got = scan.refine_pose(saved, field, noisy, angle_min, increment, TRUE, LASER)
+
+    assert not got.ok and got.reason == "low_match"
+    assert got.rms_m > scan.MAX_RMS_M and got.kept_beams >= scan.MIN_KEPT

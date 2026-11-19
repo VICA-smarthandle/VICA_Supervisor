@@ -21,7 +21,17 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import ndimage
 
-from vica_nav2.pose_score import MIN_RANGE, OCCUPIED_THRESHOLD, MapGrid
+from vica_nav2.pose_score import (
+    MAX_DIST,
+    MIN_RANGE,
+    OCCUPIED_THRESHOLD,
+    MapGrid,
+    ScanBeams,
+    beam_hits,
+    filter_beams,
+    score_pose,
+    search_pose,
+)
 
 # --- 변경 판정 값 (설계서 6.5 의 시작값. 0단계 실측으로 고칩니다) ----------------
 #
@@ -169,3 +179,231 @@ def cell_centres(grid: MapGrid, cells: np.ndarray) -> np.ndarray:
     x = grid.origin_x + (cells[:, 1] + 0.5) * grid.resolution
     y = grid.origin_y + (cells[:, 0] + 0.5) * grid.resolution
     return np.stack([x, y], axis=1)
+
+
+# ---------------------------------------------------------------------------
+# 자세 다시 맞춤 · 구분 검사
+# ---------------------------------------------------------------------------
+#
+# AMCL 자세는 출발값으로만 씁니다. 틀린 자세로 얹으면 그 오차가 지도에 남기 때문입니다.
+#
+#   1회째(거친 맞춤)  pose_score.search_pose — AMCL 과 같은 잣대(sigma_hit 0.2)
+#   남길 빔           1회째 자세에서 끝점이 벽 겉 칸 KEEP_DIST_M 안인 빔(안 바뀐 벽)
+#   2회째(정밀 맞춤)  남긴 빔의 '벽 겉 칸까지 거리' 제곱 평균이 가장 작은 자세
+#   구분 검사         자세를 밀어도 그 거리가 거의 안 늘어나는 축은 '구분되지 않는다'
+#
+# 통과·구분 판정에 pose_score 점수를 쓰지 않는 이유: 그 점수는 5 cm 를 밀어도 99.5 → 97.3
+# 밖에 안 떨어집니다(pose_score.py 2026-09-02 실측). 출발해도 되는가를 보는 잣대라 무딥니다.
+#
+# 거리는 '벽 겉 칸의 가운데까지'입니다(build_surface_field).
+#   - 가운데: 지도는 스캔 끝점이 떨어진 칸을 검은 칸으로 칠해 만들어서 벽 면이 평균적으로 칸
+#     가운데에 있습니다. 가운데까지의 거리가 0 일 때가 맞은 자세입니다.
+#   - 겉 칸만: 검은 칸 전체를 기준으로 하면 두꺼운 벽 속은 어디나 거리 0 이라, 끝점이 벽 속으로
+#     파고드는 자세도 좋게 보입니다. 벽이 한두 칸 두께인 보통 지도에서는 차이가 없습니다.
+#
+# **구분 검사를 '남는 빔 수'로 세지 않는 이유**(2026-11-19 시험에서 확인). 처음에는 자세를 민
+# 뒤에도 끝점이 벽 0.05 m 안에 남는 빔을 세었는데, 벽이 가까운 작은 방에서는 2° 를 돌려도
+# 끝점이 벽을 따라 미끄러질 뿐 0.05 m 를 넘지 않아 방향이 '구분되지 않는다'로 나왔습니다.
+# 거리 제곱 평균이 얼마나 늘어나는가로 보면 방 크기에 덜 매입니다.
+
+KEEP_DIST_M = 0.10
+MIN_KEPT = 60
+MIN_KEPT_RATIO = 0.5
+MAX_RMS_M = 0.03
+FINE_XY_M = 0.05
+FINE_YAW = math.radians(1.0)
+# 출발 자세(AMCL)에서 이보다 멀리 옮겨야 맞는다면 믿지 않습니다. 장면이 크게 바뀌어 엉뚱한
+# 벽에 붙었을 수 있고, 그 정도로 틀렸으면 초기 위치부터 다시 잡을 일입니다.
+MAX_MOVE_M = 0.30
+MAX_MOVE_DEG = 10.0
+AMBIG_SHIFT_M = 0.10
+AMBIG_YAW = math.radians(2.0)
+# 그만큼 밀었을 때 RMS 거리가 이만큼은 늘어야 그 축이 정해진 것으로 봅니다.
+# 0.02 m 는 빔의 약 4 % 가 0.10 m 를 고스란히 느끼는 정도입니다(0.10·√0.04).
+AMBIG_MIN_RISE_M = 0.02
+AMBIG_MIN_RISE_YAW_M = 0.01
+
+# 2회째 탐색의 두 단: (xy 범위, xy 간격, yaw 범위, yaw 간격)
+_FINE_STAGES = (
+    (FINE_XY_M, 0.01, FINE_YAW, math.radians(0.2)),
+    (0.01, 0.002, math.radians(0.2), math.radians(0.05)),
+)
+# 점수가 같으면 덜 옮긴 자세를 고릅니다. 긴 복도처럼 한 축으로 평평한 곳에서 탐색 범위 끝으로
+# 미끄러지지 않게 하는 아주 작은 값입니다(거리 제곱 평균은 1e-4 m² 안팎).
+_STAY_WEIGHT = 1e-9
+
+
+@dataclass(frozen=True)
+class RefineResult:
+    """자세 다시 맞춤 결과. ok 가 거짓이어도 나머지 칸은 화면에 보일 값으로 채웁니다."""
+
+    ok: bool
+    reason: str                    # "" | "low_match" | "ambiguous"
+    x: float
+    y: float
+    yaw: float
+    score: float                   # pose_score 점수(유효 빔 전부) — 화면의 '위치 맞춤 %'
+    used_beams: int
+    kept_beams: int
+    rms_m: float
+    moved_m: float                 # 출발 자세에서 옮긴 거리
+    moved_deg: float
+    ambiguous: tuple[str, ...]     # "forward" | "lateral" | "yaw"
+    hits: np.ndarray               # (K, 2) 맞춘 자세에서 본 라이다 점, map 좌표
+
+
+def interp_field(field: np.ndarray, grid: MapGrid, wx: np.ndarray, wy: np.ndarray,
+                 max_dist: float) -> np.ndarray:
+    """거리표를 칸 가운데 사이에서 선형 보간해 읽습니다. 지도 밖은 max_dist 입니다."""
+    fx = (np.asarray(wx, dtype=np.float64) - grid.origin_x) / grid.resolution - 0.5
+    fy = (np.asarray(wy, dtype=np.float64) - grid.origin_y) / grid.resolution - 0.5
+    col0 = np.floor(fx).astype(np.int64)
+    row0 = np.floor(fy).astype(np.int64)
+    tx, ty = fx - col0, fy - row0
+
+    def read(rows: np.ndarray, cols: np.ndarray) -> np.ndarray:
+        inside = (rows >= 0) & (rows < grid.height) & (cols >= 0) & (cols < grid.width)
+        values = np.full(rows.shape, max_dist, dtype=np.float64)
+        values[inside] = field[rows[inside], cols[inside]]
+        return values
+
+    return (
+        (1 - tx) * (1 - ty) * read(row0, col0)
+        + tx * (1 - ty) * read(row0, col0 + 1)
+        + (1 - tx) * ty * read(row0 + 1, col0)
+        + tx * ty * read(row0 + 1, col0 + 1)
+    )
+
+
+def _span(centre: float, radius: float, step: float) -> np.ndarray:
+    count = int(round(radius / step))
+    return centre + np.arange(-count, count + 1, dtype=np.float64) * step
+
+
+def _distances(field, grid, beams: ScanBeams, xs: np.ndarray, ys: np.ndarray, yaw: float, sensor):
+    """자세 후보 (xs × ys, yaw 하나)마다 빔 끝점의 검은 칸까지 거리. 모양 (len(xs), len(ys), 빔)."""
+    hit_x, hit_y = beam_hits(beams, 0.0, 0.0, yaw, sensor=sensor)
+    wx = xs[:, None, None] + hit_x[None, None, :]
+    wy = ys[None, :, None] + hit_y[None, None, :]
+    wx, wy = np.broadcast_arrays(wx, wy)
+    return interp_field(field, grid, wx, wy, MAX_DIST)
+
+
+def _fine_fit(field, grid, beams: ScanBeams, start, sensor):
+    """남긴 빔으로 자세를 정밀하게 맞춥니다. (x, y, yaw, 거리 제곱 평균, 1단이 범위 끝에 걸렸는가)."""
+    x, y, yaw = start
+    cost, at_edge = math.inf, False
+    for stage, (xy_radius, xy_step, yaw_radius, yaw_step) in enumerate(_FINE_STAGES):
+        xs, ys = _span(x, xy_radius, xy_step), _span(y, xy_radius, xy_step)
+        yaws = _span(yaw, yaw_radius, yaw_step)
+        best = None
+        for k, candidate in enumerate(yaws):
+            mean_sq = (_distances(field, grid, beams, xs, ys, candidate, sensor) ** 2).mean(axis=2)
+            stay = (((xs[:, None] - x) ** 2 + (ys[None, :] - y) ** 2) / xy_radius ** 2
+                    + ((candidate - yaw) / yaw_radius) ** 2)
+            total = mean_sq + _STAY_WEIGHT * stay
+            i, j = np.unravel_index(np.argmin(total), total.shape)
+            if best is None or total[i, j] < best[0]:
+                best = (float(total[i, j]), float(mean_sq[i, j]), i, j, k)
+        _, cost, i, j, k = best
+        if stage == 0:
+            at_edge = (i in (0, len(xs) - 1) or j in (0, len(ys) - 1) or k in (0, len(yaws) - 1))
+        x, y, yaw = float(xs[i]), float(ys[j]), float(yaws[k])
+    return x, y, yaw, cost, at_edge
+
+
+def _ambiguous_axes(field, grid, beams: ScanBeams, pose, sensor) -> tuple[str, ...]:
+    """자세를 밀어도 벽까지 거리가 거의 안 늘어나는 축들."""
+    x, y, yaw = pose
+
+    def rms(px: float, py: float, pyaw: float) -> float:
+        distance = _distances(field, grid, beams, np.array([px]), np.array([py]), pyaw, sensor)
+        return float(np.sqrt((distance ** 2).mean()))
+
+    base = rms(x, y, yaw)
+    forward = (math.cos(yaw) * AMBIG_SHIFT_M, math.sin(yaw) * AMBIG_SHIFT_M)
+    lateral = (-math.sin(yaw) * AMBIG_SHIFT_M, math.cos(yaw) * AMBIG_SHIFT_M)
+    moves = {
+        "forward": (AMBIG_MIN_RISE_M, [(x + s * forward[0], y + s * forward[1], yaw) for s in (1, -1)]),
+        "lateral": (AMBIG_MIN_RISE_M, [(x + s * lateral[0], y + s * lateral[1], yaw) for s in (1, -1)]),
+        "yaw": (AMBIG_MIN_RISE_YAW_M, [(x, y, yaw + s * AMBIG_YAW) for s in (1, -1)]),
+    }
+    # 양쪽 가운데 덜 늘어난 쪽을 봅니다 — 한쪽으로만 정해진 것은 정해진 것이 아닙니다.
+    return tuple(
+        axis for axis, (need, pair) in moves.items()
+        if min(rms(*moved) for moved in pair) - base < need
+    )
+
+
+def build_surface_field(grid: MapGrid) -> np.ndarray:
+    """칸마다 가장 가까운 '벽 겉 칸'까지 거리(m). 겉 칸은 이웃(8방향)에 빈 칸이 있는 검은 칸입니다.
+
+    지도 가장자리 밖은 검은 칸으로 칩니다 — 지도 테두리를 벽 면으로 보지 않으려는 것입니다.
+    """
+    occupied = grid.data >= OCCUPIED_THRESHOLD
+    inner = ndimage.binary_erosion(occupied, structure=np.ones((3, 3), dtype=bool), border_value=1)
+    surface = occupied & ~inner
+    if not surface.any():
+        return np.full(occupied.shape, MAX_DIST, dtype=np.float64)
+    distance = ndimage.distance_transform_edt(~surface) * grid.resolution
+    return np.minimum(distance, MAX_DIST)
+
+
+def refine_pose(grid: MapGrid, field: np.ndarray, ranges, angle_min: float, angle_increment: float,
+                guess: tuple[float, float, float], sensor: tuple[float, float, float],
+                surface: np.ndarray | None = None) -> RefineResult:
+    """스캔 한 장을 지도에 다시 맞춥니다. guess 는 출발 자세 (x, y, yaw[rad])입니다.
+
+    field 는 pose_score.build_likelihood_field(grid)(거친 맞춤·점수용), surface 는
+    build_surface_field(grid)(정밀 맞춤·구분 검사용)입니다. surface 를 안 주면 여기서 만듭니다.
+    """
+    beams = filter_beams(ranges, angle_min, angle_increment)
+    if surface is None:
+        surface = build_surface_field(grid)
+
+    def result(ok, reason, pose, kept=0, rms=0.0, ambiguous=()):
+        x, y, yaw = pose
+        hit_x, hit_y = beam_hits(beams, x, y, yaw, sensor=sensor)
+        turn = (yaw - guess[2] + math.pi) % (2.0 * math.pi) - math.pi
+        return RefineResult(
+            ok=ok, reason=reason, x=x, y=y, yaw=yaw,
+            score=score_pose(field, grid, beams, x, y, yaw, sensor=sensor),
+            used_beams=beams.used, kept_beams=kept, rms_m=rms,
+            moved_m=math.hypot(x - guess[0], y - guess[1]), moved_deg=abs(math.degrees(turn)),
+            ambiguous=tuple(ambiguous), hits=np.stack([hit_x, hit_y], axis=1),
+        )
+
+    if beams.used == 0:
+        return result(False, "low_match", guess)
+
+    # 1회째. search_pose 가 ok 를 주지 않아도 그 자세에서 계속 갑니다 — 판정은 아래 조건이 합니다.
+    coarse = search_pose(field, grid, beams, guess[0], guess[1], yaw_hint=guess[2], sensor=sensor)
+    first = (coarse.x, coarse.y, coarse.yaw)
+
+    # 안 바뀐 벽에 떨어진 빔만 남깁니다.
+    hit_x, hit_y = beam_hits(beams, *first, sensor=sensor)
+    keep = interp_field(surface, grid, hit_x, hit_y, MAX_DIST) <= KEEP_DIST_M
+    kept = int(keep.sum())
+    if kept < MIN_KEPT or kept < MIN_KEPT_RATIO * beams.used:
+        return result(False, "low_match", first, kept)
+    kept_beams = ScanBeams(beams.ranges[keep], beams.angles[keep], beams.total)
+
+    # 2회째.
+    x, y, yaw, mean_sq, at_edge = _fine_fit(surface, grid, kept_beams, first, sensor)
+    rms = math.sqrt(mean_sq)
+    done = result(True, "", (x, y, yaw), kept, rms)
+    if at_edge or rms > MAX_RMS_M or done.moved_m > MAX_MOVE_M or done.moved_deg > MAX_MOVE_DEG:
+        return result(False, "low_match", (x, y, yaw), kept, rms)
+
+    ambiguous = _ambiguous_axes(surface, grid, kept_beams, (x, y, yaw), sensor)
+    if ambiguous:
+        return result(False, "ambiguous", (x, y, yaw), kept, rms, ambiguous)
+    return done
+
+
+def pose_score_percent(grid: MapGrid, field: np.ndarray, ranges, angle_min: float,
+                       angle_increment: float, pose: tuple[float, float, float],
+                       sensor: tuple[float, float, float]) -> float:
+    """화면의 '위치 맞춤 %'. 초기 위치 잡기와 같은 pose_score 점수입니다(유효 빔 전부)."""
+    beams = filter_beams(ranges, angle_min, angle_increment)
+    return score_pose(field, grid, beams, pose[0], pose[1], pose[2], sensor=sensor)
