@@ -615,28 +615,32 @@ class _MapRescanScreenState extends State<MapRescanScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _Score(
-                  label: '수정 전',
-                  value: mapFixPercent(scan.scoreBefore),
-                  color: VicaColors.muted,
-                ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 14),
-                  child: Icon(
-                    Icons.arrow_forward,
-                    size: 24,
+            // 좁은 폰(360)에서 두 값이 한 줄에 안 들어가면 글자를 줄여 맞춥니다(넘침 시험).
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _Score(
+                    label: '수정 전',
+                    value: mapFixPercent(scan.scoreBefore),
                     color: VicaColors.muted,
                   ),
-                ),
-                _Score(
-                  label: '수정 후',
-                  value: mapFixPercent(scan.scoreAfter),
-                  color: VicaColors.green,
-                ),
-              ],
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 14),
+                    child: Icon(
+                      Icons.arrow_forward,
+                      size: 24,
+                      color: VicaColors.muted,
+                    ),
+                  ),
+                  _Score(
+                    label: '수정 후',
+                    value: mapFixPercent(scan.scoreAfter),
+                    color: VicaColors.green,
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 12),
             Text(
