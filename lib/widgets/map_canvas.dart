@@ -28,8 +28,21 @@ const double _markerScale = kIsWeb ? 1.0 : 2 / 3;
 // 지도 위 점의 지름(px). 저장된 장소·임시 저장 장소·선택 위치가 같은 크기여야
 // 색만으로 구분되고 크기 차이가 의미로 오해되지 않습니다.
 // 7/8 -> 5 로 줄였습니다. 장소가 늘어나면 점이 서로 겹쳐 지도가 안 보였습니다.
-const double _markerSize = 5 * _markerScale;
-const double _markerBorder = 1.0 * _markerScale;
+//
+// 2026-11-19 사용자: 앱 폭(폰)으로 보면 점이 지도에 비해 너무 크다 → 지도가 그려지는 배율에 따라
+// 줄인다. 점 크기는 화면 px 로 고정이라, 지도가 작게 그려질수록(폰 폭 배율 약 0.6) 지도 위에서
+// 커 보였다(5 px = 약 8칸 = 40 cm, 노트북에서는 약 3칸). 배율이 _markerFullSizeScale 이상이면
+// 그대로, 그보다 작으면 비례해 줄여 폰 폭에서 1/2 이 되게 한다. 위의 '1/2 은 안 보여 안 쓴다'
+// (09-04)를 사용자 결정으로 바꾼 것이라, 2.5 px 아래로는 내리지 않는다. 화살표·눌리는 판은 그대로.
+const double _markerFullSizeScale = 1.2;
+const double _markerMinDot = 2.5;
+
+/// 장소·홈·임시·선택 위치 점의 지름(px). [displayScale] 은 지도 1칸이 화면에서 차지하는 px.
+double mapMarkerDotSize(double displayScale, {double base = _markerScale}) {
+  final factor = (displayScale / _markerFullSizeScale).clamp(0.5, 1.0);
+  final size = 5 * base * factor;
+  return size < _markerMinDot ? _markerMinDot : size;
+}
 
 // 누를 수 있는 점(저장 장소)의 손가락 판(px). 점은 작아도 눌리는 자리는 이만큼
 // 둡니다 — 엘리베이터 버튼의 불빛과 판처럼. 지도와 함께 확대되므로 확대할수록
@@ -450,7 +463,7 @@ class MapCanvas extends StatelessWidget {
                                   _scaledOffset(location.x, location.y, scale),
                               label: showLocationLabels ? location.name : '',
                               color: Colors.blue,
-                              size: _markerSize,
+                              size: mapMarkerDotSize(scale),
                               onTap: onSelectLocation == null
                                   ? null
                                   : () => onSelectLocation!(location),
@@ -498,7 +511,7 @@ class MapCanvas extends StatelessWidget {
                         ),
                         label: '홈',
                         color: Colors.orange,
-                        size: _markerSize,
+                        size: mapMarkerDotSize(scale),
                       ),
                     // 도크를 지도에서 지정하는 중(2026-11-19, 목업 90·90′). 누름을 가로채지
                     // 않습니다 — 두 번째 누름이 먼저 누른 도크 바로 옆일 수 있습니다.
@@ -515,7 +528,7 @@ class MapCanvas extends StatelessWidget {
                         ),
                         label: '임시 저장',
                         color: Colors.green,
-                        size: _markerSize,
+                        size: mapMarkerDotSize(scale),
                       ),
                     if (pickedLocation != null)
                       _Marker(
@@ -526,7 +539,7 @@ class MapCanvas extends StatelessWidget {
                         ),
                         label: '선택 위치',
                         color: Colors.deepOrange,
-                        size: _markerSize,
+                        size: mapMarkerDotSize(scale),
                         filled: false,
                       ),
                     if (poseArrow != null)
@@ -768,7 +781,7 @@ class _Marker extends StatelessWidget {
         // 줄일 때도 같은 비율(1/5)을 지킵니다.
         border: Border.all(
           color: filled ? Colors.white : color,
-          width: _markerBorder,
+          width: size / 5,
         ),
       ),
       child: SizedBox(width: size, height: size),

@@ -154,4 +154,48 @@ void main() {
     expect(identical(first, sameMapAgain), isTrue, reason: '같은 지도는 그림을 이어 쓴다');
     expect(identical(first, switched), isFalse, reason: '다른 지도는 새로 그린다');
   });
+
+  test('장소 점은 지도가 작게 그려질수록 줄어 폰 폭에서 1/2 이 된다(11-19 사용자)', () {
+    // 지도 1칸이 화면 1.2 px 이상(태블릿·노트북)이면 그대로, 폰 폭(약 0.6)에서는 1/2.
+    expect(mapMarkerDotSize(1.5, base: 1), 5);
+    expect(mapMarkerDotSize(1.2, base: 1), 5);
+    expect(mapMarkerDotSize(0.9, base: 1), closeTo(3.75, 1e-9));
+    expect(mapMarkerDotSize(0.6, base: 1), 2.5);
+    expect(mapMarkerDotSize(0.3, base: 1), 2.5); // 1/2 아래로는 줄이지 않는다
+    // 앱(APK)은 이미 2/3 이라, 줄여도 2.5 px 아래로는 내려가지 않는다.
+    expect(mapMarkerDotSize(1.5, base: 2 / 3), closeTo(10 / 3, 1e-9));
+    expect(mapMarkerDotSize(0.6, base: 2 / 3), 2.5);
+  });
+
+  testWidgets('작게 그려진 지도에서는 점도 작게 그린다', (tester) async {
+    Future<Size> dotOn(double side) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                width: side,
+                height: side,
+                child: const MapCanvas(
+                  map: map,
+                  settings: AppSettings(),
+                  locations: [reception],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      return tester.getSize(find.descendant(
+        of: find.byTooltip('접수'),
+        matching: find.byType(DecoratedBox),
+      ));
+    }
+
+    expect((await dotOn(400)).width, closeTo(mapMarkerDotSize(2.0), 1e-9));
+    expect((await dotOn(120)).width, closeTo(mapMarkerDotSize(0.6), 1e-9));
+    expect((await dotOn(120)).width, lessThan((await dotOn(400)).width));
+  });
 }
