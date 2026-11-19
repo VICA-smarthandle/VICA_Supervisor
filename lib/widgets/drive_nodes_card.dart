@@ -4,6 +4,7 @@
 //   - 사람 감지(⑮ detector)만 잠시 끄는 켜기/끄기 — 주행을 다시 켜면 켜진 상태로 돌아갑니다.
 //   - 음성을 로컬(LOCAL, 로봇 안 midm2-mini) / 외부 API(클라우드 LLM) 중 고르기.
 // '주행 끄기'는 2026-11-18 위쪽 막대로 옮겼습니다(drive_stop_button.dart).
+// 2026-11-19 사용자: '빔포밍 회전'(호출 방향 회전) 켜기/끄기 — 음성 노드 서비스로 바로 갑니다.
 // 둘 다 젯슨 모드 노드의 서비스로 갑니다. 지금 상태는 /vica/mode_status 만 보고 그립니다.
 // 모드 노드가 없거나 주행이 꺼져 있으면 아무것도 그리지 않습니다.
 import 'package:flutter/material.dart';
@@ -50,6 +51,7 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
     }
     final submode = context.watch<AppModeProvider>().driveSubmode;
     final detectorOff = status.detector == 'inactive';
+    final beamOn = status.voice == 'active' ? supervisor.wakeDoaTurnOn : null;
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(18),
@@ -107,6 +109,7 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
             title: '카메라 감지', // 2026-11-17 사용자: '사람 감지' → '카메라 감지'
             state: _detectorText(status.detector),
             trailing: Switch(
+              key: const ValueKey('drive_nodes_detector_switch'),
               value: status.detectorOn,
               onChanged: _busy ||
                       status.detector == 'none' ||
@@ -121,6 +124,30 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
             const _Note(
               warning: true,
               text: '감지 꺼짐 · 접근 요청·경비 알림 없음 · 다시 켜면 10~20초',
+            ),
+          ],
+          const Divider(height: 28, color: VicaColors.border),
+          // 2026-11-19 사용자: 빔포밍 회전(캔버스 101번 보드). 상태는 음성 노드가 남긴 토픽만 따릅니다.
+          // 음성 유닛이 active 가 아니면 남아 있는 값은 낡은 것이라 모름으로 그립니다.
+          _Row(
+            icon: beamOn == false
+                ? Icons.explore_off_outlined
+                : Icons.explore_outlined,
+            title: '빔포밍 회전',
+            state: _beamText(beamOn),
+            trailing: Switch(
+              key: const ValueKey('drive_nodes_wake_doa_turn_switch'),
+              value: beamOn ?? false,
+              onChanged: _busy || beamOn == null
+                  ? null
+                  : (on) => _run(() => supervisor.setWakeDoaTurn(on)),
+            ),
+          ),
+          if (beamOn == false) ...[
+            const SizedBox(height: 10),
+            const _Note(
+              warning: true,
+              text: '회전 꺼짐 · 불러도 돌지 않음 · 음성 다시 켜면 켜짐',
             ),
           ],
           const Divider(height: 28, color: VicaColors.border),
@@ -177,6 +204,12 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
         'inactive' => ('잠시 꺼짐', const Color(0xFF8A5F1C)),
         'failed' => ('꺼짐(오류) · 다시 켜 보세요', VicaColors.red),
         _ => ('유닛 없음', VicaColors.muted),
+      };
+
+  static (String, Color) _beamText(bool? on) => switch (on) {
+        true => ('켜짐', VicaColors.green),
+        false => ('잠시 꺼짐', const Color(0xFF8A5F1C)),
+        null => ('음성 꺼짐 · 바꿀 수 없음', VicaColors.muted),
       };
 
   // 음성 줄: 유닛 상태에 마지막 연결 알림을 붙입니다(목업 D). 색은 알림을 따릅니다.
