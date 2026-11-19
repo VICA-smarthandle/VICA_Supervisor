@@ -47,6 +47,11 @@ STATUS_STALE_SEC = 3.0
 STATUS_WAIT_SEC = 1.5
 # scan_check 가 스캔 한 장을 기다리는 시간.
 SCAN_WAIT_SEC = 2.0
+# 새로 연 /scan·TF 구독이 첫 메시지를 받기까지(DDS 발견). 11-19 실측 6~7 s — 그 안이면 이만큼 기다린다.
+TF_WARMUP_SEC = 8.0
+# 이 요청이 오면 /scan·/odom·TF 를 미리 연다. 칸을 펼칠 때(get) 열어 두면 스캔 화면에 들어갈 즈음엔
+# 이미 받고 있다. 쉬는 상태로 IDLE_CLOSE_SEC 가 지나면 닫는다.
+WARM_ACTIONS = {"get", "scan_check", "scan_start"}
 # 마지막 요청 뒤 이만큼 지나면 /robot_status 구독을 닫습니다.
 IDLE_CLOSE_SEC = 120.0
 HOUSEKEEPING_SEC = 5.0
@@ -75,6 +80,11 @@ def load_map_outcome(*, done: bool, error: Optional[BaseException], result_code:
     }
     detail = reasons.get(result_code, f"알 수 없는 실패({result_code}).")
     return False, "apply_failed", f"Nav2가 지도를 읽지 못했습니다. {detail}"
+
+
+def warmup_wait(age_sec: float, minimum: float) -> float:
+    """연 지 age_sec 인 구독에서 메시지를 기다릴 시간. 아직 발견 중이면 TF_WARMUP_SEC 까지 기다린다."""
+    return max(minimum, TF_WARMUP_SEC - age_sec)
 
 
 def should_publish(state: dict, last: Optional[dict], since_sec: float) -> bool:
@@ -167,6 +177,7 @@ class MapFixNode(Node):
 
         self._scan_sub = None
         self._odom_sub = None
+        self._sensors_opened_at = 0.0
         self._tf_buffer = None
         self._tf_listener = None
         self._scan_msg = None
@@ -242,6 +253,8 @@ class MapFixNode(Node):
                 self._load_map_tried = True
                 self._setup_load_map_client()
             self._open_status()
+            if request.action in WARM_ACTIONS:
+                self._open_sensors()
             with self._core_lock:
                 before = self.core.session.session_id if self.core.session else ""
                 answer = self.core.handle(request.map_id, request.action, request.args_json)
@@ -292,6 +305,8 @@ class MapFixNode(Node):
         with self._core_lock:
             self.core.retry_pending()
         idle = time.monotonic() - self._last_request
+        if self._scan_sub is not None and self.core.session is None and idle > IDLE_CLOSE_SEC:
+            self._close_sensors()
         if self._status_sub is not None and self.core.session is None and idle > IDLE_CLOSE_SEC \
                 and not self.core.pending_apply:
             self.destroy_subscription(self._status_sub)
@@ -309,8 +324,8 @@ class MapFixNode(Node):
             if self._session_timer is None:
                 self._session_timer = self.create_timer(
                     SESSION_TICK_SEC, self._on_session_tick, callback_group=self._tick_group)
-        else:
-            self._close_sensors()
+        # 꺼도 바로 닫지 않습니다 — 미리보기 뒤 다시 스캔할 때 또 발견을 기다리지 않게. 쉬는 상태로
+        # IDLE_CLOSE_SEC 가 지나면 정리 타이머가 닫습니다.
 
     def _open_sensors(self) -> None:
         if self._scan_sub is not None:
@@ -322,6 +337,7 @@ class MapFixNode(Node):
 
         self._tf_buffer = tf2_ros.Buffer()
         self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self)
+        self._sensors_opened_at = time.monotonic()
         self._scan_event.clear()
         self._scan_msg = None
         # rplidar 는 sensor_data(BEST_EFFORT)로 냅니다. RELIABLE 로 구독하면 한 건도 안 옵니다.
@@ -346,7 +362,7 @@ class MapFixNode(Node):
         self._tf_buffer = None
         self._scan_msg = None
 
-    def _lookup(self, target: str, source: str) -> Optional[tuple[float, float, float]]:
+    def _lookup(self, target: str, source: str, wait: float) -> Optional[tuple[float, float, float]]:
         import tf2_ros
 
         buffer = self._tf_buffer
@@ -354,17 +370,26 @@ class MapFixNode(Node):
             return None
         try:
             found = buffer.lookup_transform(
-                target, source, rclpy.time.Time(), timeout=rclpy.duration.Duration(seconds=0.5))
+                target, source, rclpy.time.Time(), timeout=rclpy.duration.Duration(seconds=wait))
         except tf2_ros.TransformException:
             return None
         return pose_of(found.transform)
 
-    def _scan_input(self, msg) -> Optional[mfc.ScanInput]:
-        """스캔 한 장에 그 순간의 자세(AMCL + 오도메트리)와 라이다 자리를 붙입니다."""
+    def _scan_input(self, msg, wait: float = 0.0) -> Optional[mfc.ScanInput]:
+        """스캔 한 장에 그 순간의 자세(AMCL + 오도메트리)와 라이다 자리를 붙입니다.
+
+        wait 는 TF 를 기다릴 시간입니다. 스캔마다 부르는 세션 길(_on_scan)은 0 — 기다리면 초당 10번씩
+        스레드가 묶입니다. scan_check 는 막 연 구독이면 발견될 때까지 기다립니다.
+        """
         base = str(self.get_parameter("base_frame").value)
-        guess = self._lookup(str(self.get_parameter("map_frame").value), base)
-        sensor = self._lookup(base, msg.header.frame_id)
+        world = str(self.get_parameter("map_frame").value)
+        guess = self._lookup(world, base, wait)
+        sensor = self._lookup(base, msg.header.frame_id, wait)
         if guess is None or sensor is None:
+            missing = [f"{a}→{b}" for ok, a, b in ((guess, world, base), (sensor, base, msg.header.frame_id))
+                       if ok is None]
+            self.get_logger().warn(f"자세를 못 얻음 — TF {', '.join(missing)} 없음(초기 위치·Nav2 확인)",
+                                   throttle_duration_sec=5.0)
             return None
         return mfc.ScanInput(msg.ranges, msg.angle_min, msg.angle_increment, guess, sensor)
 
@@ -383,15 +408,14 @@ class MapFixNode(Node):
 
     def _grab_scan(self) -> Optional[mfc.ScanInput]:
         """scan_check 용 — 센서를 잠깐 열어 스캔 한 장을 받습니다."""
-        opened_here = self._scan_sub is None
         self._open_sensors()
-        try:
-            if not self._scan_event.wait(SCAN_WAIT_SEC) or self._scan_msg is None:
-                return None
-            return self._scan_input(self._scan_msg)
-        finally:
-            if opened_here and self.core.session is None:
-                self._close_sensors()
+        age = time.monotonic() - self._sensors_opened_at
+        scan_wait = warmup_wait(age, SCAN_WAIT_SEC)
+        if not self._scan_event.wait(scan_wait) or self._scan_msg is None:
+            self.get_logger().warn(f"{scan_wait:.0f}초 안에 스캔을 못 받음 — /scan 확인")
+            return None
+        # 닫지 않습니다 — 쉬는 상태로 IDLE_CLOSE_SEC 가 지나면 정리 타이머가 닫습니다.
+        return self._scan_input(self._scan_msg, warmup_wait(time.monotonic() - self._sensors_opened_at, 0.5))
 
     def _publish_state(self, state: dict, force: bool = False) -> None:
         now = time.monotonic()
@@ -418,7 +442,7 @@ class MapFixNode(Node):
                     self._session_timer.cancel()
                     self.destroy_timer(self._session_timer)
                     self._session_timer = None
-                self._close_sensors()
+                # 센서는 쉬는 상태로 IDLE_CLOSE_SEC 가 지나면 정리 타이머가 닫습니다.
 
     # ------------------------------------------------------------------
     # Nav2 반영
@@ -455,13 +479,29 @@ class MapFixNode(Node):
         return outcome
 
 
+def spin_forgiving(executor, should_stop=lambda: False) -> None:
+    """실행기를 돌리되, 닫힌 구독의 메시지를 꺼내다 난 InvalidHandle 은 넘깁니다.
+
+    이 노드는 /scan·/odom·TF·/robot_status 를 필요할 때만 열고 닫습니다. 닫는 순간 다른 스레드가
+    그 구독의 메시지를 꺼내던 중이면 rclpy(Humble)가 InvalidHandle 을 내고, executor.spin() 은 그대로
+    끝나 노드가 죽습니다(11-19 17:43 실기). 그 메시지는 이미 닫은 구독의 것이라 버려도 됩니다.
+    """
+    from rclpy.exceptions import InvalidHandle
+
+    while rclpy.ok() and not should_stop():
+        try:
+            executor.spin_once(timeout_sec=0.5)
+        except InvalidHandle:
+            continue
+
+
 def main() -> None:
     rclpy.init()
     node = MapFixNode()
     executor = MultiThreadedExecutor()
     executor.add_node(node)
     try:
-        executor.spin()
+        spin_forgiving(executor)
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:

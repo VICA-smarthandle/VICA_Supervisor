@@ -72,6 +72,21 @@ def test_a_request_that_ends_the_session_publishes_done_once():
     assert node.ended_state("s1", "vica_map_0630", "get", "s1") is None          # 아직 있다
 
 
+def test_fresh_sensors_wait_for_discovery_then_only_briefly():
+    """11-19 17:4x 실기: 새로 연 TF 구독은 첫 변환까지 6~7 s 걸렸다(DDS 발견). 그래서 0.5 s 만
+    기다리던 scan_check 가 초기 위치가 잡혀 있어도 늘 no_pose 였다. 연 지 8 s 안이면 그때까지 기다린다."""
+    assert node.TF_WARMUP_SEC == 8.0
+    assert node.warmup_wait(age_sec=0.0, minimum=0.5) == 8.0
+    assert node.warmup_wait(age_sec=6.0, minimum=0.5) == 2.0
+    assert node.warmup_wait(age_sec=30.0, minimum=0.5) == 0.5
+    assert node.warmup_wait(age_sec=30.0, minimum=2.0) == 2.0
+
+
+def test_sensors_are_warmed_by_the_panel_requests():
+    """지도 수정 칸을 펼칠 때(get) 미리 열어, 스캔 화면에 들어갈 즈음엔 이미 받고 있게 합니다."""
+    assert node.WARM_ACTIONS == {"get", "scan_check", "scan_start"}
+
+
 def test_fill_response_writes_json():
     response = SimpleNamespace()
     node.fill_response(response, (True, "no_nav2", "Nav2가 실행되면 적용됩니다.", {"applied": False, "black": 3}))
@@ -126,6 +141,45 @@ def test_running_node_stays_light_until_the_first_request():
     assert out.returncode == 0, out.stderr[-800:]
     # 정리 타이머는 한 번에 하나만 돕니다 — Nav2 가 답하지 않을 때 대기 스레드가 쌓이지 않게(검토 2).
     assert out.stdout.strip().splitlines()[-1] == "False True True"
+
+
+def test_closing_sensors_while_scans_pour_in_does_not_kill_the_node():
+    """11-19 17:43 실기: scan_check 가 끝나며 /scan 구독을 닫는 순간 실행기가 그 구독의 메시지를
+    꺼내던 중이라 rclpy(Humble)가 InvalidHandle 을 냈고, 실행 루프까지 올라와 노드가 죽었다.
+
+    로컬 전용 도메인(ROS_LOCALHOST_ONLY=1, 98)에서 /scan 을 200 Hz 로 흘리며 센서를 40번 열고 닫는다.
+    로봇의 ROS 그래프(도메인 7)에는 붙지 않는다.
+    """
+    code = (
+        "import sys, threading, time; sys.path.insert(0, %r)\n"
+        "import rclpy, map_fix_node\n"
+        "from rclpy.executors import MultiThreadedExecutor\n"
+        "from sensor_msgs.msg import LaserScan\n"
+        "from rclpy.qos import qos_profile_sensor_data\n"
+        "rclpy.init()\n"
+        "node = map_fix_node.MapFixNode()\n"
+        "feeder = rclpy.create_node('scan_feeder')\n"
+        "pub = feeder.create_publisher(LaserScan, '/scan', qos_profile_sensor_data)\n"
+        "msg = LaserScan(); msg.header.frame_id = 'laser'; msg.ranges = [1.0] * 720\n"
+        "feeder.create_timer(0.005, lambda: pub.publish(msg))\n"
+        "ex = MultiThreadedExecutor(); ex.add_node(node); ex.add_node(feeder)\n"
+        "stop = threading.Event()\n"
+        "errors = []\n"
+        "def run():\n"
+        "    try:\n"
+        "        map_fix_node.spin_forgiving(ex, stop.is_set)\n"
+        "    except Exception as e:\n"
+        "        errors.append(repr(e))\n"
+        "t = threading.Thread(target=run); t.start()\n"
+        "for _ in range(40):\n"
+        "    node._open_sensors(); time.sleep(0.03); node._close_sensors(); time.sleep(0.01)\n"
+        "stop.set(); t.join(timeout=10)\n"
+        "print('alive' if not errors and not t.is_alive() else 'dead %%s' %% errors)\n"
+        "ex.shutdown(); node.destroy_node(); feeder.destroy_node(); rclpy.shutdown()\n" % str(HERE)
+    )
+    env = {**os.environ, "ROS_DOMAIN_ID": "98", "ROS_LOCALHOST_ONLY": "1"}
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=120)
+    assert out.stdout.strip().splitlines()[-1:] == ["alive"], (out.stdout[-400:], out.stderr[-1200:])
 
 
 def test_launch_starts_the_map_fix_node(tmp_path):
