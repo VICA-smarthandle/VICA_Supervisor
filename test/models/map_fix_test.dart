@@ -1,7 +1,6 @@
 // 지도 수정 모델이 로봇 응답을 읽는 법을 고정합니다.
 //
 // 응답 한 칸이 어긋났다고 화면이 죽으면 안 됩니다 — 깨진 JSON·빠진 키는 빈 값으로 읽습니다.
-import 'dart:ui' show Offset;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vica_supervisor/models/map_fix.dart';

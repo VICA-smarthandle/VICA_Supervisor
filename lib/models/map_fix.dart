@@ -11,8 +11,11 @@ import '../core/json_read.dart';
 /// 지우기 사각형의 한 변 최솟값(m). 이보다 작은 드래그는 버립니다. 노드의 MIN_RECT_M 과 같습니다.
 const double kMapFixMinRectM = 0.05;
 
-/// 한 번에 지울 수 있는 사각형 수. 노드의 MAX_RECTS 와 같습니다.
-const int kMapFixMaxRects = 20;
+/// 한 번에 지울 수 있는 구역 수(11-19 사용자). 노드의 MAX_RECTS 와 같습니다.
+const int kMapFixMaxRects = 10;
+
+/// 지도 수정 노드가 답하지 않을 때(연결은 됨). 오류 원문은 기록에만 남깁니다(목업 94 ⑤).
+const kMapFixNoReplyText = '지도 수정 노드가 응답하지 않습니다. 잠시 뒤 다시 시도해 주세요.';
 
 /// 부분 스캔 반경(m)의 선택지와 처음 값(2026-11-18 사용자: 1·2·3 m, 기본 2 m).
 const List<double> kMapFixRadii = [1.0, 2.0, 3.0];

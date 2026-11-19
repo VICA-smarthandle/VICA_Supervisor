@@ -99,7 +99,7 @@ void main() {
     await tester.pumpWidget(_card());
     expect(_button(tester, '지우기').onPressed, isNotNull);
     expect(_button(tester, '부분 스캔').onPressed, isNotNull);
-    expect(find.text(vicaKeepWords('변경된 곳만 지우거나 다시 스캔합니다')), findsOneWidget);
+    expect(find.text(vicaKeepWords('선택한 곳을 지우거나 다시 스캔합니다')), findsOneWidget);
   });
 
   testWidgets('잠기면 두 버튼이 꺼진다', (tester) async {
@@ -121,14 +121,27 @@ void main() {
     }
   });
 
-  testWidgets('주행 지도가 아니면 부분 스캔만 꺼지고 이유가 보인다', (tester) async {
+  testWidgets('현재 지도가 아니면 부분 스캔만 꺼지고 이유가 보인다', (tester) async {
+    final why = find.text(vicaKeepWords('현재 지도가 아니면 부분 지우기만 가능합니다.'));
     await tester.pumpWidget(_card(status: _otherMap));
     expect(_button(tester, '지우기').onPressed, isNotNull);
     expect(_button(tester, '부분 스캔').onPressed, isNull);
-    expect(find.text(vicaKeepWords('주행 지도에서만 부분 스캔할 수 있습니다')), findsOneWidget);
+    expect(why, findsOneWidget);
 
     await tester.pumpWidget(_card());
-    expect(find.text(vicaKeepWords('주행 지도에서만 부분 스캔할 수 있습니다')), findsNothing);
+    expect(why, findsNothing);
+  });
+
+  testWidgets('로봇 상태를 못 받아 잠기면 그 이유가 보인다', (tester) async {
+    final why = find.text(vicaKeepWords('로봇 상태를 받지 못했습니다.'));
+    await tester.pumpWidget(
+      _card(status: const MapFixStatus(lock: 'no_status', canScan: false)),
+    );
+    expect(why, findsOneWidget);
+    expect(_button(tester, '지우기').onPressed, isNull);
+
+    await tester.pumpWidget(_card(status: _locked));
+    expect(why, findsNothing);
   });
 
   testWidgets('기록이 없으면 최근 수정 줄이 없다', (tester) async {
@@ -198,7 +211,7 @@ void main() {
     // 미션이 켜져 있으면 줄을 바꿔 덧붙입니다.
     expect(
       mapFixDoneMessage(_result({'applied': true, 'mission_stale': true})),
-      '지도를 수정했습니다.\n미션 매니저에는 반영되지 않았습니다. 주행을 껐다 켜면 반영됩니다.',
+      '지도를 수정했습니다.\nMission Manager에는 적용되지 않았습니다.\n주행을 껐다 켜면 적용됩니다.',
     );
   });
 }

@@ -14,6 +14,7 @@ import '../models/vica_map.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../widgets/map_canvas.dart';
+import '../widgets/map_fix_card.dart';
 import '../widgets/map_fix_overlay.dart';
 import '../widgets/map_work_layout.dart';
 import '../widgets/vica_ui.dart';
@@ -32,19 +33,22 @@ String mapFixFailText(
       final where = mapFixAmbiguousWords(ambiguous);
       final yaw = where.remove('방향');
       final String what;
+      // 문장 안에서는 가운뎃점을 붙여 씁니다('앞뒤·좌우'). 팝업의 값 줄은 ' · ' 로 띄웁니다.
       if (where.isEmpty) {
         what = '방향을';
       } else if (yaw) {
-        what = '${where.join(' · ')} 위치와 방향을';
+        what = '${where.join('·')} 위치와 방향을';
       } else {
-        what = '${where.join(' · ')} 위치를';
+        what = '${where.join('·')} 위치를';
       }
       return '$what 구분할 수 없습니다. 모서리나 문틀이 보이는 곳으로 옮겨 주세요.';
     case 'low_match':
-    case 'no_pose':
       return '지도와 라이다가 맞지 않습니다. 초기 위치를 다시 잡아 주세요.';
+    case 'no_pose':
+      // 위치·라이다를 아예 못 받은 것입니다(Nav2 꺼짐 등). 초기 위치 문제가 아닙니다.
+      return '로봇 위치나 라이다를 받지 못했습니다. Nav2가 켜져 있는지 확인하세요.';
     case 'moved':
-      return '로봇이 움직였습니다. 세운 뒤 다시 눌러 주세요.';
+      return '로봇이 움직였습니다. 세운 뒤 다시 시도해 주세요.';
     case 'no_change':
       return '이 범위에서 변경된 곳을 찾지 못했습니다.';
     case 'busy_driving':
@@ -217,7 +221,7 @@ class _MapRescanScreenState extends State<MapRescanScreen> {
           setState(() {
             _awaitingFirst = false;
             _session = '';
-            _note = '로봇이 스캔 진행을 보내지 않습니다. 다시 눌러 주세요.';
+            _note = '스캔이 시작되지 않았습니다. 다시 시도해 주세요.';
           });
         }
       });
@@ -382,16 +386,17 @@ class _MapRescanScreenState extends State<MapRescanScreen> {
             ),
             for (final choice in kMapFixRadii) ...[
               const SizedBox(width: 8),
-              _RadiusChip(
+              MapFixChoiceButton(
                 label: mapFixMetres(choice),
                 selected: choice == _radius,
+                width: 60,
                 onTap: _busy ? null : () => setState(() => _radius = choice),
               ),
             ],
           ],
         ),
       ),
-      const _Hint('다시 스캔하고 싶은 곳에 비카를 두세요.\n범위가 작을수록 정확합니다.'),
+      const MapFixHint('다시 스캔하고 싶은 곳에 비카를 두세요.\n범위가 작을수록 정확합니다.'),
       const SizedBox(height: 12),
       VicaCard(
         padding: const EdgeInsets.all(16),
@@ -423,10 +428,13 @@ class _MapRescanScreenState extends State<MapRescanScreen> {
             VicaButtonRow(
               foldWidth: 240,
               children: [
-                if (check != null && check.ok)
+                // 확인하는 동안은 [스캔 시작]을 꺼 둡니다(목업 97 ①).
+                if (_checking || (check != null && check.ok))
                   PressScale(
                     child: FilledButton(
-                      onPressed: (_busy || stopped == false) ? null : _start,
+                      onPressed: (_busy || _checking || stopped == false)
+                          ? null
+                          : _start,
                       child: const Text('스캔 시작'),
                     ),
                   )
@@ -670,83 +678,6 @@ class _MapRescanScreenState extends State<MapRescanScreen> {
         style: const TextStyle(
             fontSize: 12.5, height: 1.45, color: VicaColors.red),
       );
-}
-
-/// 지도 아래의 안내(옅은 청록 상자). 줄바꿈(\n)은 그대로 두고 줄 안에서는 어절 단위로 접힙니다.
-class _Hint extends StatelessWidget {
-  const _Hint(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        color: VicaColors.accentTint,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        text.split('\n').map(vicaKeepWords).join('\n'),
-        style: const TextStyle(
-          fontSize: 12.5,
-          height: 1.45,
-          color: VicaColors.primaryDark,
-        ),
-      ),
-    );
-  }
-}
-
-/// 범위 선택 단추 하나('1 m' · '2 m' · '3 m').
-class _RadiusChip extends StatelessWidget {
-  const _RadiusChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return PressScale(
-      child: Semantics(
-        button: true,
-        selected: selected,
-        child: Material(
-          color: selected ? VicaColors.accentTint : VicaColors.card,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(
-              color: selected ? VicaColors.primary : VicaColors.borderStrong,
-              width: selected ? 2 : 1,
-            ),
-          ),
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(12),
-            child: SizedBox(
-              width: 60,
-              height: 44,
-              child: Center(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
-                    color: selected ? VicaColors.primaryDark : VicaColors.text,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 /// 준비 항목 한 줄. [ok] 가 true 면 초록 체크, false 면 주황 느낌표, null 이면 회색 빈 원입니다.

@@ -193,18 +193,45 @@ void main() {
     expect(supervisor.calls, isEmpty);
   });
 
-  testWidgets('스무 개에서 더 받지 않는다', (tester) async {
+  testWidgets('열 곳에서 더 받지 않는다(11-19 사용자)', (tester) async {
+    expect(kMapFixMaxRects, 10);
     final supervisor = await pumpScreen(tester);
-    for (var i = 0; i < 20; i++) {
+    for (var i = 0; i < 10; i++) {
       await drag(tester, Offset(i.toDouble(), 0), Offset(i + 0.5, 0.5));
     }
-    expect(find.text('20곳'), findsOneWidget);
-    expect(supervisor.of('erase_count'), hasLength(20));
+    expect(find.text('10곳'), findsOneWidget);
+    expect(supervisor.of('erase_count'), hasLength(10));
 
     await drag(tester, const Offset(0, 5), const Offset(1, 6));
-    expect(find.text('20곳'), findsOneWidget);
-    expect(supervisor.of('erase_count'), hasLength(20));
-    expect(find.text(vicaKeepWords('한 번에 20곳까지 지울 수 있습니다.')), findsOneWidget);
+    expect(find.text('10곳'), findsOneWidget);
+    expect(supervisor.of('erase_count'), hasLength(10));
+    expect(find.text(vicaKeepWords('한 번에 10곳까지 지울 수 있습니다.')), findsOneWidget);
+  });
+
+  testWidgets('지도 이동으로 바꾸면 지도가 움직이고, 그려 둔 구역은 남는다', (tester) async {
+    final supervisor = await pumpScreen(tester);
+    MapCanvas canvas() => tester.widget<MapCanvas>(find.byType(MapCanvas));
+    await drag(tester, const Offset(1, 1), const Offset(2, 2));
+    expect(canvas().keepoutEditMode, isTrue);
+
+    await tester.tap(find.text(vicaKeepWords('지도 이동')));
+    await tester.pump();
+    // 드래그·두 손가락이 지도 이동·확대가 됩니다(MapCanvas 의 InteractiveViewer 잠금이 풀림).
+    expect(canvas().keepoutEditMode, isFalse);
+    expect(
+      find.text(vicaKeepWords('지도를 움직이거나 확대·축소할 수 있습니다.')),
+      findsOneWidget,
+    );
+    expect(find.text(vicaKeepWords('지울 곳을 드래그해서 표시하세요')), findsNothing);
+    expect(find.text('1곳'), findsOneWidget);
+
+    await tester.tap(find.text(vicaKeepWords('구역 표시')));
+    await tester.pump();
+    expect(canvas().keepoutEditMode, isTrue);
+    expect(find.text(vicaKeepWords('지울 곳을 드래그해서 표시하세요')), findsOneWidget);
+    await drag(tester, const Offset(3, 3), const Offset(4, 4));
+    expect(find.text('2곳'), findsOneWidget);
+    expect(supervisor.of('erase_count'), hasLength(2));
   });
 
   testWidgets('지도 밖 사각형은 빼고 로봇 문구를 보인다', (tester) async {

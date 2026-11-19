@@ -133,13 +133,14 @@ void main() {
 
   testWidgets('로봇이 답하지 않으면 그 문구가 보이고 버튼이 꺼진다', (tester) async {
     final supervisor = _FakeSupervisor();
-    supervisor.replies['get'] = MapFixResult.offline(
-      '지도 수정 노드(map_fix_node)가 응답하지 않습니다.',
-    );
+    supervisor.replies['get'] = MapFixResult.offline(kMapFixNoReplyText);
     await tester.pumpWidget(host(supervisor));
     await open(tester);
 
-    expect(find.textContaining('map_fix_node'), findsOneWidget);
+    expect(
+      find.text(vicaKeepWords(vicaBreakAtSentences(kMapFixNoReplyText))),
+      findsOneWidget,
+    );
     final erase = tester.widget<ButtonStyleButton>(
       find
           .ancestor(
@@ -235,10 +236,14 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, '되돌리기'));
     await tester.pumpAndSettle();
 
+    // 미션 알림은 두 문장을 줄로 나눕니다(목업 99).
     expect(
       find.text(
-        '${vicaKeepWords('되돌렸습니다.')}\n'
-        '${vicaKeepWords(vicaBreakAtSentences(kMapFixMissionStaleText))}',
+        [
+          '되돌렸습니다.',
+          'Mission Manager에는 적용되지 않았습니다.',
+          '주행을 껐다 켜면 적용됩니다.',
+        ].map(vicaKeepWords).join('\n'),
       ),
       findsOneWidget,
     );

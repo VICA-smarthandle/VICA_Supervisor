@@ -11,6 +11,7 @@ import '../models/vica_map.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../widgets/map_canvas.dart';
+import '../widgets/map_fix_card.dart';
 import '../widgets/map_fix_overlay.dart';
 import '../widgets/map_work_layout.dart';
 import '../widgets/vica_ui.dart';
@@ -37,6 +38,11 @@ class _MapEraseScreenState extends State<MapEraseScreen> {
   bool _erasing = false;
   String _note = '';
 
+  // true 면 [지도 이동] — 드래그·두 손가락이 지도 이동·확대·축소입니다. false(처음 값)면
+  // [구역 표시] — 드래그가 사각형 그리기이고 지도는 움직이지 않습니다(목업 96, 11-19 사용자).
+  // 폰에서는 지도 한 칸(5 cm)이 1 px 이 안 돼, 확대한 뒤 그려야 작은 점을 고를 수 있습니다.
+  bool _moving = false;
+
   // 늦게 온 옛 응답이 새 목록의 칸 수를 덮지 않게 합니다.
   int _countSeq = 0;
 
@@ -50,8 +56,20 @@ class _MapEraseScreenState extends State<MapEraseScreen> {
         : MapFixRect.fromCorners(start, end);
   }
 
+  void _setMoving(bool moving) {
+    if (moving == _moving) {
+      return;
+    }
+    setState(() {
+      _moving = moving;
+      // 그리던 사각형은 버립니다(손을 떼기 전에 바꾼 경우).
+      _dragStart = null;
+      _dragEnd = null;
+    });
+  }
+
   void _panStart(Offset ros) {
-    if (_erasing) {
+    if (_erasing || _moving) {
       return;
     }
     setState(() {
@@ -195,8 +213,9 @@ class _MapEraseScreenState extends State<MapEraseScreen> {
                 settings: settings,
                 locations: const [],
                 robot: supervisor.primaryRobot,
-                // 드래그를 사각형 그리기에 씁니다. 그동안 지도 이동·확대는 잠깁니다.
-                keepoutEditMode: true,
+                // [구역 표시]일 때만 드래그가 사각형 그리기입니다. 그동안 지도 이동·확대는
+                // 잠기고, [지도 이동]으로 바꾸면 풀립니다. 그려 둔 사각형은 그대로 남습니다.
+                keepoutEditMode: !_moving,
                 onKeepoutPanStart: _panStart,
                 onKeepoutPanUpdate: _panUpdate,
                 onKeepoutPanEnd: _panEnd,
@@ -205,7 +224,29 @@ class _MapEraseScreenState extends State<MapEraseScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            const _Hint('지울 곳을 드래그해서 표시하세요'),
+            Row(
+              children: [
+                Expanded(
+                  child: MapFixChoiceButton(
+                    label: '구역 표시',
+                    selected: !_moving,
+                    onTap: _erasing ? null : () => _setMoving(false),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: MapFixChoiceButton(
+                    label: '지도 이동',
+                    selected: _moving,
+                    onTap: _erasing ? null : () => _setMoving(true),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            MapFixHint(
+              _moving ? '지도를 움직이거나 확대·축소할 수 있습니다.' : '지울 곳을 드래그해서 표시하세요',
+            ),
             const SizedBox(height: 12),
             VicaCard(
               padding: const EdgeInsets.all(16),
@@ -359,32 +400,6 @@ class _MapEraseScreenState extends State<MapEraseScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// 지도 아래의 한 줄 안내(옅은 청록 상자).
-class _Hint extends StatelessWidget {
-  const _Hint(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        color: VicaColors.accentTint,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        vicaKeepWords(text),
-        style: const TextStyle(
-          fontSize: 12.5,
-          height: 1.45,
-          color: VicaColors.primaryDark,
-        ),
       ),
     );
   }

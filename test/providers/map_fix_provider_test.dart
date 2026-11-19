@@ -120,7 +120,31 @@ void main() {
       async.elapse(const Duration(seconds: 9));
       expect(reply!.accepted, isFalse);
       expect(reply!.reason, 'offline');
-      expect(reply!.message, contains('map_fix_node'));
+      // 화면에는 쉬운 말만 보입니다(목업 94 ⑤).
+      expect(reply!.message, kMapFixNoReplyText);
+      expect(reply!.message, isNot(contains('map_fix_node')));
+
+      provider.dispose();
+      async.flushMicrotasks();
+    });
+  });
+
+  test('지도를 바꾸는 요청이 답을 못 받으면 오류 원문은 기록에만 남는다', () {
+    fakeAsync((async) {
+      final provider = connected(async);
+      MapFixResult? reply;
+      provider.mapFix('map_a', 'erase', args: {
+        'rects': [
+          const MapFixRect(xMin: 0, yMin: 0, xMax: 1, yMax: 1).toJson(),
+        ],
+      }).then((value) => reply = value);
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 16));
+
+      expect(reply!.message, kMapFixNoReplyText);
+      final last = provider.logs.first.message;
+      expect(last, startsWith('지도 수정 실패: $kMapFixNoReplyText'));
+      expect(last, contains('map_fix_node'));
 
       provider.dispose();
       async.flushMicrotasks();

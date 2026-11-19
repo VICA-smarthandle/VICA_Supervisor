@@ -2,6 +2,8 @@
 //
 // 단계의 주인은 로봇(map_fix_node)입니다. 화면은 토픽 /vica/map_fix/state 의 phase 를 그대로
 // 보여 주므로, 시험은 그 상태를 넣어 주고 화면이 무엇을 보이고 무엇을 요청하는지만 봅니다.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -62,8 +64,15 @@ class _FakeSupervisor extends SupervisorProvider {
     Duration? timeout,
   }) async {
     calls.add((action: action, args: args));
+    final held = holds[action];
+    if (held != null) {
+      return held.future;
+    }
     return replies[action] ?? _ok(const {});
   }
+
+  /// 여기 넣은 action 은 시험이 [Completer] 를 끝낼 때까지 답하지 않습니다.
+  final holds = <String, Completer<MapFixResult>>{};
 
   List<_Call> of(String action) =>
       calls.where((call) => call.action == action).toList();
@@ -138,6 +147,31 @@ void main() {
     await tester.pumpAndSettle();
     return supervisor;
   }
+
+  testWidgets('위치 맞춤을 확인하는 동안은 스캔 시작이 꺼져 있다', (tester) async {
+    final pending = Completer<MapFixResult>();
+    final supervisor = await pumpScreen(tester, before: (supervisor) {
+      supervisor.holds['scan_check'] = pending;
+    });
+
+    expect(find.text(vicaKeepWords('위치 맞춤 확인 중...')), findsOneWidget);
+    expect(find.text('다시 확인'), findsNothing);
+    final start = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, '스캔 시작'),
+    );
+    expect(start.onPressed, isNull);
+
+    pending.complete(supervisor.replies['scan_check']);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text(vicaKeepWords('위치 맞춤 84 %')), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, '스캔 시작'))
+          .onPressed,
+      isNotNull,
+    );
+  });
 
   testWidgets('들어오면 scan_check 를 부르고 위치 맞춤을 보인다', (tester) async {
     final supervisor = await pumpScreen(tester);
@@ -368,7 +402,7 @@ void main() {
     expect(find.text('스캔 시작'), findsOneWidget);
     expect(
       find.text(
-        vicaKeepWords(vicaBreakAtSentences('로봇이 스캔 진행을 보내지 않습니다. 다시 눌러 주세요.')),
+        vicaKeepWords(vicaBreakAtSentences('스캔이 시작되지 않았습니다. 다시 시도해 주세요.')),
       ),
       findsOneWidget,
     );
@@ -402,10 +436,17 @@ void main() {
       mapFixFailText('ambiguous', ambiguous: ['forward', 'yaw']),
       '앞뒤 위치와 방향을 구분할 수 없습니다. 모서리나 문틀이 보이는 곳으로 옮겨 주세요.',
     );
-    for (final reason in ['low_match', 'no_pose']) {
-      expect(mapFixFailText(reason), '지도와 라이다가 맞지 않습니다. 초기 위치를 다시 잡아 주세요.');
-    }
-    expect(mapFixFailText('moved'), '로봇이 움직였습니다. 세운 뒤 다시 눌러 주세요.');
+    expect(
+      mapFixFailText('ambiguous', ambiguous: ['forward', 'lateral']),
+      '앞뒤·좌우 위치를 구분할 수 없습니다. 모서리나 문틀이 보이는 곳으로 옮겨 주세요.',
+    );
+    expect(mapFixFailText('low_match'), '지도와 라이다가 맞지 않습니다. 초기 위치를 다시 잡아 주세요.');
+    // 위치·라이다를 아예 못 받은 것은 초기 위치 문제가 아닙니다(목업 97 ⑤).
+    expect(
+      mapFixFailText('no_pose'),
+      '로봇 위치나 라이다를 받지 못했습니다. Nav2가 켜져 있는지 확인하세요.',
+    );
+    expect(mapFixFailText('moved'), '로봇이 움직였습니다. 세운 뒤 다시 시도해 주세요.');
     expect(mapFixFailText('no_change'), '이 범위에서 변경된 곳을 찾지 못했습니다.');
     expect(mapFixFailText('busy_driving'), '주행 중에는 지도를 수정할 수 없습니다.');
     // 모르는 사유는 로봇이 보낸 문구 그대로입니다.

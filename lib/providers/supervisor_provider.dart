@@ -690,9 +690,8 @@ class SupervisorProvider extends ChangeNotifier {
         args: {'data': on},
       );
       if (!response.success) {
-        final message = response.message.isEmpty
-            ? '전방 초음파를 바꾸지 못했습니다.'
-            : response.message;
+        final message =
+            response.message.isEmpty ? '전방 초음파를 바꾸지 못했습니다.' : response.message;
         _addLog(LogFilter.connection, message);
         return message;
       }
@@ -3357,6 +3356,7 @@ class SupervisorProvider extends ChangeNotifier {
       return MapFixResult.offline('ROS Bridge에 연결되지 않았습니다.');
     }
     MapFixResult reply;
+    var detail = '';
     try {
       final response = await client.callService(
         service: mapFixService,
@@ -3371,14 +3371,17 @@ class SupervisorProvider extends ChangeNotifier {
       );
       reply = MapFixResult.fromValues(response.values);
     } catch (error) {
-      reply = MapFixResult.offline(
-        '지도 수정 노드(map_fix_node)가 응답하지 않습니다. ($error)',
-      );
+      // 화면에는 쉬운 말만, 오류 원문(시간 초과·서비스 없음)은 기록에만 남깁니다.
+      reply = MapFixResult.offline(kMapFixNoReplyText);
+      detail = ' (map_fix_node: $error)';
     }
     if (!reply.accepted &&
         !_disposed &&
         _mapFixLoggedActions.contains(action)) {
-      _addLog(LogFilter.coordinateTransfer, '지도 수정 실패: ${reply.message}');
+      _addLog(
+        LogFilter.coordinateTransfer,
+        '지도 수정 실패: ${reply.message}$detail',
+      );
     }
     return reply;
   }
@@ -3389,7 +3392,8 @@ class SupervisorProvider extends ChangeNotifier {
     if (_disposed) {
       return reply;
     }
-    _mapFixStatus = reply.accepted ? MapFixStatus.fromResult(reply.result) : null;
+    _mapFixStatus =
+        reply.accepted ? MapFixStatus.fromResult(reply.result) : null;
     _mapFixStatusMapId = reply.accepted ? mapId : '';
     notifyListeners();
     return reply;

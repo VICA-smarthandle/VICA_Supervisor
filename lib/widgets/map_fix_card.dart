@@ -13,8 +13,21 @@ const kMapFixWordDriving = '주행 중';
 const kMapFixWordOffline = '오프라인';
 const kMapFixWordUnknown = '확인 불가';
 
-/// 미션이 켜져 있어 미션은 옛 지도를 계속 쓸 때 끝 알림에 덧붙이는 말(2026-11-19 사용자).
-const kMapFixMissionStaleText = '미션 매니저에는 반영되지 않았습니다. 주행을 껐다 켜면 반영됩니다.';
+/// 미션이 켜져 있어 미션은 옛 지도를 계속 쓸 때 끝 알림에 덧붙이는 말(2026-11-19 사용자 — 목업 99).
+///
+/// 두 문장을 줄로 나눕니다. 뒤 문장이 짧아 [vicaBreakAtSentences] 가 앞 문장에 붙여 버리므로
+/// 줄바꿈을 글자에 넣어 둡니다.
+const kMapFixMissionStaleText =
+    'Mission Manager에는 적용되지 않았습니다.\n주행을 껐다 켜면 적용됩니다.';
+
+/// 칸 설명 줄(2026-11-19 사용자 수정 — 목업 94).
+const kMapFixCardDescription = '선택한 곳을 지우거나 다시 스캔합니다';
+
+/// 현재 지도가 아닌 지도를 보고 있을 때(부분 스캔만 꺼짐, 목업 94 ④).
+const kMapFixNotCurrentMapText = '현재 지도가 아니면 부분 지우기만 가능합니다.';
+
+/// 로봇 상태를 못 받아 잠겼을 때(목업 94 ③).
+const kMapFixNoStatusText = '로봇 상태를 받지 못했습니다.';
 
 /// 칸 머리에 보일 상태 단어. 아직 로봇에 묻지 않았으면 ''(표시 없음)입니다.
 ///
@@ -99,30 +112,35 @@ class MapFixCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final history = status?.history ?? const <MapFixHistoryEntry>[];
-    // 잠기지 않았는데 부분 스캔만 안 되면 주행 지도가 아닌 지도를 보고 있는 것입니다.
+    // 잠기지 않았는데 부분 스캔만 안 되면 현재(주행) 지도가 아닌 지도를 보고 있는 것입니다.
     final notDriveMap = status != null && !status!.isDriveMap;
+    final noStatus = status?.lock == 'no_status';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          vicaKeepWords('변경된 곳만 지우거나 다시 스캔합니다'),
+          vicaKeepWords(kMapFixCardDescription),
           style: const TextStyle(
             fontSize: 13,
             color: VicaColors.muted,
             height: 1.5,
           ),
         ),
-        if (notDriveMap) ...[
-          const SizedBox(height: 6),
-          Text(
-            vicaKeepWords('주행 지도에서만 부분 스캔할 수 있습니다'),
-            style: const TextStyle(
-              fontSize: 12.5,
-              color: VicaColors.muted,
-              height: 1.45,
+        for (final (show, text) in [
+          (notDriveMap, kMapFixNotCurrentMapText),
+          (noStatus, kMapFixNoStatusText),
+        ])
+          if (show) ...[
+            const SizedBox(height: 6),
+            Text(
+              vicaKeepWords(text),
+              style: const TextStyle(
+                fontSize: 12.5,
+                color: VicaColors.muted,
+                height: 1.45,
+              ),
             ),
-          ),
-        ],
+          ],
         if (note.isNotEmpty) ...[
           const SizedBox(height: 6),
           Text(
@@ -224,6 +242,90 @@ class MapFixCard extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// 지도 수정 화면의 고르기 단추 하나(범위 '1 m'·'2 m'·'3 m', 지우기의 '구역 표시'·'지도 이동').
+///
+/// 고른 것은 청록 테두리·옅은 청록 바탕, 아닌 것은 흰 바탕입니다(목업 78·96). [width] 가 없으면
+/// 주어진 폭을 다 씁니다.
+class MapFixChoiceButton extends StatelessWidget {
+  const MapFixChoiceButton({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.width,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback? onTap;
+  final double? width;
+
+  @override
+  Widget build(BuildContext context) {
+    return PressScale(
+      child: Semantics(
+        button: true,
+        selected: selected,
+        child: Material(
+          color: selected ? VicaColors.accentTint : VicaColors.card,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(
+              color: selected ? VicaColors.primary : VicaColors.borderStrong,
+              width: selected ? 2 : 1,
+            ),
+          ),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(12),
+            child: SizedBox(
+              width: width,
+              height: 44,
+              child: Center(
+                child: Text(
+                  vicaKeepWords(label),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+                    color: selected ? VicaColors.primaryDark : VicaColors.text,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 지도 아래의 안내(옅은 청록 상자). 줄바꿈(\n)은 그대로 두고 줄 안에서는 어절 단위로 접힙니다.
+class MapFixHint extends StatelessWidget {
+  const MapFixHint(this.text, {super.key});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: VicaColors.accentTint,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        text.split('\n').map(vicaKeepWords).join('\n'),
+        style: const TextStyle(
+          fontSize: 12.5,
+          height: 1.45,
+          color: VicaColors.primaryDark,
+        ),
       ),
     );
   }
