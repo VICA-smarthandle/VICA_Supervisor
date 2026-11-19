@@ -248,16 +248,20 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
         ),
       ];
     }
+    // 도크 안에서 켜면 도킹 노드가 저장된 도크 위치로 AMCL 을 자동으로 잡습니다(2026-11-18, 목업 72).
+    final dockPose = context.read<SupervisorProvider>().dockState?.poseInitPending ?? false;
     return [
       _SubmodeChip(submode: widget.submode),
       const SizedBox(height: 14),
       _StepsCard(
-        title: ready ? '초기 위치를 잡아 주세요' : '주행 준비 중',
-        elapsed: ready ? null : _elapsed,
-        steps: _steps(status),
-        note: ready
-            ? '초기 위치를 잡으면 주행을 시작할 수 있습니다.'
-            : '기동이 중단되거나 90초 동안 진행이 없으면 Nav2 를 한 번 자동으로 다시 띄웁니다.',
+        title: ready && !dockPose ? '초기 위치를 잡아 주세요' : '주행 준비 중',
+        elapsed: ready && !dockPose ? null : _elapsed,
+        steps: _steps(status, dockPose: dockPose),
+        note: dockPose
+            ? "도크에서 위치를 못 잡으면 수동 '초기 위치 잡기'로 넘어갑니다."
+            : ready
+                ? '초기 위치를 잡으면 주행을 시작할 수 있습니다.'
+                : '기동이 중단되거나 90초 동안 진행이 없으면 Nav2 를 한 번 자동으로 다시 띄웁니다.',
       ),
     ];
   }
@@ -281,7 +285,7 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
     ];
   }
 
-  List<_Step> _steps(ModeStatus status, {bool pendingStop = false}) {
+  List<_Step> _steps(ModeStatus status, {bool pendingStop = false, bool dockPose = false}) {
     final nav2Up = status.nav2 == 'waiting_pose' || status.nav2 == 'active';
     return [
       _Step(
@@ -298,11 +302,11 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
         const _Step('끄기 (예약)', _StepState.todo, '')
       else
         _Step(
-          '초기 위치 대기',
+          dockPose ? '초기 위치 — 도크에서 잡는 중' : '초기 위치 대기',
           status.state == ModeState.running
               ? _StepState.done
-              : (nav2Up ? _StepState.current : _StepState.todo),
-          '',
+              : (nav2Up || dockPose ? _StepState.current : _StepState.todo),
+          dockPose ? '도크에 들어가 있으면 저장된 도크 위치로 자동으로 잡습니다 · 최대 10초' : '',
         ),
     ];
   }

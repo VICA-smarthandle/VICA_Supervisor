@@ -8,6 +8,8 @@
 // /robot_status 스키마는 그대로 두고 앱이 이 토픽을 직접 봅니다.
 // /robot/health·/robot/events 를 직접 구독하는 것과 같은 방식입니다.
 
+import 'dock_state.dart';
+
 /// goal 에 일어난 일.
 ///
 /// Mission Manager 의 `_publish_goal_event` 가 내는 값과 1:1 입니다.
@@ -67,6 +69,12 @@ enum GoalEventKind {
   patrolResumed('patrol_resumed'),
   patrolStopped('patrol_stopped'),
 
+  // 도킹(2026-11-18). 미션이 도킹 흐름의 결과로 냅니다. 실패 둘만 팝업(목업 69)입니다.
+  dockSucceeded('dock_succeeded'),
+  dockFailed('dock_failed'),
+  undockSucceeded('undock_succeeded'),
+  undockFailed('undock_failed'),
+
   unknown('');
 
   const GoalEventKind(this.wire);
@@ -94,7 +102,9 @@ enum GoalEventKind {
       this == GoalEventKind.returnHomeFailed ||
       this == GoalEventKind.returnHomeCanceled ||
       this == GoalEventKind.waitSpotBlocked ||
-      this == GoalEventKind.waitExpired;
+      this == GoalEventKind.waitExpired ||
+      this == GoalEventKind.dockFailed ||
+      this == GoalEventKind.undockFailed;
 
   /// 주행이 실패로 끝났는가. 취소는 사람이 시킨 일이라 실패가 아닙니다.
   /// 대기 장소 막힘은 빨간 아이콘(목업 10번), 대기 만료는 정보 아이콘(11번)입니다.
@@ -102,7 +112,16 @@ enum GoalEventKind {
       this == GoalEventKind.failed ||
       this == GoalEventKind.rejected ||
       this == GoalEventKind.returnHomeFailed ||
-      this == GoalEventKind.waitSpotBlocked;
+      this == GoalEventKind.waitSpotBlocked ||
+      this == GoalEventKind.dockFailed ||
+      this == GoalEventKind.undockFailed;
+
+  /// 도킹 사건(2026-11-18).
+  bool get isDock =>
+      this == GoalEventKind.dockSucceeded ||
+      this == GoalEventKind.dockFailed ||
+      this == GoalEventKind.undockSucceeded ||
+      this == GoalEventKind.undockFailed;
 
   /// 대기 알림인가. 뒤이은 출발(홈 복귀 등)이 이 팝업을 거두면 안 됩니다 —
   /// 대기 만료는 바로 홈 복귀가 나가서, 거두면 관리자가 볼 틈이 없습니다.
@@ -143,6 +162,7 @@ class GoalEvent {
     this.place = '',
     this.robotX,
     this.robotY,
+    this.dockFirstTry = false,
   });
 
   /// 앱이 붙이는 고유값입니다. 같은 실패가 두 번 와도 팝업을 각각 띄우기 위해
@@ -185,6 +205,44 @@ class GoalEvent {
   /// 도움 요청 때 로봇의 지도 좌표(m, AMCL). 모르면 null. 기존 x·y 는 목적지 좌표 칸이라 따로 둡니다.
   final double? robotX;
   final double? robotY;
+
+  /// 이 사건이 왔을 때 도크 위치가 '지도에서 지정 · 아직 확인 안 됨'이었는가(2026-11-19, 목업 92).
+  /// 로봇이 보내는 값이 아니라 앱이 받은 순간에 붙입니다([asDockFirstTry]).
+  final bool dockFirstTry;
+
+  /// 지도에서 지정만 한 자리로 처음 도킹하다 도크를 못 찾았거나(not_found·out_of_range) 도크 앞까지
+  /// 가지 못했는가(nav_failed) — 팝업에 '도크 위치 다시 잡기'를 둡니다. 방향을 반대로 지정하면 준비
+  /// 위치가 벽 너머가 되어 Nav2 가 실패합니다(2026-11-19 검토).
+  bool get showsDockRedo =>
+      dockFirstTry &&
+      kind == GoalEventKind.dockFailed &&
+      (reason == 'not_found' || reason == 'out_of_range' || reason == 'nav_failed');
+
+  /// [showsDockRedo] 팝업의 회색 칸 줄들(목업 92).
+  static const List<String> dockRedoLines = [
+    '지정한 자리나 방향이 도크와 다를 수 있습니다.',
+    '· 지도에서 도크를 다시 지정하거나',
+    "· 로봇을 도크 앞에 세우고 '도크 인식해서 저장'을 눌러 주세요.",
+  ];
+
+  /// [dockFirstTry] 를 켠 사본.
+  GoalEvent asDockFirstTry() => GoalEvent(
+        id: id,
+        kind: kind,
+        destinationName: destinationName,
+        locationId: locationId,
+        reason: reason,
+        mapId: mapId,
+        waitPlace: waitPlace,
+        waitMinutes: waitMinutes,
+        delivery: delivery,
+        robotStamp: robotStamp,
+        helpId: helpId,
+        place: place,
+        robotX: robotX,
+        robotY: robotY,
+        dockFirstTry: true,
+      );
 
   /// 도움 요청 사건인가(요청·확인·취소).
   bool get isHelp =>
@@ -248,6 +306,10 @@ class GoalEvent {
         return '대기 장소가 막혔습니다';
       case GoalEventKind.waitExpired:
         return '대기 시간이 끝났습니다';
+      case GoalEventKind.dockFailed:
+        return '도킹하지 못했습니다';
+      case GoalEventKind.undockFailed:
+        return '도크에서 나오지 못했습니다';
       default:
         return '주행 알림';
     }
@@ -296,6 +358,24 @@ class GoalEvent {
             '목적지 앞으로 돌아가 그곳에서 기다립니다.';
       case GoalEventKind.waitExpired:
         return '사용자가 돌아오지 않아 로봇이 홈으로 돌아갑니다.';
+      case GoalEventKind.dockFailed:
+        // 목업 92(11-19): 지도에서 지정만 한 자리로 처음 가서 못 찾았으면 자리·방향이 틀렸을 수 있습니다.
+        // 도크 앞까지 못 간 것(nav_failed)은 아래의 기존 문구 그대로이고 안내 칸과 버튼만 붙습니다.
+        if (showsDockRedo && reason != 'nav_failed') {
+          return '도크를 찾지 못했습니다.\n'
+              '로봇은 도크 앞에서 기다리고 있습니다.';
+        }
+        // 목업 69(11-18 사용자가 직접 고친 문구). 준비 위치에서 못 찾았으면 로봇은 도크 앞에 있습니다.
+        if (reason == 'not_found' || reason == 'out_of_range') {
+          return '${dockFailFirstLine(reason, undock: false)}\n'
+              '로봇은 도크 앞에서 기다리고 있습니다.\n'
+              '구조물을 옮겼는지 확인해주세요.';
+        }
+        return '${dockFailFirstLine(reason, undock: false)}\n'
+            '로봇은 그 자리에 멈춰 있습니다.';
+      case GoalEventKind.undockFailed:
+        return '${dockFailFirstLine(reason, undock: true)}\n'
+            '로봇은 그 자리에 멈춰 있습니다.';
       default:
         return reason;
     }
@@ -306,6 +386,10 @@ class GoalEvent {
   /// 대기 알림은 목업 10·11번의 칸을 씁니다 — 막힘은 목적지·대기 장소·사유, 만료는
   /// 목적지·기다린 곳·대기 시간(사유 칸 없음). 그 밖은 지금처럼 목적지·사유입니다.
   List<(String, String)> get detailRows {
+    // 목업 92 팝업은 칸 없이 안내 줄(dockRedoLines)만 둡니다.
+    if (showsDockRedo) {
+      return const [];
+    }
     final name = destinationLabel;
     final rows = <(String, String)>[];
     void add(String label, String value) {

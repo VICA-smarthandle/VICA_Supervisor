@@ -9,6 +9,7 @@ import '../core/app_settings.dart';
 import '../core/location_edit.dart';
 import '../core/wait_spot_geometry.dart';
 import '../core/destination_categories.dart';
+import '../models/dock_state.dart';
 import '../models/home_position.dart';
 import '../models/location_point.dart';
 import '../models/pose_check_result.dart';
@@ -16,6 +17,8 @@ import '../models/vica_map.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../ros/ros_bridge_client.dart';
+import '../widgets/dock_dialogs.dart';
+import '../widgets/dock_position_card.dart';
 import '../widgets/home_position_card.dart';
 import '../widgets/initial_pose_card.dart' show PoseDirection;
 import '../widgets/keepout_card.dart';
@@ -36,10 +39,22 @@ import '../widgets/wait_spot_overlay.dart';
 /// 셋 다 지도를 보면서 하는 일이라 모두 펼쳐 두면 지도가 손톱만 해집니다.
 /// 그리고 셋은 지도 터치를 서로 다르게 씁니다 — 장소 찍기·홈 찍기·사각형 끌기.
 /// 펼친 칸이 지도 조작권을 가지므로 지금 무엇을 찍는 중인지가 드러납니다.
-enum _SettingsPanel { none, location, home, keepout, rail, mapDelete }
+enum _SettingsPanel { none, location, home, dock, keepout, rail, mapDelete }
 
 class SaveLocationScreen extends StatefulWidget {
-  const SaveLocationScreen({super.key});
+  const SaveLocationScreen({
+    super.key,
+    this.onOpenDrive,
+    this.dockPanelRequest = 0,
+  });
+
+  /// 원격 주행 탭으로 보냅니다 — 도크 인식 저장이 '초기 위치를 잡아 주세요'로 실패했을 때의
+  /// '초기 위치 잡으러 가기'(2026-11-19, 목업 88). 탭은 셸이 쥐고 있어 셸이 넘깁니다.
+  final VoidCallback? onOpenDrive;
+
+  /// 0 보다 크면 도크 위치 칸을 펼친 채로 열고, 값이 오를 때마다 다시 펼칩니다 — 도킹 실패
+  /// 팝업의 '도크 위치 다시 잡기'(목업 92)가 올립니다.
+  final int dockPanelRequest;
 
   @override
   State<SaveLocationScreen> createState() => _SaveLocationScreenState();
@@ -82,6 +97,14 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   // 그 결과를 치우려고 붙잡아 둡니다.
   SupervisorProvider? _homeStandingFrom;
   bool _homeSending = false;
+  // ---- 도크 위치 — 지도에서 지정 (2026-11-19, 목업 89·90·90′) --------------
+  //
+  // 지정하는 동안에는 지도 탭이 도크 구조물(1 / 2) → 도크 앞쪽(2 / 2) 순서로 들어갑니다.
+  // 두 점을 다 누르면 도크 앞 1 m 지점을 미리 보이고, '이 자리로 저장'에서만 로봇에 보냅니다.
+  bool _dockPicking = false;
+  Offset? _dockPickDock;
+  Offset? _dockPickFront;
+
   // 임시 저장 장소를 수정하는 중이면 그 id를 들고 있습니다. 새로 저장할 때 id가
   // 바뀌면 같은 장소가 둘로 늘어나므로, 수정 중에는 기존 id를 그대로 씁니다.
   String? _editingLocationId;
@@ -123,6 +146,44 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   static const _moveStepM = 0.05;
 
   @override
+  void initState() {
+    super.initState();
+    // 도킹 실패 팝업의 '도크 위치 다시 잡기'로 들어왔으면 도크 위치 칸을 펼쳐 둡니다.
+    // 칸을 눌러 펼칠 때처럼 도크 위치도 다시 읽습니다([_openPanel]).
+    if (widget.dockPanelRequest > 0) {
+      _panel = _SettingsPanel.dock;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        final supervisor = context.read<SupervisorProvider>();
+        final mapId = supervisor.selectedMap?.mapId;
+        if (mapId != null) {
+          supervisor.refreshDockSpot(
+            context.read<SettingsProvider>().settings,
+            mapId,
+          );
+        }
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(SaveLocationScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 이미 이 화면을 보고 있을 때 온 요청입니다. 칸을 바꿀 때와 같은 정리(저장 안 한 금지구역·
+    // 레일 묻기)를 거치도록 [_openPanel] 로 엽니다. build 도중이라 한 프레임 미룹니다.
+    if (widget.dockPanelRequest > oldWidget.dockPanelRequest &&
+        _panel != _SettingsPanel.dock) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _panel != _SettingsPanel.dock) {
+          _openPanel(context, context.read<SupervisorProvider>(), _SettingsPanel.dock);
+        }
+      });
+    }
+  }
+
+  @override
   void dispose() {
     // 홈 칸의 '여기가 맞는지 확인' 결과는 provider 에 있어 화면을 떠나도 남습니다.
     // 남기면 원격 주행 화면이 그 점수·라이다 점을 보이고 '확정'을 열어 둡니다.
@@ -159,6 +220,10 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     // 주황 점이 동시에 뜨는 상태는 없습니다. draft 가 있으면 그쪽이 우선입니다.
     final pickedLocation =
         (draft != null || map == null) ? null : _previewLocation(map.mapId);
+    // 보는 지도가 주행 지도가 아니면 도크를 다룰 수 없습니다(도킹 노드는 주행 지도에만 저장·지우기·
+    // 도킹을 합니다). 도크 위치 칸의 버튼을 잠그고, 하던 지도 지정도 받지 않습니다. 안내는 아래
+    // 주행 지도 띠(DriveMapBanner)가 합니다(2026-11-19 검토).
+    final dockLocked = supervisor.dockOnOtherMap(map?.mapId);
     // 레일 칸을 펼치고 그 지도의 편집을 시작했을 때만 지도가 레일 그림판입니다.
     final railEditing = map != null &&
         _panel == _SettingsPanel.rail &&
@@ -324,6 +389,11 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               // (남색 점)이 함께 보여야 얼마나 옮기는지도 눈에 보인다.
               // 주행 화면(DriveMapCanvas)과 같은 provider 함수에서 받는다.
               homePoint: supervisor.homePointFor(map.mapId),
+              // 지도에서 다시 지정하는 동안에는 저장된 도크 점을 감춥니다. 새로 누른
+              // 도크와 같은 보라색이라 어느 것이 지금 누른 것인지 헷갈립니다.
+              dockPoint:
+                  _dockPicking ? null : supervisor.dockPointFor(map.mapId),
+              dockPick: dockLocked ? null : _dockPickMark(),
               // 여기서 정보 입력 시트를 띄우지 않습니다. 누르자마자 시트가 덮으면
               // 점이 원하는 자리에 찍혔는지 볼 수가 없고, 시트를 닫으면 점까지
               // 사라져 처음부터 다시 해야 했습니다. 이제 누르는 것은 '점 옮기기'
@@ -338,6 +408,15 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                 // 두 가지를 찍으므로 지금 무엇을 찍는 중인지로 갈라야 합니다.
                 if (_homeMode == HomeCardMode.picking) {
                   setState(() => _homePicked = ros);
+                  return;
+                }
+                // 도크를 지도에서 지정하는 중이면 도크 구조물 → 도크 앞쪽 순서로 받습니다.
+                // 도크 위치 칸이 펼쳐져 있을 때만입니다 — 접힌 채로 지도 누름이 도크로 가면
+                // 무엇을 찍는 중인지 화면에 드러나지 않습니다.
+                if (_dockPicking && _panel == _SettingsPanel.dock) {
+                  if (!dockLocked) {
+                    _dockPickTap(ros);
+                  }
                   return;
                 }
                 // 장소 칸을 펼쳤을 때만 지도 탭이 '장소 찍기'입니다. 접혀 있는데도
@@ -431,6 +510,29 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               onGoHome: () => _goHome(context, supervisor),
               onDelete: () =>
                   _confirmDeleteHome(context, supervisor, map.mapId),
+            ),
+          ),
+          // 도크 위치(2026-11-18, 목업 70·71 → 2026-11-19 v2, 목업 84~91). 홈과 따로입니다.
+          VicaExpandPanel(
+            title: '도크 위치',
+            icon: Icons.power,
+            summary: supervisor.dockSpotFor(map.mapId) != null ? '지정됨' : '없음',
+            expanded: _panel == _SettingsPanel.dock,
+            onTap: () => _openPanel(context, supervisor, _SettingsPanel.dock),
+            child: DockPositionCard(
+              spot: supervisor.dockSpotFor(map.mapId),
+              busy: supervisor.dockBusy,
+              canSendRobot: _canSendRobot(supervisor),
+              blockedReason: _blockedReason(supervisor),
+              onSave: () => _saveDock(context, supervisor, map.mapId),
+              onTryDock: () => _tryDock(context, supervisor),
+              onDelete: () => _confirmDeleteDock(context, supervisor, map.mapId),
+              locked: dockLocked,
+              pickStage: dockLocked ? DockPickStage.none : _dockPickStage,
+              onStartMapPick: _startDockPick,
+              onPickAgain: _startDockPick,
+              onPickCancel: () => setState(_foldDockWork),
+              onPickSave: () => _saveDockPick(context, supervisor, map.mapId),
             ),
           ),
           VicaExpandPanel(
@@ -559,6 +661,15 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
         supervisor.requestRouteInfo(settings, mapId);
       }
     }
+    // 도크 위치 칸도 펼칠 때 다시 읽습니다. 도킹 노드는 주행 지도의 도크만 돌려주므로, 주행 지도가
+    // 바뀐 뒤에는 앞서 읽은 값(어느 지도의 도크인지)이 낡아 있습니다(2026-11-19 검토).
+    if (target == _SettingsPanel.dock && context.mounted) {
+      final settings = context.read<SettingsProvider>().settings;
+      final mapId = supervisor.selectedMap?.mapId;
+      if (mapId != null) {
+        supervisor.refreshDockSpot(settings, mapId);
+      }
+    }
 
     setState(() {
       _panel = target;
@@ -567,6 +678,9 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       }
       if (target != _SettingsPanel.home) {
         _foldHomeWork(supervisor);
+      }
+      if (target != _SettingsPanel.dock) {
+        _foldDockWork();
       }
     });
   }
@@ -631,6 +745,8 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     setState(() {
       _foldLocationWork();
       _foldHomeWork(supervisor);
+      // 지도에서 지정하던 도크 점도 그 지도의 좌표입니다.
+      _foldDockWork();
       // 고른 장소도 지도마다 다릅니다.
       _deleteTargetId = null;
     });
@@ -693,6 +809,84 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     _homeMode = HomeCardMode.idle;
     _homePicked = null;
     _homeDirection = null;
+  }
+
+  // 도크를 지도에서 지정하던 일을 접습니다. setState 안에서 부릅니다.
+  void _foldDockWork() {
+    _dockPicking = false;
+    _dockPickDock = null;
+    _dockPickFront = null;
+  }
+
+  DockPickStage get _dockPickStage {
+    if (!_dockPicking) {
+      return DockPickStage.none;
+    }
+    if (_dockPickDock == null) {
+      return DockPickStage.dock;
+    }
+    return _dockPickFront == null ? DockPickStage.front : DockPickStage.preview;
+  }
+
+  /// '지도에서 지정'·'다시 지정' — 1 / 2 부터 다시 받습니다. 도크 위치 칸이 펼쳐져 있을 때만
+  /// 시작합니다(칸 안의 버튼은 늘 그렇습니다).
+  void _startDockPick() {
+    if (_panel != _SettingsPanel.dock) {
+      return;
+    }
+    setState(() {
+      _dockPicking = true;
+      _dockPickDock = null;
+      _dockPickFront = null;
+    });
+  }
+
+  /// 인식 저장 실패 팝업의 '지도에서 지정'. 로봇의 답을 기다리는 사이 다른 칸으로 넘어갔을 수 있어,
+  /// 도크 위치 칸을 펼친 뒤에 시작합니다 — 다른 칸이 펼쳐진 채 지도 누름이 도크 지정으로 가면 안 됩니다.
+  /// 칸을 바꿀 때와 같은 정리([_openPanel])를 거치고, 저장 안 한 편집을 두고 물러나면 시작하지 않습니다.
+  Future<void> _startDockPickFromDialog(
+    BuildContext context,
+    SupervisorProvider supervisor,
+  ) async {
+    if (_panel != _SettingsPanel.dock) {
+      await _openPanel(context, supervisor, _SettingsPanel.dock);
+      if (!mounted) {
+        return;
+      }
+    }
+    _startDockPick();
+  }
+
+  /// 지정하는 중의 지도 누름. 첫 누름은 도크 구조물, 둘째 누름은 도크 앞쪽입니다.
+  /// 둘째 누름이 도크에 너무 가까우면([kDockMapPickMinGapM]) 방향을 정할 수 없어 받지 않고,
+  /// 미리보기에서는 누름을 받지 않습니다 — 고치려면 '다시 지정'입니다.
+  void _dockPickTap(Offset ros) {
+    final dock = _dockPickDock;
+    if (dock == null) {
+      setState(() => _dockPickDock = ros);
+      return;
+    }
+    if (_dockPickFront != null || !DockMapPick.farEnough(dock, ros)) {
+      return;
+    }
+    setState(() => _dockPickFront = ros);
+  }
+
+  /// 지도에 그릴 지정 중 표시. 도크를 누르기 전에는 없습니다.
+  MapDockPick? _dockPickMark() {
+    final dock = _dockPickDock;
+    if (!_dockPicking || dock == null) {
+      return null;
+    }
+    final front = _dockPickFront;
+    if (front == null) {
+      return MapDockPick(dock: dock);
+    }
+    return MapDockPick(
+      dock: dock,
+      staging: DockMapPick(dock: dock, front: front).staging,
+      second: front,
+    );
   }
 
   // '여기가 맞는지 확인' 결과를 버립니다. 그 결과는 원격 주행의 초기 위치 채점과
@@ -1922,6 +2116,165 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       return;
     }
     final message = await supervisor.returnHome(settings);
+    if (context.mounted) {
+      _toast(message);
+    }
+  }
+
+  /// '도크 인식해서 저장'(2026-11-19, 목업 84~88). 실패하면 사유에 맞는 팝업을 띄우고,
+  /// '다시 찾기'를 고르면 같은 자리에서 한 번 더 인식합니다.
+  Future<void> _saveDock(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    String mapId,
+  ) async {
+    final settings = context.read<SettingsProvider>().settings;
+    while (context.mounted) {
+      final result = await supervisor.registerDock(settings, mapId);
+      if (!context.mounted) {
+        return;
+      }
+      if (result.ok) {
+        _toast(vicaKeepWords(result.savedText));
+        return;
+      }
+      final DockSaveFailChoice choice;
+      if (result.driveOff) {
+        await showDockDriveOffDialog(context);
+        return;
+      }
+      switch (result.reason) {
+        case 'not_found':
+          choice = await showDockNotFoundDialog(
+            context,
+            savedDockHint: _savedDockHint(supervisor, mapId),
+          );
+        case 'unstable':
+          choice = await showDockUnstableDialog(context, result: result);
+        case 'no_amcl':
+          choice = await showDockNoPoseDialog(context);
+        default:
+          _toast(vicaKeepWords(_dockSaveFailText(result.reason)));
+          return;
+      }
+      if (!context.mounted) {
+        return;
+      }
+      switch (choice) {
+        case DockSaveFailChoice.retry:
+          continue;
+        case DockSaveFailChoice.mapPick:
+          await _startDockPickFromDialog(context, supervisor);
+          return;
+        case DockSaveFailChoice.initialPose:
+          widget.onOpenDrive?.call();
+          return;
+        case DockSaveFailChoice.close:
+          return;
+      }
+    }
+  }
+
+  /// 팝업이 따로 없는 저장 실패(연결 없음·도킹 중·쓰기 실패 등)의 짧은 알림.
+  String _dockSaveFailText(String reason) => switch (reason) {
+        'not_connected' => kDockNotConnectedText,
+        'busy' => '로봇이 도킹 일을 하는 중입니다. 끝난 뒤 다시 저장하세요.',
+        _ => '도크 위치를 저장하지 못했습니다($reason).',
+      };
+
+  /// 도크를 찾지 못했을 때, 이미 저장된 도크가 로봇의 어느 쪽에 있는지(목업 86 회색 칸).
+  /// 도크 위치가 없거나 로봇이 이 지도에 있지 않으면 null 입니다.
+  String? _savedDockHint(SupervisorProvider supervisor, String mapId) {
+    final spot = supervisor.dockSpotFor(mapId);
+    final robot = supervisor.primaryRobot;
+    if (spot == null || robot == null || robot.mapId != mapId) {
+      return null;
+    }
+    return savedDockHint(
+      dockX: spot.dockedX,
+      dockY: spot.dockedY,
+      robotX: robot.x,
+      robotY: robot.y,
+      robotYawDeg: robot.yaw,
+    );
+  }
+
+  /// '이 자리로 저장'(목업 90′) — 지도에서 누른 도크와 방향을 로봇에 보냅니다. 준비 위치는
+  /// 로봇이 계산합니다. 실패하면 누른 점을 그대로 두어 다시 저장할 수 있습니다.
+  Future<void> _saveDockPick(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    String mapId,
+  ) async {
+    final dock = _dockPickDock;
+    final front = _dockPickFront;
+    if (dock == null || front == null) {
+      return;
+    }
+    final settings = context.read<SettingsProvider>().settings;
+    final result = await supervisor.setDockFromMap(
+      settings,
+      mapId: mapId,
+      x: dock.dx,
+      y: dock.dy,
+      yawDeg: DockMapPick(dock: dock, front: front).fwdDeg,
+    );
+    if (!context.mounted) {
+      return;
+    }
+    if (result.ok) {
+      setState(_foldDockWork);
+      _toast(vicaKeepWords(kDockMapSavedText));
+      return;
+    }
+    if (isDockDriveOff(result.reason)) {
+      await showDockDriveOffDialog(context, saving: true);
+      return;
+    }
+    _toast(vicaKeepWords(_dockSaveFailText(result.reason)));
+  }
+
+  /// '도킹해 보기' — 원격 주행의 '도킹 시작'과 같은 요청입니다. 성공하면 '가 본 자리'가 됩니다.
+  Future<void> _tryDock(BuildContext context, SupervisorProvider supervisor) async {
+    final settings = context.read<SettingsProvider>().settings;
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.power,
+      title: '도킹해 보기',
+      body: '로봇이 도크 앞으로 이동한 뒤 도크에 들어갑니다. '
+          '경로에 사람과 장애물이 없는지 확인하세요.\n\n'
+          '제대로 들어가면 이 도크 위치는 "가 본 자리"로 기록됩니다.',
+      confirmLabel: '시작',
+    );
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+    final message = await supervisor.startDocking(settings);
+    if (context.mounted) {
+      _toast(message);
+    }
+  }
+
+  Future<void> _confirmDeleteDock(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    String mapId,
+  ) async {
+    final settings = context.read<SettingsProvider>().settings;
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.delete_outline,
+      iconColor: VicaColors.red,
+      title: '도크 위치 지우기',
+      body: '도크 위치를 지우면 원격 주행의 \'도킹 시작\' 버튼이 사라집니다. '
+          '도크 구조물은 그대로입니다.',
+      confirmLabel: '삭제',
+      danger: true,
+    );
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+    final message = await supervisor.deleteDock(settings, mapId);
     if (context.mounted) {
       _toast(message);
     }
