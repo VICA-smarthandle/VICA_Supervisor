@@ -75,25 +75,40 @@ class ScanSession:
         self._refined: Optional[scan.RefineResult] = None
         self._acc: Optional[scan.ScanAccumulator] = None
         self._sample = None   # 점수를 잴 스캔 한 장 (ranges, angle_min, angle_increment, sensor)
+        # 첫 맞춤이 '구분 안 됨'이면 물러나기가 끝난 뒤 한 번 더 맞춥니다(_recheck → _recheck_due).
+        self._recheck = False
+        self._recheck_due = False
+        self._recheck_since = now
 
     # --- 넣어 주는 것 ------------------------------------------------------
 
     def on_scan(self, now: float, ranges, angle_min: float, angle_increment: float,
-                guess: tuple[float, float, float], sensor: tuple[float, float, float]) -> None:
-        """스캔 한 장. guess 는 그 순간의 AMCL 자세(출발값)입니다 — 맞춤 단계에서만 씁니다."""
+                guess: tuple[float, float, float], sensor: tuple[float, float, float],
+                guess_sigma: Optional[tuple[float, float, float]] = None) -> None:
+        """스캔 한 장. guess 는 그 순간의 AMCL 자세(출발값), guess_sigma 는 그 로봇 기준 표준편차입니다 —
+        맞춤 단계에서만 씁니다."""
         if self.phase == "refine":
             self._last_scan = now
-            refined = scan.refine_pose(
-                self.grid, self._field, ranges, angle_min, angle_increment, guess, sensor,
-                surface=self._surface,
-            )
-            self._refined = refined
-            if not refined.ok:
+            refined = self._match(ranges, angle_min, angle_increment, guess, sensor, guess_sigma)
+            if refined.ambiguous and (refined.ok or refined.reason == "ambiguous"):
+                # 시작을 누른 사람이 로봇 곁에 서서 벽을 가린 경우가 많습니다(11-19 실기). 물러나기가 끝나
+                # 사람이 비킨 뒤 한 번 더 맞춥니다. 그때까지는 이 자세로 원을 그립니다.
+                self._recheck = True
+            elif not refined.ok:
                 self._fail(refined.reason)
                 return
             self.pose = (refined.x, refined.y, refined.yaw)
             self.centre = scan.sensor_position(self.pose, sensor)   # 반경 원의 중심(라이다 자리)
             self._enter("step_back", now)
+        elif self.phase == "step_back" and self._recheck_due:
+            self._last_scan = now
+            refined = self._match(ranges, angle_min, angle_increment, guess, sensor, guess_sigma)
+            if not refined.ok:
+                self._fail(refined.reason)
+                return
+            self.pose = (refined.x, refined.y, refined.yaw)
+            self._recheck = self._recheck_due = False
+            self._start_scanning(now)
         elif self.phase == "scanning":
             self._last_scan = now
             if self._sample is None:
@@ -116,10 +131,15 @@ class ScanSession:
             if now - self._last_scan > SCAN_SILENCE_SEC:
                 self._fail("no_pose")
         elif self.phase == "step_back":
-            if now - self._phase_since >= STEP_BACK_SEC:
-                self._acc = scan.ScanAccumulator(self.grid, self.radius_m)
-                self._last_scan = now
-                self._enter("scanning", now)
+            if self._recheck_due:
+                if now - self._recheck_since > SCAN_SILENCE_SEC:
+                    self._fail("no_pose")
+            elif now - self._phase_since >= STEP_BACK_SEC:
+                if self._recheck:
+                    self._recheck_due = True          # 다음 스캔으로 다시 맞춥니다
+                    self._recheck_since = now
+                else:
+                    self._start_scanning(now)
         elif self.phase == "scanning":
             if now - self._last_scan > SCAN_SILENCE_SEC:
                 self._fail("no_pose")
@@ -166,6 +186,19 @@ class ScanSession:
         }
 
     # --- 안쪽 --------------------------------------------------------------
+
+    def _match(self, ranges, angle_min, angle_increment, guess, sensor, guess_sigma):
+        refined = scan.refine_pose(
+            self.grid, self._field, ranges, angle_min, angle_increment, guess, sensor,
+            surface=self._surface, guess_sigma=guess_sigma,
+        )
+        self._refined = refined
+        return refined
+
+    def _start_scanning(self, now: float) -> None:
+        self._acc = scan.ScanAccumulator(self.grid, self.radius_m)
+        self._last_scan = now
+        self._enter("scanning", now)
 
     def _enter(self, phase: str, now: float) -> None:
         self.phase = phase

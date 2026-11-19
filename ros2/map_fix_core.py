@@ -83,6 +83,9 @@ class ScanInput:
     angle_increment: float
     guess: tuple
     sensor: tuple
+    # AMCL 공분산을 로봇 기준 (앞뒤 m, 좌우 m, 방향 rad) 표준편차로. 못 받았으면 None —
+    # 구분 안 되는 축을 AMCL 값으로 둘지 정할 때만 씁니다(map_fix_scan._can_hold).
+    sigma: Optional[tuple] = None
 
 
 class Refusal(Exception):
@@ -337,7 +340,7 @@ class MapFixCore:
         grid = store.to_grid(store.load_map_image(self.maps_root, map_id))
         got = scan.refine_pose(
             grid, build_likelihood_field(grid), taken.ranges, taken.angle_min,
-            taken.angle_increment, taken.guess, taken.sensor,
+            taken.angle_increment, taken.guess, taken.sensor, guess_sigma=taken.sigma,
         )
         result = {
             "ok": got.ok, "reason": got.reason, "score": round(got.score, 1),
@@ -423,7 +426,7 @@ class MapFixCore:
         if self.session is not None and taken is not None:
             self.session.on_scan(
                 self._clock(), taken.ranges, taken.angle_min, taken.angle_increment,
-                taken.guess, taken.sensor,
+                taken.guess, taken.sensor, taken.sigma,
             )
 
     def feed_motion(self, linear: float, angular: float) -> None:

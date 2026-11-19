@@ -132,10 +132,17 @@ def test_ambiguous_axis_goes_on_with_the_amcl_value():
     middle = (16.0, 2.0, 0.0)
     run = start(corridor)
 
-    run.on_scan(0.1, *cast(corridor, middle, LASER, depth=HALF, max_range=16.0), middle, LASER)
+    one = cast(corridor, middle, LASER, depth=HALF, max_range=16.0)
+    sure = (0.05, 0.05, math.radians(1.0))
 
-    assert run.phase == "step_back"
-    assert run.state(0.1)["ambiguous"] == ["forward"]
+    run.on_scan(0.1, *one, middle, LASER, sure)
+    assert run.phase == "step_back"                      # 구분 안 됨 → 물러나기 뒤 다시 맞춘다
+    run.tick(0.1 + session.STEP_BACK_SEC)
+    assert run.phase == "step_back"                      # 다시 맞출 스캔을 기다린다
+    run.on_scan(5.2, *one, middle, LASER, sure)
+
+    assert run.phase == "scanning"
+    assert run.state(5.2)["ambiguous"] == ["forward"]
 
 
 def test_refine_failure_goes_to_failed_with_reason():
@@ -257,3 +264,55 @@ def test_cells_are_capped():
     assert all(kind == 1 for _, _, kind in cells)        # 넘치면 새로 생긴 칸부터 싣습니다
     few = scan.Changes(added=many[:2], removed=many[2:3])
     assert [kind for _, _, kind in session.cells_payload(grid, few)] == [1, 1, -1]
+
+
+class _Refined:
+    def __init__(self, ok, reason="", ambiguous=()):
+        self.ok, self.reason, self.ambiguous = ok, reason, tuple(ambiguous)
+        self.x, self.y, self.yaw = TRUE
+        self.score, self.moved_m, self.moved_deg = 90.0, 0.0, 0.0
+
+
+def _scripted(monkeypatch, *results):
+    queue = list(results)
+    monkeypatch.setattr(scan, "refine_pose", lambda *a, **k: queue.pop(0))
+
+
+def test_ambiguity_is_matched_again_after_the_step_back(monkeypatch):
+    """11-19 실기: 시작을 누른 사람이 로봇 앞에 서 있어 '앞뒤 구분 안 됨'이 났다. 물러나기 5초 뒤
+    사람이 비킨 스캔으로 한 번 더 맞춘다."""
+    saved = room(6.0, 5.0)
+    one = cast(saved, TRUE, LASER, depth=HALF)
+    _scripted(monkeypatch, _Refined(False, "ambiguous", ["forward"]), _Refined(True))
+    run = start(saved)
+
+    run.on_scan(0.1, *one, TRUE, LASER)
+    run.tick(0.1 + session.STEP_BACK_SEC)
+    run.on_scan(5.2, *one, TRUE, LASER)
+
+    assert run.phase == "scanning" and run.state(5.2)["ambiguous"] == []
+
+
+def test_still_ambiguous_after_the_step_back_fails(monkeypatch):
+    saved = room(6.0, 5.0)
+    one = cast(saved, TRUE, LASER, depth=HALF)
+    _scripted(monkeypatch, _Refined(False, "ambiguous", ["forward"]), _Refined(False, "ambiguous", ["forward"]))
+    run = start(saved)
+
+    run.on_scan(0.1, *one, TRUE, LASER)
+    run.tick(0.1 + session.STEP_BACK_SEC)
+    run.on_scan(5.2, *one, TRUE, LASER)
+
+    assert (run.phase, run.reason) == ("failed", "ambiguous")
+
+
+def test_the_second_match_does_not_wait_for_a_scan_forever(monkeypatch):
+    saved = room(6.0, 5.0)
+    _scripted(monkeypatch, _Refined(False, "ambiguous", ["forward"]))
+    run = start(saved)
+
+    run.on_scan(0.1, *cast(saved, TRUE, LASER, depth=HALF), TRUE, LASER)
+    run.tick(0.1 + session.STEP_BACK_SEC)
+    run.tick(0.1 + session.STEP_BACK_SEC + session.SCAN_SILENCE_SEC + 0.1)
+
+    assert (run.phase, run.reason) == ("failed", "no_pose")

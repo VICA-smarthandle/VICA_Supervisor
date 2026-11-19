@@ -189,6 +189,7 @@ class MapFixNode(Node):
         self.declare_parameter("map_frame", "map")
         self.declare_parameter("odom_frame", "odom")
         self.declare_parameter("map_topic", "/map")
+        self.declare_parameter("amcl_pose_topic", "/amcl_pose")
         self.declare_parameter("robot_footprint", DEFAULT_FOOTPRINT)
         self.declare_parameter("body_margin_m", 0.20)
 
@@ -242,6 +243,8 @@ class MapFixNode(Node):
         self._map_sub = None
         self._retry_at = 0.0
         self._retry_gap = RETRY_FIRST_SEC
+        self._amcl_sub = None
+        self._amcl_cov = None        # /amcl_pose 의 마지막 공분산(36개). 센서를 연 동안만 받습니다.
         self._setup_service()
         # 정리·세션 타이머는 각자 한 번에 하나만 돕니다(MutuallyExclusive). Reentrant 로 두면 Nav2
         # load_map 이 답하지 않는 동안 같은 타이머가 계속 새 스레드에서 돌아 대기 스레드가 쌓이고,
@@ -420,6 +423,15 @@ class MapFixNode(Node):
         self._odom_sub = self.create_subscription(
             Odometry, str(self.get_parameter("odom_topic").value), self._on_odom,
             qos_profile_sensor_data, callback_group=self._callbacks)
+        # AMCL 은 움직일 때만 /amcl_pose 를 내고, 늦게 붙은 구독에도 마지막 값을 줍니다(transient_local).
+        from geometry_msgs.msg import PoseWithCovarianceStamped
+        from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+
+        latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                             durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self._amcl_sub = self.create_subscription(
+            PoseWithCovarianceStamped, str(self.get_parameter("amcl_pose_topic").value), self._on_amcl,
+            latched, callback_group=self._callbacks)
 
     def _close_sensors(self) -> None:
         if self._scan_sub is None:
@@ -427,6 +439,10 @@ class MapFixNode(Node):
         self.destroy_subscription(self._scan_sub)
         self.destroy_subscription(self._odom_sub)
         self._scan_sub = self._odom_sub = None
+        if self._amcl_sub is not None:
+            self.destroy_subscription(self._amcl_sub)
+            self._amcl_sub = None
+        self._amcl_cov = None
         try:
             self._tf_listener.unregister()
         except AttributeError:
@@ -486,7 +502,9 @@ class MapFixNode(Node):
         import map_fix_scan as scan   # 첫 요청 전에는 numpy 를 올리지 않습니다
 
         ranges = scan.mask_body(msg.ranges, msg.angle_min, msg.angle_increment, sensor, *self._body)
-        return mfc.ScanInput(ranges, msg.angle_min, msg.angle_increment, guess, sensor)
+        cov = self._amcl_cov
+        sigma = scan.axis_sigmas(cov, guess[2]) if cov is not None else None
+        return mfc.ScanInput(ranges, msg.angle_min, msg.angle_increment, guess, sensor, sigma)
 
     def _on_scan(self, msg) -> None:
         self._scan_msg = msg
@@ -495,6 +513,9 @@ class MapFixNode(Node):
             taken = self._scan_input(msg)
             with self._core_lock:
                 self.core.feed_scan(taken)
+
+    def _on_amcl(self, msg) -> None:
+        self._amcl_cov = tuple(msg.pose.covariance)
 
     def _on_odom(self, msg) -> None:
         twist = msg.twist.twist

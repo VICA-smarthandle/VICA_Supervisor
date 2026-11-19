@@ -153,6 +153,7 @@ def _fake_node(buffer):
     fake._tf_buffer = buffer
     fake._sensors_opened_at = 0.0
     fake._body = node.parse_body(node.DEFAULT_FOOTPRINT, 0.20)
+    fake._amcl_cov = None
     fake.get_parameter = lambda name: SimpleNamespace(value=frames[name])
     quiet = SimpleNamespace(warn=lambda *a, **k: None, info=lambda *a, **k: None)
     fake.get_logger = lambda: quiet
@@ -177,6 +178,22 @@ def test_scan_input_drops_beams_on_the_body():
     taken = fake._scan_input(scan, wait=0.0)
 
     assert taken.ranges[0] == 2.0 and math.isnan(taken.ranges[1])
+
+
+def test_scan_input_carries_the_amcl_spread_in_robot_axes():
+    import map_fix_scan
+
+    fake = _fake_node(_standing_buffer())
+    scan = SimpleNamespace(header=SimpleNamespace(frame_id="laser_frame"),
+                           ranges=[2.0], angle_min=0.0, angle_increment=0.1)
+    assert fake._scan_input(scan, wait=0.0).sigma is None              # AMCL 을 아직 못 받음
+
+    cov = [0.0] * 36
+    cov[0], cov[7], cov[35] = 0.0025, 0.0016, 0.0004
+    fake._amcl_cov = cov
+
+    taken = fake._scan_input(scan, wait=0.0)
+    assert taken.sigma == pytest.approx(map_fix_scan.axis_sigmas(cov, taken.guess[2]))
 
 
 class _NeverAnswers:

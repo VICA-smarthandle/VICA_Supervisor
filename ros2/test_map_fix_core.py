@@ -13,6 +13,7 @@ import math
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -451,3 +452,26 @@ def test_no_retry_while_a_scan_session_runs(tmp_path):
     rig.core.session = object()
 
     assert rig.core.retry_target() == ""
+
+
+def test_scan_check_and_session_get_the_amcl_spread(tmp_path, monkeypatch):
+    """구분 안 되는 축을 AMCL 로 둘지는 AMCL 이 그 축을 얼마나 확신하는가로 정합니다(11-19 대책)."""
+    import map_fix_scan
+
+    seen = []
+
+    def fake_refine(*args, guess_sigma=None, **kwargs):
+        seen.append(guess_sigma)
+        return SimpleNamespace(ok=False, reason="low_match", score=0.0, used_beams=0, kept_beams=0,
+                               ambiguous=(), x=0.0, y=0.0, yaw=0.0, rms_m=0.0, moved_m=0.0,
+                               moved_deg=0.0, hits=[])
+
+    monkeypatch.setattr(map_fix_scan, "refine_pose", fake_refine)
+    rig = room_rig(tmp_path)
+    taken = rig.scan_input
+    rig.scan_input = core.ScanInput(taken.ranges, taken.angle_min, taken.angle_increment, taken.guess,
+                                    taken.sensor, (0.05, 0.06, 0.01))
+
+    rig.call("scan_check", None, BIG)
+
+    assert seen == [(0.05, 0.06, 0.01)]

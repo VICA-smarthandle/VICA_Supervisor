@@ -289,11 +289,11 @@ HALF = RES / 2.0
 TRUE = (2.5, 2.0, 0.3)
 
 
-def refine(saved: MapGrid, real: MapGrid, true_pose, guess, **cast_kwargs):
+def refine(saved: MapGrid, real: MapGrid, true_pose, guess, sigma=None, **cast_kwargs):
     cast_kwargs.setdefault("depth", HALF)
     ranges, angle_min, increment = cast(real, true_pose, LASER, **cast_kwargs)
     field = build_likelihood_field(saved)
-    return scan.refine_pose(saved, field, ranges, angle_min, increment, guess, LASER)
+    return scan.refine_pose(saved, field, ranges, angle_min, increment, guess, LASER, guess_sigma=sigma)
 
 
 def off(pose, dx: float, dy: float, dyaw_deg: float):
@@ -326,16 +326,19 @@ def test_refine_ignores_a_moved_object():
     assert got.kept_beams < got.used_beams
 
 
+CORRIDOR_DATA = np.full((80, 640), 100, dtype=np.int8)   # 32 × 4 m 판
+CORRIDOR_DATA[20:60, 20:620] = 0                          # 폭 2 m · 길이 30 m 복도
+MIDDLE = (16.0, 2.0, 0.0)                                 # 양 끝 벽이 15 m 밖(라이다 유효 11 m 밖)
+
+
 def test_long_corridor_keeps_the_amcl_forward_and_passes():
-    """앞뒤가 구분되지 않으면 그 축만 출발 자세(AMCL — 지금 주행에 쓰는 위치)를 두고 통과합니다
-    (11-19 사용자 결정: 좁은 범위 스캔을 거부하는 것은 불편하다)."""
-    data = np.full((80, 640), 100, dtype=np.int8)   # 32 × 4 m 판
-    data[20:60, 20:620] = 0                          # 폭 2 m · 길이 30 m 복도
-    corridor = MapGrid(data, RES, 0.0, 0.0)
-    middle = (16.0, 2.0, 0.0)                        # 양 끝 벽이 15 m 밖(라이다 유효 11 m 밖)
+    """앞뒤가 구분되지 않으면 AMCL 이 그 축을 0.10 m 안으로 확신할 때만 그 축의 출발 자세(AMCL — 지금
+    주행에 쓰는 위치)를 두고 통과합니다(11-19 사용자 결정·대책)."""
+    corridor = MapGrid(CORRIDOR_DATA, RES, 0.0, 0.0)
+    middle = MIDDLE
     guess = off(middle, 0.03, 0.02, 0.5)
 
-    got = refine(corridor, corridor, middle, guess, max_range=16.0)
+    got = refine(corridor, corridor, middle, guess, sigma=(0.05, 0.05, math.radians(1.0)), max_range=16.0)
 
     assert got.ok and got.reason == ""
     assert got.ambiguous == ("forward",)
@@ -422,24 +425,22 @@ def test_small_square_room_is_not_ambiguous():
     assert got.ok and got.ambiguous == ()
 
 
-def test_round_room_keeps_the_amcl_yaw():
-    """로봇이 둥근 방 한가운데면 어느 쪽을 보는지 벽으로는 알 수 없습니다 — 방향은 AMCL 을 둡니다."""
+def test_round_room_is_refused_even_when_amcl_is_sure():
+    """로봇이 둥근 방 한가운데면 어느 쪽을 보는지 벽으로는 알 수 없습니다."""
     size = 120
     rows, cols = np.mgrid[0:size, 0:size]
     distance = np.hypot((cols + 0.5) * RES - 3.0, (rows + 0.5) * RES - 3.0)
     data = np.where(distance < 2.0, 0, 100).astype(np.int8)
     round_room = MapGrid(data, RES, 0.0, 0.0)
     centre = (3.0, 3.0, 0.4)
-    guess = centre        # 방향이 전혀 안 정해지는 장면이라 출발값을 틀어 두면 탐색이 멀리 미끄러져
-                          # 옮긴 양 한도(10°)에 걸립니다 — 그때는 거부가 맞습니다.
 
     ranges, angle_min, increment = cast(round_room, centre, NO_OFFSET, depth=HALF)
     field = build_likelihood_field(round_room)
-    got = scan.refine_pose(round_room, field, ranges, angle_min, increment, guess, NO_OFFSET)
+    got = scan.refine_pose(round_room, field, ranges, angle_min, increment, centre, NO_OFFSET,
+                           guess_sigma=(0.05, 0.05, math.radians(1.0)))
 
-    assert got.ok and got.ambiguous == ("yaw",)
-    assert math.isclose(got.yaw, guess[2], abs_tol=1e-9)               # 방향은 AMCL 그대로
-    assert math.hypot(got.x - centre[0], got.y - centre[1]) <= 0.012
+    # 방향은 AMCL 이 확신해도 두지 않습니다 — 3.7° 틀리면 3 m 끝에서 19 cm 가 어긋납니다.
+    assert not got.ok and got.reason == "ambiguous" and got.ambiguous == ("yaw",)
 
 
 def test_refine_refuses_to_jump_far_from_the_guess():
@@ -540,3 +541,22 @@ def test_hold_axes_replaces_only_the_named_axes():
     # 로봇이 +y 를 보면 앞뒤는 y 축입니다
     facing_y = (1.00, 2.00, math.pi / 2)
     assert scan.hold_axes(facing_y, (1.10, 2.05, math.pi / 2), ("forward",)) == pytest.approx((1.00, 2.05, math.pi / 2))
+
+
+def test_long_corridor_is_refused_when_amcl_is_unsure_along_it():
+    corridor = MapGrid(CORRIDOR_DATA, RES, 0.0, 0.0)
+
+    unsure = refine(corridor, corridor, MIDDLE, MIDDLE, sigma=(0.15, 0.05, 0.01), max_range=16.0)
+    unknown = refine(corridor, corridor, MIDDLE, MIDDLE, sigma=None, max_range=16.0)
+
+    assert (unsure.ok, unsure.reason, unsure.ambiguous) == (False, "ambiguous", ("forward",))
+    assert (unknown.ok, unknown.reason) == (False, "ambiguous")
+    assert scan.HOLD_MAX_SIGMA_M == 0.10
+
+
+def test_axis_sigmas_turns_the_amcl_covariance_into_robot_axes():
+    cov = [0.0] * 36
+    cov[0], cov[7], cov[35] = 0.01, 0.0004, math.radians(2.0) ** 2       # x 0.1 m · y 0.02 m · 2°
+
+    assert scan.axis_sigmas(cov, 0.0) == pytest.approx((0.10, 0.02, math.radians(2.0)))
+    assert scan.axis_sigmas(cov, math.pi / 2) == pytest.approx((0.02, 0.10, math.radians(2.0)))

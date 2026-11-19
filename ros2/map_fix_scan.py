@@ -361,7 +361,8 @@ def build_surface_field(grid: MapGrid) -> np.ndarray:
 
 def refine_pose(grid: MapGrid, field: np.ndarray, ranges, angle_min: float, angle_increment: float,
                 guess: tuple[float, float, float], sensor: tuple[float, float, float],
-                surface: np.ndarray | None = None) -> RefineResult:
+                surface: np.ndarray | None = None,
+                guess_sigma: tuple[float, float, float] | None = None) -> RefineResult:
     """스캔 한 장을 지도에 다시 맞춥니다. guess 는 출발 자세 (x, y, yaw[rad])입니다.
 
     field 는 pose_score.build_likelihood_field(grid)(거친 맞춤·점수용), surface 는
@@ -407,12 +408,34 @@ def refine_pose(grid: MapGrid, field: np.ndarray, ranges, angle_min: float, angl
 
     ambiguous = _ambiguous_axes(surface, grid, kept_beams, (x, y, yaw), sensor)
     if ambiguous:
-        # 구분되지 않는 축은 거부하지 않고 출발 자세(AMCL — 지금 주행에 쓰는 위치)를 둡니다(11-19 사용자
-        # 결정). 그 축은 벽이 정해 주지 못하므로 맞춘 값이 더 낫다고 할 근거가 없고, AMCL 값을 두면 고친
-        # 칸이 지금 Nav2 가 믿는 자리와 맞습니다. 적용 전 미리보기로 확인합니다.
-        x, y, yaw = hold_axes((x, y, yaw), guess, ambiguous)
-        return result(True, "", (x, y, yaw), kept, rms, ambiguous)
+        # 구분되지 않는 축은, AMCL 이 그 축을 HOLD_MAX_SIGMA_M 안으로 확신할 때만 출발 자세(AMCL — 지금 주행에
+        # 쓰는 위치)를 두고 통과합니다(11-19 사용자 결정 '그 축만 주행 위치로'와 그 부작용 대책). 그 축의
+        # AMCL 오차는 그대로 지도에 들어갑니다 — 11-19 실기에서 AMCL 은 σ 7 cm 로 봤지만 스캔과는 12~16 cm
+        # 달랐습니다. 방향(yaw)은 두지 않습니다: 3.7° 틀리면 3 m 끝에서 19 cm 가 어긋납니다.
+        if _can_hold(ambiguous, guess_sigma):
+            x, y, yaw = hold_axes((x, y, yaw), guess, ambiguous)
+            return result(True, "", (x, y, yaw), kept, rms, ambiguous)
+        return result(False, "ambiguous", (x, y, yaw), kept, rms, ambiguous)
     return done
+
+
+HOLD_MAX_SIGMA_M = 0.10
+
+
+def _can_hold(axes, guess_sigma) -> bool:
+    if guess_sigma is None or "yaw" in axes:
+        return False
+    index = {"forward": 0, "lateral": 1}
+    return all(float(guess_sigma[index[axis]]) <= HOLD_MAX_SIGMA_M for axis in axes)
+
+
+def axis_sigmas(covariance, yaw: float) -> tuple[float, float, float]:
+    """AMCL 공분산(6×6, 행 우선 36개)을 로봇 기준 (앞뒤 m, 좌우 m, 방향 rad) 표준편차로."""
+    xx, xy, yy, turn = float(covariance[0]), float(covariance[1]), float(covariance[7]), float(covariance[35])
+    c, s = math.cos(yaw), math.sin(yaw)
+    forward = c * c * xx + 2.0 * c * s * xy + s * s * yy
+    lateral = s * s * xx - 2.0 * c * s * xy + c * c * yy
+    return math.sqrt(max(forward, 0.0)), math.sqrt(max(lateral, 0.0)), math.sqrt(max(turn, 0.0))
 
 
 def hold_axes(pose: tuple, guess: tuple, axes) -> tuple[float, float, float]:
