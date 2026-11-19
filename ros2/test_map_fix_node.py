@@ -108,6 +108,51 @@ def test_pose_of_transform():
     assert (x, y) == (1.5, -2.0) and math.isclose(yaw, 0.2)
 
 
+def test_compose_pose_puts_the_second_pose_on_the_first():
+    x, y, yaw = node.compose_pose((1.0, 0.0, math.pi / 2), (2.0, 0.0, 0.1))
+    assert math.isclose(x, 1.0, abs_tol=1e-9) and math.isclose(y, 2.0) and math.isclose(yaw, math.pi / 2 + 0.1)
+
+
+def _stamped(parent, child, x, yaw, sec):
+    from geometry_msgs.msg import TransformStamped
+
+    t = TransformStamped()
+    t.header.frame_id, t.child_frame_id = parent, child
+    t.header.stamp.sec, t.header.stamp.nanosec = int(sec), int((sec % 1) * 1e9)
+    t.transform.translation.x = x
+    t.transform.rotation.z, t.transform.rotation.w = math.sin(yaw / 2), math.cos(yaw / 2)
+    return t
+
+
+def test_pose_is_found_while_amcl_stamps_map_to_odom_in_the_future():
+    """11-19 실기: 센서를 연 뒤 첫 scan_check 가 no_pose. AMCL 은 map→odom 을 transform_tolerance
+    (1.0 s) 만큼 미래 시각으로 낸다. 그 한 장뿐이면 두 변환이 다 와 있어도 map→base_footprint 를
+    잇는 조회는 '미래로 늘이기'로 실패한다(로그: map→odom 1 · odom→base_footprint 1 · 이은 것 0)."""
+    tf2_ros = pytest.importorskip("tf2_ros")
+    buffer = tf2_ros.Buffer()
+    now = 1000.0
+    buffer.set_transform(_stamped("map", "odom", 1.0, math.pi / 2, now + 1.0), "amcl")
+    for back in (0.5, 0.25, 0.0):
+        buffer.set_transform(_stamped("odom", "base_footprint", 2.0, 0.0, now - back), "ekf")
+    buffer.set_transform_static(_stamped("base_footprint", "laser_frame", 0.1, 0.0, 0.0), "urdf")
+
+    frames = {"base_frame": "base_footprint", "map_frame": "map", "odom_frame": "odom"}
+    fake = node.MapFixNode.__new__(node.MapFixNode)
+    fake._tf_buffer = buffer
+    fake._sensors_opened_at = 0.0
+    fake.get_parameter = lambda name: SimpleNamespace(value=frames[name])
+    quiet = SimpleNamespace(warn=lambda *a, **k: None, info=lambda *a, **k: None)
+    fake.get_logger = lambda: quiet
+    scan = SimpleNamespace(header=SimpleNamespace(frame_id="laser_frame"),
+                           ranges=[1.0], angle_min=0.0, angle_increment=0.1)
+
+    taken = fake._scan_input(scan, wait=0.0)
+
+    assert taken is not None
+    x, y, yaw = taken.guess
+    assert math.isclose(x, 1.0, abs_tol=1e-6) and math.isclose(y, 2.0) and math.isclose(yaw, math.pi / 2)
+
+
 def test_importing_the_node_does_not_load_numpy():
     """쉬는 동안에는 numpy·scipy 와 스캔 계산 모듈이 올라와 있지 않습니다."""
     code = (

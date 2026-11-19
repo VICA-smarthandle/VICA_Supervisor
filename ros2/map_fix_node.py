@@ -135,6 +135,13 @@ def pose_of(transform: Any) -> tuple[float, float, float]:
     return transform.translation.x, transform.translation.y, yaw_of(transform.rotation)
 
 
+def compose_pose(a: tuple, b: tuple) -> tuple[float, float, float]:
+    """평면 자세 a 위에 b 를 얹습니다(map→odom · odom→base = map→base)."""
+    c, s = math.cos(a[2]), math.sin(a[2])
+    yaw = a[2] + b[2]
+    return a[0] + c * b[0] - s * b[1], a[1] + s * b[0] + c * b[1], math.atan2(math.sin(yaw), math.cos(yaw))
+
+
 # ---------------------------------------------------------------------------
 # 노드
 # ---------------------------------------------------------------------------
@@ -161,6 +168,7 @@ class MapFixNode(Node):
         self.declare_parameter("scan_topic", "/scan")
         self.declare_parameter("base_frame", "base_footprint")
         self.declare_parameter("map_frame", "map")
+        self.declare_parameter("odom_frame", "odom")
 
         self._callbacks = ReentrantCallbackGroup()
         self._request_lock = threading.Lock()     # 요청은 한 번에 하나
@@ -383,15 +391,27 @@ class MapFixNode(Node):
         """
         base = str(self.get_parameter("base_frame").value)
         world = str(self.get_parameter("map_frame").value)
-        guess = self._lookup(world, base, wait)
-        sensor = self._lookup(base, msg.header.frame_id, wait)
+        odom = str(self.get_parameter("odom_frame").value)
+        deadline = time.monotonic() + wait
+
+        def left() -> float:
+            return max(0.0, deadline - time.monotonic())
+
+        # map→base 를 한 번에 잇지 않고 두 변환의 최신값을 각각 받아 얹습니다. AMCL 은 map→odom 을
+        # transform_tolerance(1.0 s) 만큼 미래 시각으로 내서, 막 연 구독에 그 한 장만 있으면 이은
+        # 조회가 1 s 남짓 더 실패합니다(11-19 실기 no_pose). 스캔은 로봇이 서 있을 때만 받으므로
+        # (busy_driving·움직임 감시) 두 최신값을 얹어도 시각 차이로 생기는 오차가 없습니다.
+        on_map = self._lookup(world, odom, left())
+        on_odom = self._lookup(odom, base, left())
+        guess = compose_pose(on_map, on_odom) if on_map is not None and on_odom is not None else None
+        sensor = self._lookup(base, msg.header.frame_id, left())
         if guess is None or sensor is None:
-            missing = [f"{a}→{b}" for ok, a, b in ((guess, world, base), (sensor, base, msg.header.frame_id))
-                       if ok is None]
+            missing = [f"{a}→{b}" for ok, a, b in ((on_map, world, odom), (on_odom, odom, base),
+                                                   (sensor, base, msg.header.frame_id)) if ok is None]
             buffer = self._tf_buffer
             if buffer is not None:
                 parts = {f"{a}→{b}": buffer.can_transform(a, b, rclpy.time.Time())
-                         for a, b in ((world, "odom"), ("odom", base), (world, base))}
+                         for a, b in ((world, odom), (odom, base), (world, base))}
                 frames = buffer.all_frames_as_string().count("Frame ")
                 self.get_logger().warn(f"TF 진단: 구독 연 지 {time.monotonic() - self._sensors_opened_at:.1f} s · "
                                        f"프레임 {frames}개 · {parts}", throttle_duration_sec=5.0)
