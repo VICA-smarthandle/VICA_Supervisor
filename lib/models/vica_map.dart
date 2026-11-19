@@ -14,6 +14,7 @@ class VicaMap {
     this.hasKeepout = false,
     this.destinationCount,
     this.savedAt = '',
+    this.imageVersion = 0,
   });
 
   final String mapId;
@@ -40,6 +41,10 @@ class VicaMap {
   /// 저장 시각(meta.json, ISO). 없으면 빈 문자열.
   final String savedAt;
 
+  /// 지도 그림이 바뀔 때마다 달라지는 값(2026-11-19 지도 수정). 그림 주소에 붙여, 주소는
+  /// 같은데 내용이 바뀐 그림을 다시 받게 합니다. 옛 노드는 안 실어 보내며 그때는 0 입니다.
+  final int imageVersion;
+
   /// 드롭다운 등에 보일 이름.
   String get displayName => isCurrent ? '$mapName (현재)' : mapName;
 
@@ -58,6 +63,7 @@ class VicaMap {
       hasKeepout: json['has_keepout'] == true,
       destinationCount: (json['destination_count'] as num?)?.toInt(),
       savedAt: json['saved_at'] as String? ?? '',
+      imageVersion: (json['image_version'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -76,6 +82,7 @@ class VicaMap {
       'has_keepout': hasKeepout,
       if (destinationCount != null) 'destination_count': destinationCount!,
       'saved_at': savedAt,
+      'image_version': imageVersion,
     };
   }
 }
