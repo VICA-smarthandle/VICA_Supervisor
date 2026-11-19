@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import os
 import struct
 import sys
 import zlib
@@ -21,6 +22,8 @@ from map_list_node import (  # noqa: E402
     apply_display_name,
     build_map_list,
     map_file_targets,
+    fix_backup_dir,
+    remove_fix_backups,
 )
 
 
@@ -181,3 +184,37 @@ def test_empty_destination_list_counts_zero(tmp_path: Path) -> None:
     path = tmp_path / "destinations.yaml"
     path.write_text("schema_version: 1\ndestinations: []\n", encoding="utf-8")
     assert count_destinations(path) == 0
+
+
+def test_each_map_carries_an_image_version(tmp_path: Path) -> None:
+    """지도 그림을 고쳐 쓰면 버전이 바뀐다(2026-11-19, 지도 수정).
+
+    앱은 그림 주소를 /maps/<id>.png 로 고정해 받아서, 같은 이름으로 그림이 바뀌면 옛 그림을
+    그대로 보였다. 버전(png 수정 시각, ms)을 주소 뒤에 붙여 다시 받게 한다.
+    """
+    path = tmp_path / "map_a.png"
+    _png(path, 1, 1)
+    first = build_map_list(tmp_path, "")["maps"][0]["image_version"]
+    assert isinstance(first, int) and first > 0
+
+    stamp = path.stat().st_mtime_ns + 5_000_000_000
+    os.utime(path, ns=(stamp, stamp))
+
+    assert build_map_list(tmp_path, "")["maps"][0]["image_version"] == first + 5000
+
+
+def test_deleting_a_map_also_deletes_its_fix_backups(tmp_path: Path) -> None:
+    """지도 수정의 백업(maps/.fix_backup/<map_id>/)도 지도와 같이 지운다.
+
+    남기면 같은 이름의 새 지도에서 '되돌리기'가 옛 지도의 그림을 되살린다.
+    """
+    for map_id in ("map_a", "map_ab"):   # map_ab 는 이름 앞부분만 같은 다른 지도
+        folder = fix_backup_dir(tmp_path, map_id) / "20261119_101500_erase"
+        folder.mkdir(parents=True)
+        (folder / "entry.json").write_text("{}", encoding="utf-8")
+
+    assert remove_fix_backups(tmp_path, "map_a") == fix_backup_dir(tmp_path, "map_a")
+
+    assert not fix_backup_dir(tmp_path, "map_a").exists()
+    assert fix_backup_dir(tmp_path, "map_ab").is_dir()
+    assert remove_fix_backups(tmp_path, "map_a") is None   # 없으면 할 일이 없다
