@@ -467,8 +467,25 @@ def test_thick_wall_does_not_let_the_fit_sink_in():
     assert float(scan.interp_field(surface, saved, *deep, MAX_DIST)[0]) > 0.20
 
 
-def test_noisy_scan_is_low_match():
-    """거리 잡음이 커서 벽에 고르게 안 붙으면(RMS 0.03 m 초과) 믿지 않습니다."""
+def test_fit_of_about_one_cell_passes():
+    """11-19 실기: 위치가 맞는데도 남긴 빔 RMS 가 3.4~3.7 cm 였다(지도 한 칸 5 cm 안에서 벽이 어디
+    있느냐의 차이). 그 정도로 맞으면 통과하고, 자세도 정확해야 한다."""
+    saved = room(6.0, 5.0)
+    ranges, angle_min, increment = cast(saved, TRUE, LASER, depth=HALF)
+    noisy = ranges + np.random.default_rng(7).normal(0.0, 0.05, ranges.shape)
+    field = build_likelihood_field(saved)
+
+    got = scan.refine_pose(saved, field, noisy, angle_min, increment, TRUE, LASER)
+
+    assert 0.03 < got.rms_m < 0.04
+    assert got.ok, got.reason
+    assert math.hypot(got.x - TRUE[0], got.y - TRUE[1]) < 0.01 and abs(got.yaw - TRUE[2]) < math.radians(0.5)
+
+
+def test_fit_above_the_rms_limit_is_low_match(monkeypatch):
+    """남긴 빔 RMS 가 상한을 넘으면 믿지 않습니다. 상한이 0.05 m 로 오른 뒤에는(11-19) 남길 때 0.10 m 로
+    걸러 RMS 가 그 위로 잘 안 오르므로, 거르는 장치 자체를 상한 0.03 m 로 확인합니다."""
+    monkeypatch.setattr(scan, "MAX_RMS_M", 0.03)
     saved = room(6.0, 5.0)
     ranges, angle_min, increment = cast(saved, TRUE, LASER, depth=HALF)
     noisy = ranges + np.random.default_rng(7).normal(0.0, 0.05, ranges.shape)

@@ -215,7 +215,11 @@ def cell_centres(grid: MapGrid, cells: np.ndarray) -> np.ndarray:
 KEEP_DIST_M = 0.10
 MIN_KEPT = 60
 MIN_KEPT_RATIO = 0.5
-MAX_RMS_M = 0.03
+# 남긴 빔의 벽까지 거리 RMS 상한. 시작값 0.03 m 는 11-19 실기에서 위치가 맞는데도 3.4~3.7 cm 가
+# 나와(라이다 잡음은 11-01 실측 2.4 mm — 대부분 지도 한 칸 5 cm 안에서 벽 자리 차이) 한 칸으로 올렸습니다.
+# 남길 때 KEEP_DIST_M 0.10 m 로 거르므로 이 값은 약 0.058 m 를 넘기 어렵습니다 — 자세를 지키는 것은
+# 남긴 빔 비율·옮긴 양·구분 검사입니다.
+MAX_RMS_M = 0.05
 FINE_XY_M = 0.05
 FINE_YAW = math.radians(1.0)
 # 출발 자세(AMCL)에서 이보다 멀리 옮겨야 맞는다면 믿지 않습니다. 장면이 크게 바뀌어 엉뚱한
