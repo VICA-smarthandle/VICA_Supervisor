@@ -122,7 +122,7 @@ void main() {
     expect(beamSwitch(tester).value, isTrue);
     expect(beamSwitch(tester).onChanged, isNotNull);
     expect(find.byIcon(Icons.explore_outlined), findsOneWidget);
-    expect(find.text(vicaKeepWords('회전 꺼짐 · 불러도 돌지 않음 · 음성 다시 켜면 켜짐')), findsNothing);
+    expect(find.text(vicaKeepWords('회전 꺼짐')), findsNothing);
   });
 
   testWidgets('빔포밍 꺼짐: 잠시 꺼짐과 경고 칸, 사선 나침반', (tester) async {
@@ -130,7 +130,7 @@ void main() {
     supervisor.setWakeDoaTurnForTest(false);
     await tester.pump();
     expect(find.text(vicaKeepWords('잠시 꺼짐')), findsOneWidget);
-    expect(find.text(vicaKeepWords('회전 꺼짐 · 불러도 돌지 않음 · 음성 다시 켜면 켜짐')), findsOneWidget);
+    expect(find.text(vicaKeepWords('회전 꺼짐')), findsOneWidget);
     expect(beamSwitch(tester).value, isFalse);
     expect(find.byIcon(Icons.explore_off_outlined), findsOneWidget);
 

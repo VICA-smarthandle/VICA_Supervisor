@@ -147,7 +147,7 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
             const SizedBox(height: 10),
             const _Note(
               warning: true,
-              text: '회전 꺼짐 · 불러도 돌지 않음 · 음성 다시 켜면 켜짐',
+              text: '회전 꺼짐', // 11-19 사용자: '불러도 돌지 않음 · 음성 다시 켜면 켜짐' 뺌
             ),
           ],
           const Divider(height: 28, color: VicaColors.border),
