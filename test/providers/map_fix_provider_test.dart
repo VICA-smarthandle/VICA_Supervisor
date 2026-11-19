@@ -279,4 +279,39 @@ void main() {
     await tester.pumpWidget(canvas(map(8)));
     expect(urlFor(map(8)), '$plain?v=8');
   });
+
+  test('지도를 바꾼 수정이 받아들여지면 지도 목록을 다시 받는다(그림 버전 갱신)', () {
+    // 11-19 실기: 적용·되돌리기 뒤 앱 '새로고침'에도 옛 그림이 남았다. 목록을 다시 받아야
+    // image_version 이 바뀌어 그림 주소가 달라진다.
+    fakeAsync((async) {
+      final provider = connected(async);
+      int listRequests() => server.last.sent
+          .where((c) =>
+              c['op'] == 'publish' &&
+              c['topic'] == const AppSettings().mapListRequestTopic)
+          .length;
+
+      for (final (action, accepted) in [
+        ('get', true),
+        ('erase', false),
+        ('erase', true),
+        ('scan_apply', true),
+        ('undo', true),
+      ]) {
+        final before = listRequests();
+        provider.mapFix('map_a', action);
+        async.flushMicrotasks();
+        server.last.answer(SupervisorProvider.mapFixService, {
+          'accepted': accepted,
+          'reason': accepted ? '' : 'busy_driving',
+          'message': '',
+          'result_json': '{}',
+        });
+        async.flushMicrotasks();
+        final changed = accepted && action != 'get';
+        expect(listRequests() - before, changed ? 1 : 0,
+            reason: '$action accepted=$accepted');
+      }
+    });
+  });
 }

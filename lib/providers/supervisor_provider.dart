@@ -3383,8 +3383,19 @@ class SupervisorProvider extends ChangeNotifier {
         '지도 수정 실패: ${reply.message}$detail',
       );
     }
+    // 지도 그림이 바뀌었으면 목록을 다시 받아 그림 버전(image_version)을 갱신합니다. 주소가 같으면
+    // 앱이 옛 그림을 그대로 씁니다(11-19 실기).
+    final settings = _lastSettings;
+    if (reply.accepted &&
+        !_disposed &&
+        settings != null &&
+        _mapFixChangesImage.contains(action)) {
+      requestMapList(settings);
+    }
     return reply;
   }
+
+  static const _mapFixChangesImage = {'erase', 'scan_apply', 'undo'};
 
   /// 잠금 상태와 최근 수정 기록을 다시 받습니다. 못 받으면 비웁니다(버튼이 꺼집니다).
   Future<MapFixResult> refreshMapFix(String mapId) async {
