@@ -15,9 +15,13 @@ import '../widgets/drive_map_canvas.dart';
 import '../widgets/drive_map_change.dart';
 import '../widgets/manual_drive_card.dart';
 import '../widgets/map_canvas.dart';
+import '../widgets/map_fix_card.dart';
 import '../widgets/map_picker.dart';
 import '../widgets/map_work_layout.dart';
 import '../widgets/vica_ui.dart';
+
+// 새로고침(약 120 px) + 사이 + [원격 주행 | 수동 주행](92 + 8 + 92) 이 한 줄에 드는 폭.
+const double _driveRowMinWidth = 330;
 
 class MapLocationsScreen extends StatefulWidget {
   const MapLocationsScreen({super.key});
@@ -38,7 +42,14 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
   bool _manual = false;
 
   /// 수동 주행을 열어 두는 미션 상태(mission_logic.State). 그 밖은 모두 막습니다.
-  static const _manualIdleStates = {'', 'idle', 'none', 'arrived', 'failed', 'estopped'};
+  static const _manualIdleStates = {
+    '',
+    'idle',
+    'none',
+    'arrived',
+    'failed',
+    'estopped'
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -105,33 +116,67 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
             }
             supervisor.selectMap(settings, value);
           },
-          // 지도 설정 화면과 같은 버튼(2026-10-12 사용자 결정: '새로고침').
+          // 지도 설정 화면과 같은 버튼(2026-10-12 사용자 결정: '새로고침'). 이 화면에서는
+          // 아래 줄에서 주행 고르기와 나란히 둡니다.
           refreshIcon: Icons.refresh,
           refreshLabel: const Text('새로고침'),
+          showRefresh: false,
         ),
-        const SizedBox(height: 18),
-        // 보는 지도가 주행 지도와 다르면 '이 지도로 주행'(2026-11-17 목업 ③⑥).
-        DriveMapBanner(viewedMapId: supervisor.selectedMapId),
-        Center(
-          child: SegmentedButton<bool>(
-            segments: const [
-              ButtonSegment(value: false, label: Text('목적지 주행')),
-              ButtonSegment(value: true, label: Text('수동 주행')),
-            ],
-            selected: {_manual},
-            showSelectedIcon: false,
-            onSelectionChanged: (value) => setState(() {
-              _manual = value.first;
-              if (_manual) {
-                // 초기 위치 잡기를 하던 중이면 접습니다 — 지도 탭과 조종이 섞이지 않게.
-                _picking = false;
-                _picked = null;
-                supervisor.clearPoseCheck();
-              }
-            }),
-          ),
+        const SizedBox(height: 10),
+        // 2026-11-19 사용자: 앱 폭에서 새로고침과 주행 고르기가 두 줄로 나뉘었다 → 한 줄로.
+        // 새로고침 왼쪽, [원격 주행 | 수동 주행] 오른쪽. 켜고 끄는 모양은 지우기의
+        // [구역 표시 | 지도 이동](캔버스 96)과 같은 버튼. '목적지 주행' → '원격 주행'.
+        LayoutBuilder(
+          builder: (context, constraints) {
+            // 칸이 _driveRowMinWidth 보다 좁으면(넓은 화면의 오른쪽 카드 칸 등) 줄 전체를 그만큼
+            // 줄여 한 줄을 지킵니다. 넉넉하면 그대로 — 새로고침은 왼쪽, 주행 고르기는 오른쪽 끝.
+            final width = constraints.maxWidth < _driveRowMinWidth
+                ? _driveRowMinWidth
+                : constraints.maxWidth;
+            return FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                width: width,
+                child: Row(
+                  children: [
+                    MapRefreshButton(
+                      supervisor: supervisor,
+                      settings: settings,
+                      map: map,
+                      icon: Icons.refresh,
+                      label: const Text('새로고침'),
+                    ),
+                    const Spacer(),
+                    for (final (label, manual) in const [
+                      ('원격 주행', false),
+                      ('수동 주행', true),
+                    ]) ...[
+                      if (manual) const SizedBox(width: 8),
+                      MapFixChoiceButton(
+                        label: label,
+                        width: 92,
+                        selected: _manual == manual,
+                        onTap: () => setState(() {
+                          _manual = manual;
+                          if (_manual) {
+                            // 초기 위치 잡기를 하던 중이면 접습니다 — 지도 탭과 조종이 섞이지 않게.
+                            _picking = false;
+                            _picked = null;
+                            supervisor.clearPoseCheck();
+                          }
+                        }),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
         ),
         const SizedBox(height: 14),
+        // 보는 지도가 주행 지도와 다르면 '이 지도로 주행'(2026-11-17 목업 ③⑥).
+        DriveMapBanner(viewedMapId: supervisor.selectedMapId),
         if (map == null) ...[
           const NoMapCard(),
           // 수동 주행은 지도가 없어도 됩니다 — 누르는 동안 바퀴만 움직입니다.
@@ -211,146 +256,154 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
           // 수동 주행 중에는 목적지 목록을 접습니다(2026-11-18 사용자).
           if (!_manual) const SizedBox(height: 20),
           if (!_manual)
-          VicaCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '저장 장소 목록',
-                        style: Theme.of(context).textTheme.titleMedium,
+            VicaCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '저장 장소 목록',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                      PressScale(
+                          child: OutlinedButton(
+                        onPressed: null,
+                        // 개수 배지라 내용 폭만 씁니다. 테마의 최소 폭(무한대)을
+                        // 그대로 두면 Row 안에서 "무한 폭" 배치 오류가 납니다.
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 36),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                        ),
+                        child: Text('${locations.length}개'),
+                      )),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 10,
+                    children: locations.map((location) {
+                      final selected =
+                          supervisor.selectedLocationId == location.locationId;
+                      return ChoiceChip(
+                        selected: selected,
+                        avatar: Icon(
+                          selected ? Icons.check_circle : Icons.location_on,
+                          color: selected
+                              ? VicaColors.text
+                              : VicaColors.primaryDark,
+                          size: 18,
+                        ),
+                        label: Text(location.name),
+                        onSelected: (_) =>
+                            supervisor.selectLocation(location.locationId),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 14),
+                  if (activity != null) ...[
+                    Text(
+                      activity.lines
+                          .map((line) =>
+                              vicaKeepWords(vicaBreakAtSentences(line)))
+                          .join('\n'),
+                      style: const TextStyle(
+                        color: VicaColors.muted,
+                        fontSize: 13,
                       ),
                     ),
-                    PressScale(child: OutlinedButton(
-                      onPressed: null,
-                      // 개수 배지라 내용 폭만 씁니다. 테마의 최소 폭(무한대)을
-                      // 그대로 두면 Row 안에서 "무한 폭" 배치 오류가 납니다.
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(0, 36),
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                      ),
-                      child: Text('${locations.length}개'),
-                    )),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 10,
-                  children: locations.map((location) {
-                    final selected =
-                        supervisor.selectedLocationId == location.locationId;
-                    return ChoiceChip(
-                      selected: selected,
-                      avatar: Icon(
-                        selected ? Icons.check_circle : Icons.location_on,
-                        color:
-                            selected ? VicaColors.text : VicaColors.primaryDark,
-                        size: 18,
-                      ),
-                      label: Text(location.name),
-                      onSelected: (_) =>
-                          supervisor.selectLocation(location.locationId),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 14),
-                if (activity != null) ...[
-                  Text(
-                    activity.lines
-                        .map((line) => vicaKeepWords(vicaBreakAtSentences(line)))
-                        .join('\n'),
-                    style: const TextStyle(
-                      color: VicaColors.muted,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                ] else if (driving || paused) ...[
-                  Text(
-                    vicaKeepWords(vicaBreakAtSentences(
-                      paused
-                          ? '$drivingGoal(으)로 가던 중 일시정지했습니다. 다시 출발하거나 취소할 수 있습니다.'
-                          : '$drivingGoal(으)로 주행 중입니다.',
-                    )),
-                    style: const TextStyle(
-                      color: VicaColors.muted,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                ],
-                PressScale(child: FilledButton.icon(
-                  // 요청 가능 여부(권한·접근성·E-stop·Nav2)는 Mission Manager가 판정합니다.
-                  // 앱은 장소 선택 여부와 진행 중인 주행만 보고 버튼 상태를 정합니다.
-                  onPressed: selected == null || busy
-                      ? null
-                      : () => _requestDrive(context, supervisor, selected),
-                  icon: Icon(activity != null
-                      ? _activityIcon(activity.kind)
-                      : driving
-                          ? Icons.directions_run
-                          : Icons.navigation),
-                  label: Text(activity?.lockedRequestLabel ??
-                      (driving ? '주행 중' : '선택 장소로 주행 요청')),
-                )),
-                if (activity != null && activity.cancellable) ...[
-                  const SizedBox(height: 10),
-                  PressScale(child: OutlinedButton.icon(
-                    onPressed: () => _confirmActivityCancel(
-                      context,
-                      supervisor,
-                      activity,
-                    ),
-                    icon: const Icon(Icons.cancel_outlined),
-                    label: Text(activity.cancelLabel),
-                  )),
-                ] else if (activity == null && (driving || paused)) ...[
-                  const SizedBox(height: 10),
-                  // 물류 배송과 같은 버튼 한 벌(2026-09-03 통일).
-                  DriveControlBar(
-                    supervisor: supervisor,
-                    paused: paused,
-                    cancelLabel: '주행 취소',
-                    cancelTitle: '주행 취소',
-                    cancelBody: '진행 중인 주행을 취소합니다. 목적지는 지워지며 다시 요청해야 합니다.',
-                    keepLabel: '계속 주행',
-                  ),
-                ],
-                // 홈 복귀는 **관리자 전용**입니다. 사용자(음성)에게는 이 문이
-                // 아예 없습니다 — 홈은 목적지 목록에 없어서 지목할 대상 자체가
-                // 없습니다. 안내 주행 중에는 잠급니다. 사용자가 핸들을 잡고
-                // 따라 걷는 중에 방향을 틀면 어디로 끌려가는지 모릅니다.
-                if (supervisor.homeBelongsTo(map.mapId) &&
-                    supervisor.home != null) ...[
-                  const SizedBox(height: 10),
-                  const Divider(height: 20),
-                  PressScale(child: OutlinedButton.icon(
-                    onPressed: busy
-                        ? null
-                        : () => _confirmReturnHome(context, supervisor),
-                    icon: const Icon(Icons.home_outlined),
-                    label: Text(
-                      activity?.homeLockedLabel ??
-                          (driving || paused ? '주행 중에는 홈으로 부를 수 없습니다' : '홈으로 복귀'),
-                    ),
-                  )),
-                  if (!supervisor.home!.visitedOk) ...[
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 10),
+                  ] else if (driving || paused) ...[
                     Text(
                       vicaKeepWords(vicaBreakAtSentences(
-                        '홈에 아직 가 본 적이 없습니다. 지도 설정 화면에서 확인해주세요.',
+                        paused
+                            ? '$drivingGoal(으)로 가던 중 일시정지했습니다. 다시 출발하거나 취소할 수 있습니다.'
+                            : '$drivingGoal(으)로 주행 중입니다.',
                       )),
                       style: const TextStyle(
-                          color: VicaColors.muted, fontSize: 12),
+                        color: VicaColors.muted,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  PressScale(
+                      child: FilledButton.icon(
+                    // 요청 가능 여부(권한·접근성·E-stop·Nav2)는 Mission Manager가 판정합니다.
+                    // 앱은 장소 선택 여부와 진행 중인 주행만 보고 버튼 상태를 정합니다.
+                    onPressed: selected == null || busy
+                        ? null
+                        : () => _requestDrive(context, supervisor, selected),
+                    icon: Icon(activity != null
+                        ? _activityIcon(activity.kind)
+                        : driving
+                            ? Icons.directions_run
+                            : Icons.navigation),
+                    label: Text(activity?.lockedRequestLabel ??
+                        (driving ? '주행 중' : '선택 장소로 주행 요청')),
+                  )),
+                  if (activity != null && activity.cancellable) ...[
+                    const SizedBox(height: 10),
+                    PressScale(
+                        child: OutlinedButton.icon(
+                      onPressed: () => _confirmActivityCancel(
+                        context,
+                        supervisor,
+                        activity,
+                      ),
+                      icon: const Icon(Icons.cancel_outlined),
+                      label: Text(activity.cancelLabel),
+                    )),
+                  ] else if (activity == null && (driving || paused)) ...[
+                    const SizedBox(height: 10),
+                    // 물류 배송과 같은 버튼 한 벌(2026-09-03 통일).
+                    DriveControlBar(
+                      supervisor: supervisor,
+                      paused: paused,
+                      cancelLabel: '주행 취소',
+                      cancelTitle: '주행 취소',
+                      cancelBody: '진행 중인 주행을 취소합니다. 목적지는 지워지며 다시 요청해야 합니다.',
+                      keepLabel: '계속 주행',
                     ),
                   ],
+                  // 홈 복귀는 **관리자 전용**입니다. 사용자(음성)에게는 이 문이
+                  // 아예 없습니다 — 홈은 목적지 목록에 없어서 지목할 대상 자체가
+                  // 없습니다. 안내 주행 중에는 잠급니다. 사용자가 핸들을 잡고
+                  // 따라 걷는 중에 방향을 틀면 어디로 끌려가는지 모릅니다.
+                  if (supervisor.homeBelongsTo(map.mapId) &&
+                      supervisor.home != null) ...[
+                    const SizedBox(height: 10),
+                    const Divider(height: 20),
+                    PressScale(
+                        child: OutlinedButton.icon(
+                      onPressed: busy
+                          ? null
+                          : () => _confirmReturnHome(context, supervisor),
+                      icon: const Icon(Icons.home_outlined),
+                      label: Text(
+                        activity?.homeLockedLabel ??
+                            (driving || paused
+                                ? '주행 중에는 홈으로 부를 수 없습니다'
+                                : '홈으로 복귀'),
+                      ),
+                    )),
+                    if (!supervisor.home!.visitedOk) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        vicaKeepWords(vicaBreakAtSentences(
+                          '홈에 아직 가 본 적이 없습니다. 지도 설정 화면에서 확인해주세요.',
+                        )),
+                        style: const TextStyle(
+                            color: VicaColors.muted, fontSize: 12),
+                      ),
+                    ],
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
         ],
       ],
     );
@@ -501,7 +554,8 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
             style: const TextStyle(color: VicaColors.muted, fontSize: 13),
           ),
           const SizedBox(height: 12),
-          PressScale(child: OutlinedButton.icon(
+          PressScale(
+              child: OutlinedButton.icon(
             onPressed:
                 blocked.isEmpty ? () => _enterPosePicking(supervisor) : null,
             icon: const Icon(Icons.add_location_alt_outlined),
