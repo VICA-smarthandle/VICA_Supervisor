@@ -13,6 +13,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import math
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -92,6 +93,27 @@ def test_importing_the_node_does_not_load_numpy():
     )
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "[]"
+
+
+def test_running_node_stays_light_until_the_first_request():
+    """노드를 만들어도 numpy 가 올라오지 않습니다(11-19 격리 실측: Nav2 load_map 클라이언트를 기동 때
+    만들면 그 메시지 C 확장이 numpy 를 불러 쉬는 동안 56 MB 였다). 클라이언트는 첫 요청 때 만듭니다.
+
+    노드를 실제로 만들므로 이 컴퓨터 안에서만 통하는 도메인(ROS_LOCALHOST_ONLY=1, 99)에서 띄웁니다 —
+    로봇의 ROS 그래프(도메인 7)에는 붙지 않습니다.
+    """
+    code = (
+        "import sys; sys.path.insert(0, %r)\n"
+        "import rclpy, map_fix_node\n"
+        "rclpy.init()\n"
+        "node = map_fix_node.MapFixNode()\n"
+        "print('numpy' in sys.modules, node._load_map_client is None)\n"
+        "node.destroy_node(); rclpy.shutdown()\n" % str(HERE)
+    )
+    env = {**os.environ, "ROS_DOMAIN_ID": "99", "ROS_LOCALHOST_ONLY": "1"}
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=60)
+    assert out.returncode == 0, out.stderr[-800:]
+    assert out.stdout.strip().splitlines()[-1] == "False True"
 
 
 def test_launch_starts_the_map_fix_node(tmp_path):

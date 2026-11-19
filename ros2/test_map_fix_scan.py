@@ -444,6 +444,19 @@ def test_refine_refuses_to_jump_far_from_the_guess():
     assert got.moved_m > scan.MAX_MOVE_M
 
 
+def test_refine_refuses_to_turn_far_from_the_guess():
+    """방향도 같습니다 — 출발 방향에서 10° 넘게 돌려야 맞는다면 믿지 않습니다(11-19 변이 점검에서 빠져 있던 시험)."""
+    saved = room(6.0, 5.0)
+    turned_guess = off(TRUE, 0.0, 0.0, 15.0)   # 15° 틀린 출발값. 거친 탐색(±45°)은 참값을 찾습니다
+
+    got = refine(saved, saved, TRUE, turned_guess)
+
+    assert not got.ok and got.reason == "low_match"
+    assert got.moved_deg > scan.MAX_MOVE_DEG
+    # 같은 방에서 5° 틀린 출발값은 그대로 맞춥니다(제한이 너무 빡빡하지 않은지).
+    assert refine(saved, saved, TRUE, off(TRUE, 0.0, 0.0, 5.0)).ok
+
+
 def test_thick_wall_does_not_let_the_fit_sink_in():
     """벽이 두꺼워도 끝점이 벽 속으로 들어가는 자세를 좋게 보지 않습니다(겉 칸 기준)."""
     saved = room(6.0, 5.0)   # 벽 두께 0.5 m

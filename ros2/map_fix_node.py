@@ -176,8 +176,12 @@ class MapFixNode(Node):
         )
 
         self.state_publisher = self.create_publisher(String, "/vica/map_fix/state", 10)
+        # Nav2 load_map 클라이언트는 첫 요청 때 만듭니다. 그 메시지(지도 격자)의 C 확장이 numpy 를
+        # 불러와, 기동 때 만들면 쉬는 동안에도 메모리가 늘었습니다(11-19 격리 실측 56 MB).
         self._load_map_client = None
-        self._setup_load_map_client()
+        self._load_map_type = None
+        self._load_map_tried = False
+        self._load_map_made_at = 0.0
         self._setup_service()
         self.create_timer(HOUSEKEEPING_SEC, self._housekeeping, callback_group=self._callbacks)
         self.get_logger().info(f"vica_map_fix 시작: maps_root={self.maps_root}")
@@ -209,6 +213,7 @@ class MapFixNode(Node):
         self._load_map_type = LoadMap
         self._load_map_client = self.create_client(
             LoadMap, str(self.get_parameter("map_load_service").value), callback_group=self._callbacks)
+        self._load_map_made_at = time.monotonic()
 
     # ------------------------------------------------------------------
     # 요청
@@ -217,6 +222,9 @@ class MapFixNode(Node):
     def handle_request(self, request, response):
         with self._request_lock:
             self._last_request = time.monotonic()
+            if not self._load_map_tried:
+                self._load_map_tried = True
+                self._setup_load_map_client()
             self._open_status()
             with self._core_lock:
                 answer = self.core.handle(request.map_id, request.action, request.args_json)
@@ -381,7 +389,11 @@ class MapFixNode(Node):
         """map_server 에 load_map 을 걸어 지금 주행에 반영합니다. Nav2 재시작이 아닙니다 —
         MapServer 가 새 yaml 을 읽어 /map 을 다시 발행하고 AMCL 과 costmap 이 받아 갑니다."""
         client = self._load_map_client
-        if client is None or not client.service_is_ready():
+        # 막 만든 클라이언트는 서비스를 찾는 데 잠깐 걸립니다. 그때만 1초까지 기다려, Nav2 가 켜져
+        # 있는데 'no_nav2' 로 잘못 답하지 않게 합니다.
+        fresh = time.monotonic() - self._load_map_made_at < 2.0
+        if client is None or not (client.service_is_ready()
+                                  or (fresh and client.wait_for_service(timeout_sec=1.0))):
             return False, "no_nav2", "Nav2가 실행되면 적용됩니다."
         request = self._load_map_type.Request()
         request.map_url = str(self.maps_root / f"{map_id}.yaml")
