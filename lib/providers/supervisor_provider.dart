@@ -3087,9 +3087,27 @@ class SupervisorProvider extends ChangeNotifier {
     // 홈 복귀가 성공하면 그 홈은 '가 본 자리'가 됩니다. 젯슨이 home.yaml 에
     // 이미 기록했지만, 앱 화면의 경고를 바로 내리기 위해 여기서도 반영합니다.
     if (event.kind == GoalEventKind.returnHomeSucceeded && _home != null) {
-      _home = _home!.copyWith(visitedOk: true);
-    } else if (event.kind == GoalEventKind.returnHomeFailed && _home != null) {
-      _home = _home!.copyWith(visitedOk: false);
+      _home = _home!.copyWith(visitedOk: true, note: '');
+    }
+    // 주행이 끝나면(성공·실패·취소, 홈 복귀든 안내든) 홈 상태를 로봇에서 다시 읽습니다
+    // (2026-11-19 사용자). 로봇은 홈 30 cm 안에 한 번이라도 들어오면 '가 봄'으로, 복귀가 막혀
+    // 실패하면 '접근할 수 없음'으로 적습니다 — 방향만 못 맞춰 실패·취소로 끝난 복귀도 '가 봄'이라
+    // 앱이 결과 종류만 보고 정할 수 없습니다. 로봇은 사건을 내기 전에 파일을 씁니다.
+    final home = _home;
+    final settings = _lastSettings;
+    if (home != null &&
+        settings != null &&
+        _homeMapId.isNotEmpty &&
+        (!home.visitedOk || home.note.isNotEmpty) &&
+        const {
+          GoalEventKind.succeeded,
+          GoalEventKind.failed,
+          GoalEventKind.canceled,
+          GoalEventKind.returnHomeSucceeded,
+          GoalEventKind.returnHomeFailed,
+          GoalEventKind.returnHomeCanceled,
+        }.contains(event.kind)) {
+      unawaited(refreshHome(settings, _homeMapId));
     }
 
     if (event.needsPopup) {

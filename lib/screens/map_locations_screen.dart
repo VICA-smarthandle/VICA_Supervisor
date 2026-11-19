@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/home_position.dart' show kHomeUnvisitedText;
 import '../models/location_point.dart';
 import '../models/mission_activity.dart';
 import '../models/mode_status.dart';
@@ -287,11 +288,15 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                           (driving || paused ? '주행 중에는 홈으로 부를 수 없습니다' : '홈으로 복귀'),
                     ),
                   ),
-                  if (!supervisor.home!.visitedOk) ...[
+                  // 한 번도 가 본 적이 없으면 확인하라는 말, 가 봤지만 마지막 복귀가 막혔으면
+                  // 로봇이 보낸 '홈에 접근할 수 없습니다.'(2026-11-19 사용자).
+                  if (supervisor.home!
+                      .warning(kHomeUnvisitedText)
+                      .isNotEmpty) ...[
                     const SizedBox(height: 6),
                     Text(
                       vicaKeepWords(vicaBreakAtSentences(
-                        '홈에 아직 가 본 적이 없습니다. 지도 설정 화면에서 확인해주세요.',
+                        supervisor.home!.warning(kHomeUnvisitedText),
                       )),
                       style: const TextStyle(
                           color: VicaColors.muted, fontSize: 12),

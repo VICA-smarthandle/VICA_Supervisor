@@ -38,6 +38,9 @@ enum HomeSource {
   }
 }
 
+/// 홈에 한 번도 가 본 적이 없을 때 원격 주행의 '홈으로 복귀' 아래에 보일 말.
+const kHomeUnvisitedText = '홈에 아직 가 본 적이 없습니다. 지도 설정 화면에서 확인해주세요.';
+
 class HomePosition {
   const HomePosition({
     required this.x,
@@ -48,6 +51,7 @@ class HomePosition {
     required this.label,
     required this.visitedOk,
     required this.savedAt,
+    this.note = '',
   });
 
   final double x;
@@ -79,6 +83,11 @@ class HomePosition {
   /// ISO 8601 문자열입니다. 사람에게 보여줄 시각이며 만료 판정에는 쓰지 않습니다.
   final String savedAt;
 
+  /// 로봇이 홈에 대해 알리는 말(GetHome.message). 마지막 홈 복귀가 막혀 실패했으면
+  /// '홈에 접근할 수 없습니다.' 이고, 아니면 빈 문자열입니다(2026-11-19 사용자). 한 번 가 본
+  /// 홈이 막혔을 때 '가 본 적 없음' 대신 이 말을 보입니다. 홈에 다시 들어오면 로봇이 지웁니다.
+  final String note;
+
   /// 점수를 화면에 보여줄 수 있는가.
   ///
   /// 지도에서 찍은 홈에는 점수가 없습니다. 0% 라고 표시하면 "나쁜 홈"으로
@@ -96,10 +105,11 @@ class HomePosition {
       label: values['label'] as String? ?? '',
       visitedOk: values['visited_ok'] == true,
       savedAt: values['saved_at'] as String? ?? '',
+      note: (values['message'] as String? ?? '').trim(),
     );
   }
 
-  HomePosition copyWith({bool? visitedOk}) {
+  HomePosition copyWith({bool? visitedOk, String? note}) {
     return HomePosition(
       x: x,
       y: y,
@@ -109,8 +119,15 @@ class HomePosition {
       label: label,
       visitedOk: visitedOk ?? this.visitedOk,
       savedAt: savedAt,
+      note: note ?? this.note,
     );
   }
+
+  /// 홈 칸·홈 복귀 버튼 아래에 보일 경고. 없으면 빈 문자열입니다.
+  ///
+  /// 로봇이 막힘을 알렸으면 그 말, 아니고 한 번도 가 본 적이 없으면 [unvisitedText] 입니다.
+  String warning(String unvisitedText) =>
+      note.isNotEmpty ? note : (visitedOk ? '' : unvisitedText);
 
   /// 저장 시각을 '2026-08-26' 처럼 짧게 보여줍니다. 파싱에 실패하면 원문입니다.
   String get savedAtLabel {

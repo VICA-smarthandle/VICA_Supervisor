@@ -109,5 +109,37 @@ void main() {
 
       expect(home.savedAtLabel, '언젠가');
     });
+
+    // 2026-11-19 사용자: 주행에서 한 번 가 봤으면 '가 본 적 없음'을 내리고, 복귀가 막혀 실패하면
+    // '홈에 접근할 수 없습니다.' 를 보인다. 로봇이 GetHome.message 에 실어 보낸다.
+    test('경고 — 안 가 봤으면 가 보라는 말, 막혔으면 로봇의 말, 가 봤고 막힘 없으면 없음', () {
+      final unvisited = HomePosition.fromValues(const {'visited_ok': false});
+      expect(unvisited.warning(kHomeUnvisitedText), kHomeUnvisitedText);
+
+      final visited =
+          HomePosition.fromValues(const {'visited_ok': true, 'message': ''});
+      expect(visited.warning(kHomeUnvisitedText), '');
+
+      final blocked = HomePosition.fromValues(const {
+        'visited_ok': true,
+        'message': '홈에 접근할 수 없습니다.',
+      });
+      expect(blocked.note, '홈에 접근할 수 없습니다.');
+      expect(blocked.warning(kHomeUnvisitedText), '홈에 접근할 수 없습니다.');
+
+      // 한 번도 못 가 본 홈이 막혀도 '접근할 수 없음'이 더 정확한 말입니다.
+      final neverAndBlocked = HomePosition.fromValues(const {
+        'visited_ok': false,
+        'message': '홈에 접근할 수 없습니다.',
+      });
+      expect(neverAndBlocked.warning(kHomeUnvisitedText), '홈에 접근할 수 없습니다.');
+
+      // 홈 복귀 성공을 받으면 막힘도 지웁니다.
+      expect(
+          blocked
+              .copyWith(visitedOk: true, note: '')
+              .warning(kHomeUnvisitedText),
+          '');
+    });
   });
 }
