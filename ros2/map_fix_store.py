@@ -455,3 +455,31 @@ def undo_last(maps_root: Path, map_id: str) -> dict:
 def drop_backup(backup: Path) -> None:
     """백업 폴더 하나를 지웁니다 — 수정이 실패해 필요 없어졌거나 되돌리기를 마쳤을 때."""
     shutil.rmtree(backup, ignore_errors=True)
+
+
+def latest_backup(maps_root: Path, map_id: str) -> Path | None:
+    """가장 최근의 온전한 백업 폴더. 없으면 None."""
+    backups = _complete_backups(maps_root, map_id)
+    return backups[-1] if backups else None
+
+
+def read_entry(backup: Path) -> dict:
+    """백업 폴더의 기록(entry.json). 없는 값은 None 입니다."""
+    return _read_entry(backup)
+
+
+def snapshot(maps_root: Path, map_id: str) -> list[tuple[Path, bytes]]:
+    """지금의 pgm·png 를 메모리에 들어 둡니다 — 되돌리기를 Nav2 가 거부하면 도로 쓰려고."""
+    paths = map_paths(maps_root, map_id)
+    try:
+        return [(path, path.read_bytes()) for path in paths.values() if path.is_file()]
+    except OSError as error:
+        raise MapFixError("io_error", f"지도 파일을 읽지 못했습니다: {error}") from error
+
+
+def write_snapshot(targets: list[tuple[Path, bytes]]) -> None:
+    """snapshot 으로 들어 둔 파일들을 원자적으로 도로 씁니다."""
+    try:
+        km.write_all_atomic(targets)
+    except km.KeepoutError as error:
+        raise MapFixError(error.reason, error.message) from None
