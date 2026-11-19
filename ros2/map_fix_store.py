@@ -43,7 +43,7 @@ FREE = 254
 UNKNOWN = 205
 
 # 한 번에 지울 수 있는 사각형 수. 앱 목록이 한 화면에 들어오는 양입니다.
-MAX_RECTS = 20
+MAX_RECTS = 10   # 한 번에 지울 수 있는 구역 수(11-19 사용자)
 # 이보다 작은 변은 손가락이 스친 것으로 봅니다. 지도 한 칸(0.05 m)과 같습니다.
 MIN_RECT_M = 0.05
 
@@ -112,7 +112,7 @@ def _read_pgm(path: Path, width: int, height: int) -> np.ndarray:
     except ValueError:
         raise MapFixError("bad_map", "지도 그림의 크기를 읽지 못했습니다.") from None
     if maxval != 255:
-        raise MapFixError("bad_map", "지도 그림의 밝기 단계가 255 가 아닙니다.")
+        raise MapFixError("bad_map", "지도 그림의 밝기 단계가 255가 아닙니다.")
     if (file_width, file_height) != (width, height):
         raise MapFixError("bad_map", "지도 그림 크기가 지도 정보와 다릅니다.")
     body = data[start:start + width * height]
@@ -161,24 +161,24 @@ def load_map_image(maps_root: Path, map_id: str) -> MapImage:
 def normalize_rects(raw: Any) -> list[dict]:
     """앱이 보낸 사각형 목록을 검사하고 x_min < x_max, y_min < y_max 로 정리합니다."""
     if not isinstance(raw, list) or not raw:
-        raise MapFixError("bad_rect", "지울 사각형이 없습니다.")
+        raise MapFixError("bad_rect", "지울 구역이 없습니다.")
     if len(raw) > MAX_RECTS:
-        raise MapFixError("too_many", f"사각형은 한 번에 {MAX_RECTS}개까지 지울 수 있습니다.")
+        raise MapFixError("too_many", f"한 번에 {MAX_RECTS}곳까지 지울 수 있습니다.")
     rects: list[dict] = []
     for index, item in enumerate(raw):
         try:
             x_a, x_b = float(item["x_min"]), float(item["x_max"])
             y_a, y_b = float(item["y_min"]), float(item["y_max"])
         except (KeyError, TypeError, ValueError):
-            raise MapFixError("bad_rect", f"{index + 1}번째 사각형의 좌표가 숫자가 아닙니다.") from None
+            raise MapFixError("bad_rect", f"{index + 1}번 구역의 좌표가 올바르지 않습니다.") from None
         if not all(math.isfinite(value) for value in (x_a, x_b, y_a, y_b)):
-            raise MapFixError("bad_rect", f"{index + 1}번째 사각형의 좌표가 유한한 숫자가 아닙니다.")
+            raise MapFixError("bad_rect", f"{index + 1}번 구역의 좌표가 올바르지 않습니다.")
         rect = {
             "x_min": min(x_a, x_b), "y_min": min(y_a, y_b),
             "x_max": max(x_a, x_b), "y_max": max(y_a, y_b),
         }
         if min(rect["x_max"] - rect["x_min"], rect["y_max"] - rect["y_min"]) < MIN_RECT_M - _EPS:
-            raise MapFixError("too_small", f"{index + 1}번째 사각형이 너무 작습니다.")
+            raise MapFixError("too_small", f"{index + 1}번 구역이 너무 작습니다.")
         rects.append(rect)
     return rects
 
@@ -226,7 +226,7 @@ def _erase_plan(image: MapImage, rects: list[dict]) -> tuple[np.ndarray, dict]:
             "gray": gray,
         })
     if not selected.any():
-        raise MapFixError("out_of_map", "사각형이 지도 밖에 있습니다.")
+        raise MapFixError("out_of_map", "구역이 지도 밖에 있습니다.")
     chosen = image.pixels[selected]
     counts = {
         "rects": per_rect,

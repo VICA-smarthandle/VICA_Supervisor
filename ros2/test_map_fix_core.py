@@ -189,9 +189,11 @@ def test_apply_failed_rolls_the_file_back(tmp_path):
     rig.apply_result = (False, "apply_failed", "Nav2가 지도를 읽지 못했습니다.")
     before = files(rig.root)
 
-    accepted, reason, _ = rig.call("erase", {"rects": [RECT]})
+    accepted, reason, message, _ = rig.core.handle(MAP, "erase", json.dumps({"rects": [RECT]}))
 
     assert (accepted, reason) == (False, "apply_failed")
+    # 파일을 되돌린 것까지 알립니다(11-19 목업 99). Nav2 의 사유는 노드 기록에만 남깁니다.
+    assert message == "Nav2가 지도를 읽지 못해 수정을 취소했습니다."
     assert files(rig.root) == before and history(rig) == []
 
 
@@ -309,6 +311,7 @@ def test_scan_check_measures_without_starting_a_session(tmp_path):
 def test_scan_start_needs_the_current_map_and_a_sane_radius(tmp_path):
     rig = room_rig(tmp_path, current="another_map")
     assert rig.call("scan_start", {"radius_m": 2.0}, BIG)[:2] == (False, "not_current_map")
+    assert rig.core.handle(MAP, "scan_check", "")[2] == "현재 지도에서만 부분 스캔할 수 있습니다."
     assert rig.call("scan_check", None, BIG)[:2] == (False, "not_current_map")
     rig = room_rig(tmp_path / "b")
     for radius in (0.5, 3.5, "wide", None):

@@ -48,7 +48,8 @@ MESSAGES = {
     "busy_driving": "주행 중에는 지도를 수정할 수 없습니다.",
     "no_status": "로봇 상태를 받지 못했습니다.",
     "busy_session": "부분 스캔이 진행 중입니다.",
-    "not_current_map": "주행 지도에서만 부분 스캔할 수 있습니다",
+    "not_current_map": "현재 지도에서만 부분 스캔할 수 있습니다.",
+    "apply_failed": "Nav2가 지도를 읽지 못해 수정을 취소했습니다.",
     "no_pose": "로봇 위치나 라이다를 받지 못했습니다.",
     "no_session": "진행 중인 부분 스캔이 없습니다.",
     "bad_action": "알 수 없는 요청입니다.",
@@ -222,7 +223,8 @@ class MapFixCore:
         if reason == "apply_failed":
             store.restore_backup(self.maps_root, map_id, backup)
             store.drop_backup(backup)
-            raise Refusal("apply_failed", message)
+            self._log(f"지도 다시 읽히기 실패, 수정 취소({map_id}): {message}")
+            raise Refusal("apply_failed")
         if reason == "apply_timeout":
             self.pending_apply = map_id
         result.update(applied=applied, mission_stale=self._mission_stale())
@@ -289,7 +291,8 @@ class MapFixCore:
         applied, reason, message = self._apply_or_save(map_id)
         if reason == "apply_failed":
             store.write_snapshot(current)   # 되돌리기 전 상태로 — 파일과 Nav2 가 어긋나지 않게
-            raise Refusal("apply_failed", message)
+            self._log(f"지도 다시 읽히기 실패, 되돌리기 취소({map_id}): {message}")
+            raise Refusal("apply_failed")
         store.drop_backup(backup)
         if reason == "apply_timeout":
             self.pending_apply = map_id

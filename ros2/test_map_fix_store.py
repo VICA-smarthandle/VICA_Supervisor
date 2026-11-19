@@ -122,7 +122,9 @@ def test_apply_erase_sets_only_selected_cells_to_free(tmp_path):
 
 def test_rect_errors(tmp_path):
     image = store.load_map_image(make_map(tmp_path), MAP)
-    assert reason_of(lambda: store.normalize_rects([RECT] * 21)) == "too_many"
+    assert store.MAX_RECTS == 10        # 11-19 사용자: 한 번에 10곳까지
+    assert len(store.normalize_rects([RECT] * 10)) == 10
+    assert reason_of(lambda: store.normalize_rects([RECT] * 11)) == "too_many"
     thin = {"x_min": 0.0, "y_min": 0.0, "x_max": 0.04, "y_max": 0.3}
     assert reason_of(lambda: store.normalize_rects([thin])) == "too_small"
     assert reason_of(lambda: store.normalize_rects([{"x_min": "a"}])) == "bad_rect"
@@ -130,6 +132,24 @@ def test_rect_errors(tmp_path):
     assert reason_of(lambda: store.normalize_rects("nope")) == "bad_rect"
     outside = {"x_min": 5.0, "y_min": 0.0, "x_max": 6.0, "y_max": 1.0}
     assert reason_of(lambda: store.count_erase(image, [outside])) == "out_of_map"
+
+
+def message_of(call) -> str:
+    with pytest.raises(store.MapFixError) as caught:
+        call()
+    return caught.value.message
+
+
+def test_rect_messages_use_the_app_word_area(tmp_path):
+    """앱 화면의 말은 '구역'·'곳'입니다(11-19 목업 95·100). 로봇 문구도 같은 말을 씁니다."""
+    image = store.load_map_image(make_map(tmp_path), MAP)
+    thin = {"x_min": 0.0, "y_min": 0.0, "x_max": 0.04, "y_max": 0.3}
+    outside = {"x_min": 5.0, "y_min": 0.0, "x_max": 6.0, "y_max": 1.0}
+    assert message_of(lambda: store.normalize_rects([RECT] * 11)) == "한 번에 10곳까지 지울 수 있습니다."
+    assert message_of(lambda: store.normalize_rects([RECT, thin])) == "2번 구역이 너무 작습니다."
+    assert message_of(lambda: store.normalize_rects([])) == "지울 구역이 없습니다."
+    assert message_of(lambda: store.normalize_rects([{"x_min": "a"}])) == "1번 구역의 좌표가 올바르지 않습니다."
+    assert message_of(lambda: store.count_erase(image, [outside])) == "구역이 지도 밖에 있습니다."
     assert reason_of(lambda: store.apply_erase(image, [outside])) == "out_of_map"
 
 

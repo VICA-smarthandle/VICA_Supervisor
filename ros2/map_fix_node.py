@@ -70,7 +70,7 @@ def load_map_outcome(*, done: bool, error: Optional[BaseException], result_code:
         return True, "", mfc.MESSAGES["done"]
     reasons = {
         1: "지도 파일을 찾지 못했습니다.",
-        2: "지도 yaml 의 값이 올바르지 않습니다.",
+        2: "지도 yaml의 값이 올바르지 않습니다.",
         3: "지도 그림을 읽지 못했습니다.",
     }
     detail = reasons.get(result_code, f"알 수 없는 실패({result_code}).")
