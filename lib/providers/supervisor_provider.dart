@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/app_settings.dart';
+import '../core/estop_sources.dart';
+import '../core/contact_phone.dart';
 import '../core/json_read.dart';
 import '../core/log_filter.dart';
 import '../core/mode_contract.dart';
@@ -14,11 +16,13 @@ import '../models/delivery_job.dart';
 import '../models/goal_event.dart';
 import '../models/home_position.dart';
 import '../models/keepout_zone.dart';
+import '../models/map_fix.dart';
 import '../models/location_point.dart';
 import '../models/robot_event.dart';
 import '../models/robot_health.dart';
 import '../models/map_preview.dart';
 import '../models/pose_check_result.dart';
+import '../models/dock_state.dart';
 import '../models/mapping_status.dart';
 import '../models/mode_status.dart';
 import '../models/patrol.dart';
@@ -110,8 +114,11 @@ class SupervisorProvider extends ChangeNotifier {
     RosChannelConnector? rosChannelConnector,
     bool? showOtherScreenDeliveryNotices,
     PatrolLogLoader? patrolLogLoader,
-  })  : _deliveryNotifier = deliveryNotifier ?? createDeliveryNotifier(),
-        _showOtherScreenDeliveryNotices = showOtherScreenDeliveryNotices ?? kIsWeb,
+    DateTime Function()? now,
+  })  : _now = now ?? DateTime.now,
+        _deliveryNotifier = deliveryNotifier ?? createDeliveryNotifier(),
+        _showOtherScreenDeliveryNotices =
+            showOtherScreenDeliveryNotices ?? kIsWeb,
         _deliveryStore =
             deliveryJobStore ?? const SharedPreferencesDeliveryJobStore(),
         _routeGraphLoader = routeGraphLoader ?? const RouteGraphLoader(),
@@ -123,6 +130,9 @@ class SupervisorProvider extends ChangeNotifier {
   /// rosbridge 소켓을 여는 함수. null 이면 실제 WebSocket 을 엽니다. 시험은 가짜
   /// 채널을 끼워 끊김·재연결을 젯슨 없이 재현합니다.
   final RosChannelConnector? _rosChannelConnector;
+
+  /// 시각. 시험은 가짜 시계를 끼웁니다([rosSilent]).
+  final DateTime Function() _now;
 
   static const _nav2UnavailableReason = 'Nav2/AMCL 미실행';
   static const _nav2UnavailableMessage =
@@ -184,6 +194,10 @@ class SupervisorProvider extends ChangeNotifier {
   EmergencyStopState _emergencyStopState = EmergencyStopState.inactive;
   String _emergencyStopMessage = '';
   List<String> _emergencyStopSources = const [];
+  // 알림 및 로그 '비상정지' 에 이미 남긴 원인과, 걸림을 남겼는지(2026-11-17).
+  // 재접속해도 지우지 않습니다 — 같은 비상정지를 두 번 남기지 않게.
+  final Set<String> _loggedEstopSources = {};
+  bool _loggedEstopActive = false;
   bool _nav2UnavailableNotified = false;
   bool _nav2AvailableNotified = false;
   bool _nav2WasUnavailable = false;
@@ -234,6 +248,22 @@ class SupervisorProvider extends ChangeNotifier {
   String get connectedUrl => _lastSettings?.rosBridgeUrl ?? '';
 
   RosConnectionState get connectionState => _connectionState;
+
+  /// 소켓은 붙었는데 이만큼 받은 것이 없으면 '응답 없음'. 평소에는 /robot_status 만으로 초당 2개가 옵니다.
+  static const rosSilentAfter = Duration(seconds: 5);
+
+  /// 소켓은 붙어 있는데 [rosSilentAfter] 넘게 받은 것이 없음 — 화면은 '온라인' 대신 '응답 없음'.
+  ///
+  /// 부를 때마다 시각으로 계산합니다(타이머 없음). 1초마다 다시 보는 일은 화면 위젯
+  /// [RosSilenceBuilder] 가 합니다 — 화면이 닫히면 그 타이머도 함께 정리됩니다.
+  bool get rosSilent {
+    final at = _client?.lastReceivedAt;
+    if (_connectionState != RosConnectionState.connected || at == null) {
+      return false;
+    }
+    return _now().difference(at) >= rosSilentAfter;
+  }
+
   String get connectionDetail => _connectionDetail;
   EmergencyStopState get emergencyStopState => _emergencyStopState;
   String get emergencyStopMessage => _emergencyStopMessage;
@@ -315,6 +345,7 @@ class SupervisorProvider extends ChangeNotifier {
       onState: (state, detail) =>
           _handleClientState(client, settings, state, detail),
       connector: _rosChannelConnector,
+      now: _now,
     );
     _client = client;
     await client.connect(settings.rosBridgeUrl);
@@ -435,6 +466,10 @@ class SupervisorProvider extends ChangeNotifier {
     // 오래된 %를 보고 확정을 누르게 됩니다.
     _poseCheck = null;
     _poseChecking = false;
+    // 지도 수정의 잠금·부분 스캔 진행도 끊긴 뒤에는 현재 사실이 아닙니다.
+    _mapFixStatus = null;
+    _mapFixStatusMapId = '';
+    _mapFixScan = null;
     // 노드 목록도 현재 사실이 아닙니다. 남겨 두면 모드 선택 화면이 "아무것도 안
     // 떠 있다"고 잘못된 안심을 줄 수 있습니다 — 그래서 '확인 불가'로 되돌립니다.
     _stackStatus = null;
@@ -444,6 +479,12 @@ class SupervisorProvider extends ChangeNotifier {
     _modeStatusAt = null;
     // 다시 붙은 뒤 처음 받는 음성 알림은 끊긴 사이 일이라 기록만 합니다(띄우지 않음).
     _voiceFirstAfterConnect = true;
+    // 전방 초음파 상태·거리도 다시 붙으면 드라이버가 남긴 값으로 채워집니다(2026-11-18).
+    _frontUltrasonicOn = null;
+    _frontRange.fillRange(0, 2, null);
+    _frontRangeAt.fillRange(0, 2, null);
+    // 빔포밍 회전도 다시 붙으면 음성 노드가 남긴 값으로 채워집니다(2026-11-19).
+    _wakeDoaTurnOn = null;
     if (_robotsById.isEmpty) {
       return;
     }
@@ -540,11 +581,220 @@ class SupervisorProvider extends ChangeNotifier {
         topic: settings.deliverySmsResultTopic,
         handler: _handleDeliverySmsResult,
       )
+      // 다른 화면이 배송을 보내며 남긴 받는 분께 메시지(2026-11-17). 대신 보낼 때 씁니다.
+      ..subscribe(
+        topic: settings.deliveryNoteTopic,
+        handler: _handleDeliveryNote,
+      )
+      // 지도 수정의 부분 스캔 진행(2026-11-19). 스캔 세션이 있을 때만 옵니다.
+      ..subscribe(
+        topic: mapFixStateTopic,
+        handler: _handleMapFixState,
+      )
       // 모드 노드(부팅 자동 기동, 2026-11-16). 없으면 아무것도 안 와서 예전처럼 동작합니다.
       ..subscribe(
         topic: kModeStatusTopic,
         handler: _handleModeStatus,
+      )
+      // 전방 초음파 켜기·끄기(2026-11-18 사용자: 시스템 진단 맨 아래). 손잡이 드라이버가 낸다.
+      ..subscribe(
+        topic: frontUltrasonicStateTopic,
+        type: 'std_msgs/Bool',
+        handler: _handleFrontUltrasonicState,
+      )
+      // 빔포밍 회전(2026-11-19 사용자: 대시보드 주행 설정). 음성 호출 노드가 낸다.
+      ..subscribe(
+        topic: wakeDoaTurnStateTopic,
+        type: 'std_msgs/Bool',
+        handler: _handleWakeDoaTurnState,
+      )
+      ..subscribe(
+        topic: frontUltrasonicTopics[0],
+        type: 'sensor_msgs/Range',
+        handler: (message) => _handleFrontRange(0, message),
+      )
+      ..subscribe(
+        topic: frontUltrasonicTopics[1],
+        type: 'sensor_msgs/Range',
+        handler: (message) => _handleFrontRange(1, message),
+      )
+      // 도킹 노드(2026-11-18). 바뀔 때만 오고 마지막 값이 보관됩니다. 없으면 도킹 버튼이 안 뜹니다.
+      ..subscribe(
+        topic: kDockStateTopic,
+        handler: _handleDockState,
       );
+  }
+
+  // ---- 전방 초음파 켜기·끄기 (2026-11-18 사용자) ------------------------------------
+
+  /// 손잡이 드라이버(C++ 판)가 지금 상태를 남기는 토픽(std_msgs/Bool, TRANSIENT_LOCAL).
+  static const frontUltrasonicStateTopic = '/vica/ultrasonic/front_enabled';
+
+  /// 켜기·끄기 서비스(std_srvs/SetBool). 끄면 드라이버가 '없음'을 3번 보낸 뒤 멈춥니다.
+  static const frontUltrasonicService = '/vica/ultrasonic/front_enable';
+  static const frontUltrasonicTopics = [
+    '/ultrasonic/front_left',
+    '/ultrasonic/front_right',
+  ];
+
+  /// 이보다 오래 값이 안 오면 거리는 모름으로 둡니다(앞은 315 ms 마다 한 번).
+  static const frontRangeStale = Duration(seconds: 2);
+
+  bool? _frontUltrasonicOn;
+  bool _frontUltrasonicBusy = false;
+  final List<double?> _frontRange = [null, null];
+  final List<DateTime?> _frontRangeAt = [null, null];
+
+  /// 거리 값이 올 때마다 울립니다. 초당 6번까지 오므로 provider 전체(notifyListeners)를 울리지
+  /// 않고 진단 카드만 이것을 듣습니다 — 다른 화면까지 다시 그리지 않게.
+  final ValueNotifier<int> frontRangeTick = ValueNotifier<int>(0);
+
+  /// null = 모름(손잡이 드라이버가 안 떠 있거나 아직 상태가 안 옴).
+  bool? get frontUltrasonicOn => _frontUltrasonicOn;
+  bool get frontUltrasonicBusy => _frontUltrasonicBusy;
+
+  /// 왼쪽(0)·오른쪽(1) 최근 거리(m). '없음'(에코 없음)은 double.infinity, 모르면 null.
+  double? frontRange(int side) {
+    final at = _frontRangeAt[side];
+    if (at == null || DateTime.now().difference(at) > frontRangeStale) {
+      return null;
+    }
+    return _frontRange[side];
+  }
+
+  void _handleFrontUltrasonicState(Map<String, Object?> message) {
+    final data = message['data'];
+    if (data is bool && data != _frontUltrasonicOn) {
+      _frontUltrasonicOn = data;
+      notifyListeners();
+    }
+  }
+
+  void _handleFrontRange(int side, Map<String, Object?> message) {
+    if (_disposed) {
+      return;
+    }
+    final range = (message['range'] as num?)?.toDouble();
+    final maxRange = (message['max_range'] as num?)?.toDouble();
+    if (range == null) {
+      return;
+    }
+    final clear = maxRange != null && range >= maxRange - 1e-3;
+    _frontRange[side] = clear ? double.infinity : range;
+    _frontRangeAt[side] = DateTime.now();
+    frontRangeTick.value++;
+  }
+
+  /// 전방 초음파를 켜거나 끕니다. 실패하면 까닭을, 되면 null 을 돌려줍니다.
+  ///
+  /// 끌 때는 드라이버가 '없음'을 3번(약 1 s) 보내 빔 안을 지운 뒤, 빔 밖에 남은 칸까지 지우려고
+  /// local·global costmap 을 한 번 비웁니다. 그 사이 라이다·깊이 칸도 다음 갱신(≤0.2 s)까지
+  /// 비므로 멈춰 있을 때 쓰는 것을 전제로 합니다(사용자 11-18). Nav2 가 없으면 비우기는 건너뜁니다.
+  Future<String?> setFrontUltrasonic(bool on) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return 'ROS Bridge에 연결되지 않았습니다.';
+    }
+    _frontUltrasonicBusy = true;
+    notifyListeners();
+    try {
+      final response = await client.callService(
+        service: frontUltrasonicService,
+        type: 'std_srvs/srv/SetBool',
+        args: {'data': on},
+      );
+      if (!response.success) {
+        final message =
+            response.message.isEmpty ? '전방 초음파를 바꾸지 못했습니다.' : response.message;
+        _addLog(LogFilter.connection, message);
+        return message;
+      }
+      if (!on) {
+        await Future<void>.delayed(const Duration(milliseconds: 1200));
+        for (final service in const [
+          '/local_costmap/clear_entirely_local_costmap',
+          '/global_costmap/clear_entirely_global_costmap',
+        ]) {
+          try {
+            await client.callService(
+              service: service,
+              type: 'nav2_msgs/srv/ClearEntireCostmap',
+              timeout: const Duration(seconds: 3),
+            );
+          } catch (_) {
+            // Nav2 가 꺼져 있으면 비울 costmap 도 없습니다.
+          }
+        }
+      }
+      return null;
+    } catch (error) {
+      final message = '전방 초음파를 바꾸지 못했습니다: $error';
+      _addLog(LogFilter.connection, message);
+      return message;
+    } finally {
+      _frontUltrasonicBusy = false;
+      notifyListeners();
+    }
+  }
+
+  // ---- 빔포밍 회전 켜기·끄기 (2026-11-19 사용자, 캔버스 101번 보드) ----------------------
+  //
+  // 켜면 대기 중 '비카야'가 온 방향으로 로봇이 돈다(음성 VICA_WAKE_DOA_TURN). 음성을 다시 띄우면
+  // .env 값으로 돌아갑니다. 표시는 노드가 남긴 상태 토픽만 따릅니다 — 응답만 보고 미리 바꾸지 않습니다.
+
+  /// 음성 호출 노드가 지금 상태를 남기는 토픽(std_msgs/Bool, TRANSIENT_LOCAL).
+  static const wakeDoaTurnStateTopic = '/vica/wake_doa_turn/enabled';
+
+  /// 켜기·끄기 서비스(std_srvs/SetBool). 응답 문구('빔포밍 회전을 켰습니다' 등)를 그대로 띄웁니다.
+  static const wakeDoaTurnService = '/vica/wake_doa_turn/enable';
+
+  bool? _wakeDoaTurnOn;
+
+  /// null = 모름(음성이 안 떠 있거나 아직 상태가 안 옴).
+  bool? get wakeDoaTurnOn => _wakeDoaTurnOn;
+
+  void _handleWakeDoaTurnState(Map<String, Object?> message) {
+    final data = message['data'];
+    if (data is bool && data != _wakeDoaTurnOn) {
+      _wakeDoaTurnOn = data;
+      notifyListeners();
+    }
+  }
+
+  /// 빔포밍 회전을 켜거나 끕니다. (받아들였는가, 보일 문구)
+  Future<(bool, String)> setWakeDoaTurn(bool on) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return (false, 'ROS Bridge에 연결되지 않았습니다.');
+    }
+    const fallback = '빔포밍 회전을 바꾸지 못했습니다.';
+    try {
+      final response = await client.callService(
+        service: wakeDoaTurnService,
+        type: 'std_srvs/srv/SetBool',
+        args: {'data': on},
+      );
+      if (!response.success) {
+        final message = response.message.isEmpty ? fallback : response.message;
+        _addLog(LogFilter.connection, message);
+        return (false, message);
+      }
+      if (response.message.isEmpty) {
+        return (true, on ? '빔포밍 회전을 켰습니다' : '빔포밍 회전을 껐습니다');
+      }
+      return (true, response.message);
+    } catch (error) {
+      final message = '빔포밍 회전을 바꾸지 못했습니다: $error';
+      _addLog(LogFilter.connection, message);
+      return (false, message);
+    }
+  }
+
+  /// 음성 노드 없이 화면 규칙만 검증하기 위한 주입 지점입니다.
+  @visibleForTesting
+  void setWakeDoaTurnForTest(bool? on) {
+    _wakeDoaTurnOn = on;
+    notifyListeners();
   }
 
   // ---- 모드 노드 (주행 묶음 켜기·끄기, 2026-11-16) ---------------------------------
@@ -559,7 +809,9 @@ class SupervisorProvider extends ChangeNotifier {
     if (_modeStatus == null || at == null) {
       return null;
     }
-    return DateTime.now().difference(at) > kModeStatusStale ? null : _modeStatus;
+    return DateTime.now().difference(at) > kModeStatusStale
+        ? null
+        : _modeStatus;
   }
 
   void _handleModeStatus(Map<String, Object?> message) {
@@ -569,12 +821,54 @@ class SupervisorProvider extends ChangeNotifier {
     }
     _modeStatus = ModeStatus.fromJson(decoded);
     _modeStatusAt = DateTime.now();
+    // 음성이 다시 뜨는 동안 이전 빔포밍 값을 들고 있지 않는다 — 새 노드가 낼 때까지 모름(11-19 사용자).
+    if (_modeStatus!.voice != 'active') {
+      _wakeDoaTurnOn = null;
+    }
     _ingestVoiceEvents(_modeStatus!);
+    _settleMapRequest(_modeStatus!);
+    _followDriveMap(_modeStatus!);
     notifyListeners();
   }
 
+  // 마지막으로 따라간 로봇 지도(Nav2 가 띄운 지도, 모르면 CURRENT_MAP).
+  String _followedDriveMapId = '';
+
+  /// 로봇이 쓰는 지도가 바뀌면 지도 고르기를 그 지도로 맞춥니다(2026-11-17 사용자).
+  ///
+  /// 원격 주행·물류 배송·지도 설정이 같은 고른 지도를 씁니다. 종전에는 앱을 켤 때만
+  /// '(현재)' 지도를 골라, 주행 지도를 바꾸면 화면이 옛 지도에 머물렀습니다.
+  /// - 바뀌는 순간에만 따라갑니다. 관리자가 일부러 고른 다른 지도는 그대로 둡니다.
+  /// - 레일·금지구역 편집 중이거나 장소 초안이 있으면 따라가지 않습니다(편집이 날아감) —
+  ///   그때는 지도 칸 아래 빨간 안내(CurrentMapNotice)가 다름을 알립니다.
+  /// - 지도 목록에 아직 없거나 '(현재)' 표시가 다르면 목록을 다시 받습니다(앱 밖에서 바꾼 경우).
+  void _followDriveMap(ModeStatus status) {
+    final drive = status.driveMapId.trim();
+    final settings = _lastSettings;
+    if (drive.isEmpty || drive == _followedDriveMapId || settings == null) {
+      return;
+    }
+    final listed = _maps.any((map) => map.mapId == drive);
+    if (!listed || _currentMapId != drive) {
+      requestMapList(settings);
+    }
+    if (_maps.isNotEmpty && !listed) {
+      // 목록에 없는 지도는 고를 수 없습니다. 목록이 오면 다음 방송(2초)에서 다시 봅니다.
+      return;
+    }
+    _followedDriveMapId = drive;
+    if (_selectedMapId == drive) {
+      return;
+    }
+    if (_keepoutEditing || _routeEditing || _draftLocation != null) {
+      return;
+    }
+    selectMap(settings, drive);
+  }
+
   @visibleForTesting
-  void handleModeStatusForTest(Map<String, Object?> message) => _handleModeStatus(message);
+  void handleModeStatusForTest(Map<String, Object?> message) =>
+      _handleModeStatus(message);
 
   // ---- 음성 연결 알림(사용자 11-16, 목업 D·E) ------------------------------------
   //
@@ -637,9 +931,13 @@ class SupervisorProvider extends ChangeNotifier {
   Future<(bool, String)> driveStop() =>
       _callModeService(kDriveStopService, '주행 끄기');
 
+  /// 로봇 끄기(주행·기본 묶음 → sync → 시스템 종료). 받아들여지면 곧 연결이 끊깁니다.
+  Future<(bool, String)> robotShutdown() =>
+      _callModeService(kShutdownService, '로봇 끄기');
+
   /// Nav2 만 다시 띄우기.
   Future<(bool, String)> nav2Restart() =>
-      _callModeService(kNav2RestartService, 'Nav2 다시 띄우기');
+      _callModeService(kNav2RestartService, 'Nav2 다시 시작');
 
   /// ⑮ 감지기만 켜고 끄기(잠시 끄기). 주행을 다시 켜면 켜진 상태로 돌아갑니다.
   Future<(bool, String)> setDetector(bool on) => on
@@ -652,6 +950,72 @@ class SupervisorProvider extends ChangeNotifier {
         VoiceChoice.api => _callModeService(kVoiceApiService, '음성 외부 API'),
       };
 
+  // ---- 주행 지도 바꾸기(사용자 11-17) -------------------------------------------
+  //
+  // Trigger 는 인자가 없어 토픽으로 보냅니다. 모드 노드는 받자마자 상태를 다시 내며, 그 안의
+  // map_change 가 같은 request_id 면 결과입니다. 젯슨은 maps/CURRENT_MAP 을 쓰고, 주행이 떠
+  // 있으면 Nav2·미션·음성·위치 확인을 다시 띄웁니다(약 1분) — 진행은 모드 상태로 봅니다.
+
+  String? _mapRequestId;
+  Completer<(bool, String)>? _mapRequestDone;
+
+  /// 주행 지도를 [mapId] 로 바꾸기. (받아들였는가, 사람에게 보일 문구)
+  Future<(bool, String)> requestMapChange(String mapId) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return (false, 'ROS Bridge에 연결되지 않았습니다.');
+    }
+    final id = _uuid.v4();
+    final done = Completer<(bool, String)>();
+    _mapRequestId = id;
+    _mapRequestDone = done;
+    client.advertise(topic: kModeMapRequestTopic, type: 'std_msgs/String');
+    void send() => client.publishJsonString(
+          topic: kModeMapRequestTopic,
+          payload: {'request_id': id, 'map_id': mapId},
+        );
+    // 토픽 한 번은 DDS 연결이 맺어지기 전이면 사라집니다(11-17 실기). 결과가 올 때까지 같은 ID 로
+    // 다시 보냅니다 — 모드 노드는 처리한 ID 를 다시 처리하지 않고 결과만 다시 냅니다.
+    send();
+    final retry = Timer.periodic(kModeMapRequestRetry, (_) {
+      if (!done.isCompleted) {
+        send();
+      }
+    });
+    try {
+      return await done.future.timeout(kModeMapRequestTimeout);
+    } on TimeoutException {
+      return (false, '로봇이 답하지 않음 · 모드 노드 확인');
+    } finally {
+      retry.cancel();
+      if (_mapRequestId == id) {
+        _mapRequestId = null;
+        _mapRequestDone = null;
+      }
+    }
+  }
+
+  void _settleMapRequest(ModeStatus status) {
+    final change = status.mapChange;
+    final done = _mapRequestDone;
+    if (change == null ||
+        done == null ||
+        done.isCompleted ||
+        change.requestId != _mapRequestId) {
+      return;
+    }
+    done.complete((change.applied, change.message));
+    if (!change.applied) {
+      _addLog(LogFilter.coordinateTransfer,
+          '주행 지도 ${change.from} → ${change.mapId}: ${change.message}');
+    }
+    // '(현재)' 표시와 지도별 준비 상태를 새로 받습니다.
+    final settings = _lastSettings;
+    if (change.applied && settings != null) {
+      requestMapList(settings);
+    }
+  }
+
   // std_srvs/Trigger 는 accepted 가 아니라 success 로 답합니다. 그래서 _callService 를
   // 쓰지 않습니다(그 도우미는 accepted 만 봅니다).
   Future<(bool, String)> _callModeService(String service, String what) async {
@@ -663,11 +1027,14 @@ class SupervisorProvider extends ChangeNotifier {
       final response = await client.callService(service: service);
       final message =
           response.message.isEmpty ? '$what 요청을 보냈습니다.' : response.message;
-      _addLog(LogFilter.coordinateTransfer, '$what: $message');
+      // 모드 노드 요청(주행·음성·감지)은 지도 설정이 아니다 — 실패만 '연결 상태'에(2026-11-17).
+      if (!response.success) {
+        _addLog(LogFilter.connection, '$what: $message');
+      }
       return (response.success, message);
     } catch (error) {
       final message = '$what 실패: $error';
-      _addLog(LogFilter.coordinateTransfer, message);
+      _addLog(LogFilter.connection, message);
       return (false, message);
     }
   }
@@ -700,7 +1067,6 @@ class SupervisorProvider extends ChangeNotifier {
       EmergencyStopState.activating,
       'VICA에 비상정지를 요청하고 있습니다.',
     );
-    _addLog(LogFilter.emergencyStop, '비상정지 요청 전송');
     try {
       final response = await client.callService(
         service: settings.emergencyActivateService,
@@ -713,7 +1079,6 @@ class SupervisorProvider extends ChangeNotifier {
               ? '비상정지가 활성화되었습니다. 기존 목적지는 취소되었습니다.'
               : response.message,
         );
-        _addLog(LogFilter.emergencyStop, '비상정지 활성화 완료');
       } else {
         _setEmergencyStopState(
           EmergencyStopState.activationFailed,
@@ -745,7 +1110,6 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     _setEmergencyStopState(EmergencyStopState.inactive, '');
-    _addLog(LogFilter.emergencyStop, '비상정지 실패 알림 닫음');
   }
 
   // 비상정지 해제: app_emergency_node의 reset 서비스를 호출합니다.
@@ -769,7 +1133,6 @@ class SupervisorProvider extends ChangeNotifier {
       EmergencyStopState.releasing,
       'VICA에 비상정지 해제를 요청하고 있습니다.',
     );
-    _addLog(LogFilter.emergencyStop, '비상정지 해제 요청 전송');
     try {
       final response = await client.callService(
         service: settings.emergencyResetService,
@@ -777,7 +1140,6 @@ class SupervisorProvider extends ChangeNotifier {
       );
       if (response.result && response.success) {
         _setEmergencyStopState(EmergencyStopState.inactive, '');
-        _addLog(LogFilter.emergencyStop, '비상정지 해제 완료');
       } else {
         _setEmergencyStopState(
           EmergencyStopState.releaseFailed,
@@ -841,6 +1203,7 @@ class SupervisorProvider extends ChangeNotifier {
       requestLocationList(settings, mapId);
     }
     unawaited(refreshHome(settings, mapId));
+    unawaited(refreshDockSpot(settings, mapId));
     unawaited(requestKeepoutList(settings, mapId));
     unawaited(loadRouteGraph(settings, mapId));
     // 지난번에 지도 그림(벽 지도)을 못 받았으면 다시 받게 합니다. 실패 기록이 남아
@@ -887,7 +1250,6 @@ class SupervisorProvider extends ChangeNotifier {
         'timestamp': DateTime.now().toIso8601String(),
       },
     );
-    _addLog(LogFilter.coordinateTransfer, '$mapId 장소 목록 요청 전송');
   }
 
   void selectMap(AppSettings settings, String? mapId) {
@@ -941,7 +1303,6 @@ class SupervisorProvider extends ChangeNotifier {
       topic: settings.saveLocationTopic,
       payload: _locationPayload(draft),
     );
-    _addLog(LogFilter.coordinateTransfer, '${draft.name} 장소 저장 요청 전송');
     _draftLocation = null;
     notifyListeners();
   }
@@ -961,7 +1322,6 @@ class SupervisorProvider extends ChangeNotifier {
       topic: settings.saveLocationTopic,
       payload: _locationPayload(location),
     );
-    _addLog(LogFilter.coordinateTransfer, '${location.name} 수정 저장 요청 전송');
     notifyListeners();
     return (true, '${location.name} 수정을 저장했습니다.');
   }
@@ -998,7 +1358,6 @@ class SupervisorProvider extends ChangeNotifier {
         'timestamp': DateTime.now().toIso8601String(),
       },
     );
-    _addLog(LogFilter.coordinateTransfer, '${location.name} 장소 삭제 요청 전송');
   }
 
   // 앱은 vica_goto_goal, LLM과 같은 경로로 요청만 보냅니다. 지도·접근 권한·Safety·
@@ -1078,6 +1437,7 @@ class SupervisorProvider extends ChangeNotifier {
           ? (response.accepted ? '주행 요청을 수락했습니다.' : '주행 요청이 거부되었습니다.')
           : _localizeGateReason(response.message, gateMessages),
       failurePrefix: 'Mission Manager 목적지 요청 실패',
+      logAs: null, // 주행 요청 거부·실패는 팝업으로만(2026-11-17)
     );
     return (reply.accepted, reply.message);
   }
@@ -1212,6 +1572,262 @@ class SupervisorProvider extends ChangeNotifier {
     );
     return reply.message;
   }
+
+  // ---- 도킹 (2026-11-18, 목업 62~74) ----------------------------------------
+  //
+  // 홈과 도크는 따로입니다(11-18 사용자). 도크 위치 저장·조회·지우기는 도킹 노드에 직접,
+  // 도킹 시작·나오기·중지는 미션을 거칩니다(주행은 미션이 단일 권한자).
+
+  DockNodeState? _dockState;
+
+  /// 도킹 노드가 돌려준 도크. **노드의 지도(주행 지도) 것**이라 조회를 요청한 지도 것이 아닐 수 있습니다.
+  DockSpot? _dockSpot;
+
+  /// 조회를 요청한(그때 보고 있던) 지도
+  String _dockSpotMapId = '';
+
+  /// 마지막 조회 응답의 map_id — 도킹 노드의 지도. 도크가 없으면 응답에 없어 빈 문자열입니다.
+  String _dockNodeMapId = '';
+  bool _dockBusy = false;
+
+  DockNodeState? get dockState => _dockState;
+  bool get dockBusy => _dockBusy;
+
+  /// [mapId] 지도에 저장된 도크 위치. 없거나 다른 지도면 null.
+  ///
+  /// 도킹 노드는 조회에 지도 id 를 받지 않고 자기 지도(주행 지도)의 도크만 돌려줍니다. 응답의 map_id 가
+  /// [mapId] 와 다르면 이 지도에는 도크가 없는 것입니다 — 다른 지도의 좌표를 이 지도에 그리지 않습니다
+  /// (2026-11-19 검토).
+  DockSpot? dockSpotFor(String? mapId) {
+    if (mapId == null || _dockSpotMapId != mapId) {
+      return null;
+    }
+    final spot = _dockSpot;
+    if (spot != null && spot.mapId.isNotEmpty && spot.mapId != mapId) {
+      return null;
+    }
+    return spot;
+  }
+
+  /// [mapId] 지도를 보고 있지만 도킹 노드는 다른 지도(주행 지도)에 붙어 있는가.
+  ///
+  /// 인식 저장·지도에서 지정·지우기·도킹해 보기가 전부 주행 지도에 가므로, 이때는 도크 위치 칸의
+  /// 버튼을 잠급니다. 안내는 같은 상황에서 뜨는 주행 지도 띠(DriveMapBanner)가 합니다.
+  /// 조회 응답의 map_id 로 보고, 모드 노드가 알려 준 주행 지도로도 봅니다 — 도크가 아직 없으면
+  /// 응답에 map_id 가 없습니다.
+  bool dockOnOtherMap(String? mapId) {
+    if (mapId == null || mapId.isEmpty) {
+      return false;
+    }
+    final status = modeStatus;
+    if (status != null &&
+        status.driveOn &&
+        status.driveMapId.isNotEmpty &&
+        status.driveMapId != mapId) {
+      return true;
+    }
+    return _dockSpotMapId == mapId &&
+        _dockNodeMapId.isNotEmpty &&
+        _dockNodeMapId != mapId;
+  }
+
+  /// 지도에 그릴 도크 점(도킹했을 때 로봇 자리).
+  Offset? dockPointFor(String? mapId) {
+    final spot = dockSpotFor(mapId);
+    return spot == null ? null : Offset(spot.dockedX, spot.dockedY);
+  }
+
+  /// 로봇이 도크에 들어가 있는가 — 미션 dialog_state 가 정본, 없으면 도킹 노드 값.
+  bool get isDocked {
+    final dialog = primaryRobot?.dialogState.trim() ?? '';
+    if (dialog.isNotEmpty) {
+      return dialog == kDialogDocked;
+    }
+    return _dockState?.docked ?? false;
+  }
+
+  /// 도크 안은 아니지만 '도크에서 나오기'를 이어서 할 수 있는가(2026-11-19) — 나오다 멈췄거나
+  /// 도크 가까이(85 cm 안)에 서 있을 때. 미션이 다른 일(주행·도킹 중 등)을 하고 있으면 화면이 따로 막습니다.
+  bool get canResumeUndock => !isDocked && (_dockState?.canResumeUndock ?? false);
+
+  /// 나오다 멈춘 상태인가(2026-11-19) — '도킹 시작'을 숨기고 '도크에서 나오기 다시시작'만 보입니다.
+  bool get undockPaused => !isDocked && (_dockState?.undockPaused ?? false);
+
+  void _handleDockState(Map<String, Object?> message) {
+    final st = DockNodeState.fromMessage(message);
+    if (st == null) {
+      return;
+    }
+    final prev = _dockState;
+    _dockState = st;
+    // 도킹이 끝나면 도크 위치가 바뀌어 있을 수 있습니다(2026-11-19) — 다시 읽습니다.
+    //   성공  '가 본 자리'가 되고, 처음 성공이면 로봇이 라이다로 잰 값으로 고쳐 저장합니다.
+    //   실패  도크가 범위 밖(out_of_range)이면 로봇이 도크 위치를 고쳐 저장합니다.
+    // 직전 결과가 '나오기 성공'이어도 읽어야 합니다(종전에는 직전 결과가 성공이 아닐 때만 읽어, 도크에서
+    // 나온 뒤 다시 지정한 자리의 첫 도킹을 놓쳤습니다). 같은 사유로 연달아 실패하면 last 는 그대로라
+    // '도킹 중'이 끝난 것으로도 봅니다.
+    final dockEnded = st.lastAction == 'dock' &&
+        (st.lastResult == 'success' || st.lastResult == 'failed');
+    final isNew = prev != null &&
+        (prev.lastAction != st.lastAction ||
+            prev.lastResult != st.lastResult ||
+            prev.lastReason != st.lastReason ||
+            (prev.state == 'docking' && st.state != 'docking'));
+    if (dockEnded && isNew && _dockSpotMapId.isNotEmpty) {
+      final settings = _lastSettings;
+      if (settings != null) {
+        unawaited(refreshDockSpot(settings, _dockSpotMapId));
+      }
+    }
+    notifyListeners();
+  }
+
+  Future<(bool, String)> _callTrigger(String service, {Duration? timeout}) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return (false, 'not_connected');
+    }
+    try {
+      final r = await client.callService(
+        service: service,
+        type: 'std_srvs/srv/Trigger',
+        timeout: timeout ?? RosBridgeClient.defaultServiceTimeout,
+      );
+      return (r.success, r.message);
+    } on TimeoutException catch (error) {
+      // 서비스는 있는데 답이 늦은 것입니다 — '주행이 꺼져 있습니다'(call_failed)와 가릅니다(2026-11-19).
+      _addLog(LogFilter.coordinateTransfer, '$service 호출 실패: $error');
+      return (false, 'timeout');
+    } catch (error) {
+      // rosbridge 는 서비스가 없으면(주행 꺼짐) result:false 로 답하고, 그것이 여기로 옵니다.
+      // 호출 도중 웹소켓이 끊긴 것도 여기로 옵니다 — 그것은 주행 꺼짐이 아니라 연결 없음입니다.
+      _addLog(LogFilter.coordinateTransfer, '$service 호출 실패: $error');
+      return (false, _dockCallFailure);
+    }
+  }
+
+  /// 도크 서비스 호출이 실패한 지금의 사유 — 연결이 살아 있으면 서비스 없음(call_failed),
+  /// 끊겼으면 not_connected.
+  String get _dockCallFailure =>
+      _connectionState == RosConnectionState.connected ? 'call_failed' : 'not_connected';
+
+  /// 젯슨에서 도크 위치를 읽습니다. 없으면 null 이며 오류가 아닙니다.
+  Future<void> refreshDockSpot(AppSettings settings, String mapId) async {
+    final (ok, message) = await _callTrigger(kDockGetService);
+    if (message == 'not_connected' || message == 'call_failed' || message == 'timeout') {
+      return;   // 조회 실패와 '없음'은 다르다 — 이전 값을 둔다(홈과 같은 규칙)
+    }
+    _dockSpotMapId = mapId;
+    _dockSpot = ok ? DockSpot.fromTriggerMessage(message) : null;
+    // 요청한 지도와 다르면 그 지도의 도크가 아닙니다([dockSpotFor]·[dockOnOtherMap] 이 가립니다).
+    _dockNodeMapId = DockSpot.mapIdOfTriggerMessage(message);
+    notifyListeners();
+  }
+
+  /// '도크 인식해서 저장'(목업 84·85). 로봇이 도크를 보고만 있으면 됩니다 — 라이다로 도크를 찾아
+  /// 도크 앞 1 m 지점을 준비 위치로 잡습니다. 실패 사유는 [DockRegisterResult.reason] 입니다.
+  Future<DockRegisterResult> registerDock(AppSettings settings, String mapId) async {
+    _dockBusy = true;
+    notifyListeners();
+    try {
+      final (ok, message) = await _callTrigger(
+        kDockRegisterService, timeout: const Duration(seconds: 8));
+      final result = DockRegisterResult.fromTrigger(ok, message);
+      if (result.ok) {
+        _addLog(LogFilter.coordinateTransfer, '도크 위치 저장: ${result.savedText}');
+        await refreshDockSpot(settings, mapId);
+      }
+      return result;
+    } finally {
+      _dockBusy = false;
+      notifyListeners();
+    }
+  }
+
+  /// 지도에서 지정한 도크를 저장합니다(/vica/dock/set, 2026-11-19 목업 89~91).
+  ///
+  /// [x]·[y] 는 지도에서 누른 도크, [yawDeg] 는 로봇이 도크를 바라보는 방향(도)입니다. 준비 위치
+  /// (도크 앞 1 m)는 로봇이 계산합니다. 타입은 홈 저장과 같은 SaveHome 이고 응답 message 는
+  /// 조회(/vica/dock/get)와 같은 JSON, 거절이면 사유 문자열(busy · map_mismatch · write_failed)입니다.
+  /// 실패 사유에는 call_failed(서비스 없음 = 주행 꺼짐) · not_connected · timeout 도 있습니다.
+  Future<({bool ok, String reason})> setDockFromMap(
+    AppSettings settings, {
+    required String mapId,
+    required double x,
+    required double y,
+    required double yawDeg,
+  }) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return (ok: false, reason: 'not_connected');
+    }
+    _dockBusy = true;
+    notifyListeners();
+    try {
+      final response = await client.callService(
+        service: kDockSetService,
+        type: 'vica_interfaces/srv/SaveHome',
+        args: {
+          'map_id': mapId,
+          'x': x,
+          'y': y,
+          'yaw': yawDeg,
+          'source': kDockSourceMapPick,
+          'score': 0.0,
+          'label': '',
+        },
+      );
+      if (!response.accepted) {
+        final reason = response.message.isEmpty ? 'rejected' : response.message;
+        _addLog(LogFilter.coordinateTransfer, '도크 위치 저장(지도에서 지정) 거절: $reason');
+        return (ok: false, reason: reason);
+      }
+      await refreshDockSpot(settings, mapId);
+      return (ok: true, reason: '');
+    } on TimeoutException catch (error) {
+      _addLog(LogFilter.coordinateTransfer, '$kDockSetService 호출 실패: $error');
+      return (ok: false, reason: 'timeout');
+    } catch (error) {
+      _addLog(LogFilter.coordinateTransfer, '$kDockSetService 호출 실패: $error');
+      return (ok: false, reason: _dockCallFailure);
+    } finally {
+      _dockBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<String> deleteDock(AppSettings settings, String mapId) async {
+    final (ok, message) = await _callTrigger(kDockDeleteService);
+    await refreshDockSpot(settings, mapId);
+    return ok ? '도크 위치를 지웠습니다.' : '도크 위치를 지우지 못했습니다($message).';
+  }
+
+  Future<String> startDocking(AppSettings settings) =>
+      _sendMissionCommand(kMissionDockStartService, '도킹을 시작합니다.');
+
+  Future<String> undock(AppSettings settings) =>
+      _sendMissionCommand(kMissionDockUndockService, '도크에서 나옵니다.');
+
+  Future<String> cancelDocking(AppSettings settings) =>
+      _sendMissionCommand(kMissionDockCancelService, '멈췄습니다.');
+
+  @visibleForTesting
+  void setDockSpotForTest(String mapId, DockSpot? spot) {
+    _dockSpotMapId = mapId;
+    _dockSpot = spot;
+    _dockNodeMapId = spot?.mapId ?? '';
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  void setHomeForTest(String mapId, HomePosition? home) {
+    _homeMapId = mapId;
+    _home = home;
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  void handleDockStateForTest(Map<String, Object?> message) => _handleDockState(message);
 
   // ---- 홈 위치 ------------------------------------------------------------
   //
@@ -1367,6 +1983,7 @@ class SupervisorProvider extends ChangeNotifier {
           ? (response.accepted ? '홈으로 복귀합니다.' : '홈 복귀 요청이 거부되었습니다.')
           : _localizeGateReason(response.message),
       failurePrefix: '홈 복귀 요청 실패',
+      logAs: null, // 주행 요청 거부·실패는 팝업으로만(2026-11-17)
     );
     return (reply.accepted, reply.message);
   }
@@ -1539,12 +2156,24 @@ class SupervisorProvider extends ChangeNotifier {
   ///
   /// 거부된 요청을 기억해 두면 다음에 누가 그 장소로 안내 주행을 해서 도착했을
   /// 때 엉뚱하게 배송 문자가 나갑니다.
+  /// [note] 는 받는 분께 남길 메시지입니다(2026-11-17). 도착 문자에 실려 45자 안으로 나갑니다.
+  /// [phone] 을 주면 이번 배송만 그 번호로 보냅니다(2026-11-17 B안: 번호 없는 장소도 배송). 장소에
+  /// 저장된 번호는 바꾸지 않습니다.
   Future<String> startDelivery(
     AppSettings settings,
-    LocationPoint location,
-  ) async {
+    LocationPoint location, {
+    String note = '',
+    String phone = '',
+  }) async {
+    final typed = phone.trim().isEmpty ? '' : normalizeContactPhone(phone);
+    if (typed == null) {
+      return '연락처가 휴대폰 번호 모양이 아닙니다.';
+    }
+    if (typed.isNotEmpty && typed != location.contactPhone) {
+      location = location.copyWith(contactPhone: typed);
+    }
     if (!location.canReceiveDelivery) {
-      return '${location.name}에는 도착 문자 연락처가 없습니다. 지도 설정에서 넣어 주세요.';
+      return '${location.name}에 연락처가 없습니다. 연락처를 쓰세요.';
     }
     final current = _delivery;
     if (current != null && !current.phase.isFinished) {
@@ -1562,9 +2191,19 @@ class SupervisorProvider extends ChangeNotifier {
       return message;
     }
     _cancelDeliveryReturnTimer();
-    _setDelivery(DeliveryJob(destination: location, startedAt: DateTime.now()));
+    final cleanNote = deliveryNoteClean(note);
+    _setDelivery(DeliveryJob(
+      destination: location,
+      startedAt: DateTime.now(),
+      note: cleanNote,
+    ));
+    // 비어 있어도 냅니다 — 대신 보내는 폰이 같은 장소의 지난 메시지를 다시 쓰지 않게. 번호는 바꿨을
+    // 때만 싣습니다(저장된 번호는 유심 폰이 제 장소 목록에서 압니다).
+    _publishDeliveryNote(settings, location, cleanNote,
+        phone: typed.isNotEmpty ? location.contactPhone : '');
     _pendingDeliveryNotice = null;
-    _addLog(LogFilter.delivery, '${location.name} 배송 출발');
+    _addLog(LogFilter.delivery,
+        '${location.name} 배송 출발${cleanNote.isEmpty ? '' : ' · 메시지 ${cleanNote.length}자'}');
     notifyListeners();
     return '${location.name}(으)로 배송을 시작합니다.';
   }
@@ -1765,7 +2404,7 @@ class SupervisorProvider extends ChangeNotifier {
     DeliveryJob job, {
     GoalEvent? arrival,
   }) async {
-    final text = deliveryArrivalMessage(job.destination.name);
+    final text = deliveryArrivalMessage(job.destination.name, note: job.note);
     final key = arrival == null ? null : _arrivalKey(arrival);
     DeliveryNotifyResult result;
     try {
@@ -1798,6 +2437,8 @@ class SupervisorProvider extends ChangeNotifier {
     );
     _pendingDeliveryNotice =
         DeliveryNotice(job: job, text: text, result: result);
+    // 출발 때 낸 메시지·번호 래치를 지웁니다(대신 보낸 폰은 이미 썼고, 남기면 번호가 계속 보입니다).
+    _clearDeliveryNote(job.destination.mapId, job.destination.locationId);
     notifyListeners();
   }
 
@@ -1867,7 +2508,9 @@ class SupervisorProvider extends ChangeNotifier {
     // 남으므로 장소만 보면 폰 앱이 같은 장소로 보낸 배송의 팝업을 막았습니다(10-29 검토).
     final job = _delivery;
     final mine = _ownSmsKeys.contains(key) ||
-        (job != null && job.isActive && job.destination.locationId == locationId);
+        (job != null &&
+            job.isActive &&
+            job.destination.locationId == locationId);
     if (_showOtherScreenDeliveryNotices && !mine) {
       _showOtherScreenDeliveryNotice(
         mapId: (message['map_id'] as String?)?.trim() ?? '',
@@ -1914,13 +2557,17 @@ class SupervisorProvider extends ChangeNotifier {
     }
     _addLog(LogFilter.delivery,
         '${location.name} 도착 문자 $state(다른 화면에서 보낸 배송): ${result.detail}');
+    final (note, typedPhone) =
+        _peekDeliveryNote(location.mapId, location.locationId);
     _pendingDeliveryNotice = DeliveryNotice(
       job: DeliveryJob(
-        destination: location,
+        destination: typedPhone.isEmpty
+            ? location
+            : location.copyWith(contactPhone: typedPhone),
         startedAt: DateTime.now(),
         phase: DeliveryPhase.arrived,
       ),
-      text: deliveryArrivalMessage(location.name),
+      text: deliveryArrivalMessage(location.name, note: note),
       result: result,
     );
     notifyListeners();
@@ -1949,8 +2596,12 @@ class SupervisorProvider extends ChangeNotifier {
       }
     }
     final name = location?.name ?? event.destinationName;
+    // 보낸 화면이 남긴 메시지·바꾼 번호(있으면). 한 번 쓰면 지웁니다 — 다음 배송에 섞이지 않게.
+    final (note, typedPhone) = _takeDeliveryNote(event.mapId, event.locationId);
+    final phone =
+        typedPhone.isNotEmpty ? typedPhone : (location?.contactPhone ?? '');
     DeliveryNotifyResult result;
-    if (location == null || !location.canReceiveDelivery) {
+    if (phone.isEmpty) {
       result = const DeliveryNotifyResult(
         sent: false,
         detail: '배송지 연락처를 찾지 못했습니다. 직접 연락하세요.',
@@ -1958,12 +2609,15 @@ class SupervisorProvider extends ChangeNotifier {
     } else {
       try {
         result = await _deliveryNotifier.send(
-          phone: location.contactPhone,
-          text: deliveryArrivalMessage(location.name),
+          phone: phone,
+          text: deliveryArrivalMessage(name, note: note),
         );
       } catch (error) {
         result = DeliveryNotifyResult(sent: false, detail: '발송 오류: $error');
       }
+    }
+    if (note.isNotEmpty || typedPhone.isNotEmpty) {
+      _clearDeliveryNote(event.mapId, event.locationId);
     }
     if (_disposed) {
       return;
@@ -1976,6 +2630,107 @@ class SupervisorProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- 받는 분께 메시지(2026-11-17 사용자 승인) --------------------------------------
+  //
+  // 배송을 보낸 화면이 출발 때 래치 토픽으로 메시지를 냅니다. 문자를 대신 보내는 관리자 유심 폰은
+  // 지도·장소별로 기억했다가 그 장소의 도착 문자에 넣고 지웁니다. 로봇(미션)은 메시지를 모릅니다.
+
+  /// '지도|장소' → (메시지, 바꾼 번호, 받은 시각). 번호는 이번 배송에만 쓴 것이고 비면 장소 번호.
+  final Map<String, (String, String, DateTime)> _deliveryNotes = {};
+
+  /// 이보다 오래된 메시지는 쓰지 않습니다(배송 한 건은 길어야 수십 분).
+  static const Duration _deliveryNoteTtl = Duration(hours: 3);
+
+  void _publishDeliveryNote(
+    AppSettings settings,
+    LocationPoint location,
+    String note, {
+    String phone = '',
+  }) {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return;
+    }
+    client
+      ..advertise(
+          topic: settings.deliveryNoteTopic,
+          type: 'std_msgs/String',
+          latch: true)
+      ..publishJsonString(
+        topic: settings.deliveryNoteTopic,
+        payload: {
+          'map_id': location.mapId,
+          'location_id': location.locationId,
+          'note': note,
+          if (phone.isNotEmpty) 'phone': phone,
+          'sent_at': DateTime.now().toIso8601String(),
+        },
+      );
+  }
+
+  /// 도착 문자를 보낸 뒤 래치에 남은 메시지·번호를 빈 값으로 덮습니다. rosbridge(9090)는 인증이 없어
+  /// 래치에 남은 번호는 같은 망의 누구나 읽을 수 있습니다 — 쓴 뒤에는 남기지 않습니다(2026-11-17).
+  void _clearDeliveryNote(String mapId, String locationId) {
+    final settings = _lastSettings;
+    final client = _client;
+    if (settings == null ||
+        client == null ||
+        _connectionState != RosConnectionState.connected) {
+      return;
+    }
+    client
+      ..advertise(
+          topic: settings.deliveryNoteTopic,
+          type: 'std_msgs/String',
+          latch: true)
+      ..publishJsonString(
+        topic: settings.deliveryNoteTopic,
+        payload: {'map_id': mapId, 'location_id': locationId, 'note': ''},
+      );
+  }
+
+  void _handleDeliveryNote(Map<String, Object?> message) {
+    final decoded = _decodeJsonString(message);
+    if (decoded == null) {
+      return;
+    }
+    final mapId = '${decoded['map_id'] ?? ''}';
+    final locationId = '${decoded['location_id'] ?? ''}';
+    if (mapId.isEmpty || locationId.isEmpty) {
+      return;
+    }
+    final note = deliveryNoteClean('${decoded['note'] ?? ''}');
+    final phone = normalizeContactPhone('${decoded['phone'] ?? ''}') ?? '';
+    if (note.isEmpty && phone.isEmpty) {
+      _deliveryNotes.remove('$mapId|$locationId');
+      return;
+    }
+    _deliveryNotes['$mapId|$locationId'] = (note, phone, DateTime.now());
+    while (_deliveryNotes.length > 20) {
+      _deliveryNotes.remove(_deliveryNotes.keys.first);
+    }
+  }
+
+  @visibleForTesting
+  void handleDeliveryNoteForTest(Map<String, Object?> message) =>
+      _handleDeliveryNote(message);
+
+  /// (메시지, 바꾼 번호). 없거나 오래됐으면 둘 다 빈 값.
+  (String, String) _peekDeliveryNote(String mapId, String locationId) {
+    final entry = _deliveryNotes['$mapId|$locationId'];
+    if (entry == null ||
+        DateTime.now().difference(entry.$3) > _deliveryNoteTtl) {
+      return ('', '');
+    }
+    return (entry.$1, entry.$2);
+  }
+
+  (String, String) _takeDeliveryNote(String mapId, String locationId) {
+    final taken = _peekDeliveryNote(mapId, locationId);
+    _deliveryNotes.remove('$mapId|$locationId');
+    return taken;
+  }
+
   void _publishRelayedSmsResult(GoalEvent event, DeliveryNotifyResult result) {
     final client = _client;
     final settings = _lastSettings;
@@ -1985,7 +2740,8 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     client
-      ..advertise(topic: settings.deliverySmsResultTopic, type: 'std_msgs/String')
+      ..advertise(
+          topic: settings.deliverySmsResultTopic, type: 'std_msgs/String')
       ..publishJsonString(
         topic: settings.deliverySmsResultTopic,
         payload: {
@@ -2081,27 +2837,24 @@ class SupervisorProvider extends ChangeNotifier {
         _activeHelp = event;
         if (isNew) {
           final stamp = event.robotStamp;
-          _helpRequestedAt =
-              stamp.contains('T') ? stamp.substring(stamp.indexOf('T') + 1) : stamp;
-          final where = event.place.isEmpty ? '' : ' (${event.place})';
-          _addLog(LogFilter.emergencyStop, '도움 요청$where');
+          _helpRequestedAt = stamp.contains('T')
+              ? stamp.substring(stamp.indexOf('T') + 1)
+              : stamp;
+          // 도움 요청은 알림 및 로그에 남기지 않습니다 — 팝업으로 알립니다(2026-11-17).
         }
       case GoalEventKind.helpAcknowledged:
         if (_activeHelp?.helpId == event.helpId) {
           _activeHelp = null;
           _acknowledgedHelpId = event.helpId;
-          _addLog(LogFilter.coordinateTransfer, '도움 요청을 관리자가 확인했습니다.');
         }
       case GoalEventKind.helpCanceled:
         if (_activeHelp?.helpId == event.helpId) {
           _activeHelp = null;
-          _addLog(LogFilter.coordinateTransfer, '도움 요청이 끝났습니다.');
         } else if (_acknowledgedHelpId == event.helpId) {
           // 확인 뒤의 취소는 사용자가 직접 한 것뿐입니다(미션은 그 밖의 끝에는 알리지 않습니다).
           _acknowledgedHelpId = null;
           const notice = '사용자가 도움 요청을 취소했습니다.';
           _pendingHelpNotice = notice;
-          _addLog(LogFilter.emergencyStop, notice);
         }
       default:
         break;
@@ -2137,11 +2890,13 @@ class SupervisorProvider extends ChangeNotifier {
         }
       },
       failurePrefix: '도움 요청 확인 실패',
+      logAs: null, // 주행 요청 거부·실패는 팝업으로만(2026-11-17)
     );
     if (reply.accepted) {
       _acknowledgedHelpId = help.helpId;
     }
-    if ((reply.accepted || alreadyEnded) && _activeHelp?.helpId == help.helpId) {
+    if ((reply.accepted || alreadyEnded) &&
+        _activeHelp?.helpId == help.helpId) {
       _activeHelp = null;
       notifyListeners();
     }
@@ -2379,7 +3134,7 @@ class SupervisorProvider extends ChangeNotifier {
         final notice = _patrolStopNotices[event.reason];
         if (notice != null) {
           _pendingPatrolNotice = notice;
-          _addLog(LogFilter.emergencyStop, notice);
+          _addLog(LogFilter.patrol, notice);
         }
       default:
         break;
@@ -2600,6 +3355,7 @@ class SupervisorProvider extends ChangeNotifier {
             : response.message;
       },
       failurePrefix: 'Mission Manager 요청 실패',
+      logAs: LogFilter.patrol,
       onAccepted: (_) {
         if (hint != null) {
           _hintPatrol(hint);
@@ -2647,6 +3403,7 @@ class SupervisorProvider extends ChangeNotifier {
         return missionMessage.isEmpty ? '요청이 거부되었습니다.' : missionMessage;
       },
       failurePrefix: 'Mission Manager 요청 실패',
+      logAs: LogFilter.patrol,
       onAccepted: (_) {
         _hintPatrol(PatrolPhase.off);
         _clearPatrolAlarm();
@@ -2669,7 +3426,7 @@ class SupervisorProvider extends ChangeNotifier {
     );
     if (!returnHome && notice != kPatrolStoppedText && !_disposed) {
       // 못 돌아간 까닭은 알림 목록에도 남깁니다(종료 문장은 위에서 이미 남았습니다).
-      _addLog(LogFilter.coordinateTransfer, notice);
+      _addLog(LogFilter.patrol, notice); // 경비 종료 사유는 경비로(2026-11-17)
     }
     return notice;
   }
@@ -2778,7 +3535,23 @@ class SupervisorProvider extends ChangeNotifier {
   }
 
   void _handleGoalEvent(Map<String, Object?> message) {
-    final event = GoalEvent.fromJson(message, id: _uuid.v4());
+    var event = GoalEvent.fromJson(message, id: _uuid.v4());
+    // 도킹 실패가 온 **그때** 도크 위치가 '지도에서 지정 · 아직 확인 안 됨'이면 표시해 둡니다 —
+    // 팝업이 '도크 위치 다시 잡기'를 안내합니다(2026-11-19, 목업 92).
+    if (event.kind == GoalEventKind.dockFailed &&
+        (_dockSpot?.mapPickUnverified ?? false)) {
+      event = event.asDockFirstTry();
+    }
+
+    // 음성·다른 기기로 주행·홈 복귀·경비가 시작되면 수동 조종을 그 자리에서 멈춥니다(2026-11-18 검토).
+    // 화면의 막기는 /robot_status(0.5 s 주기)를 기다리므로, 그 사이 두 명령이 섞이지 않게 합니다.
+    if (teleopActive &&
+        (event.kind == GoalEventKind.sent ||
+            event.kind == GoalEventKind.accepted ||
+            event.kind == GoalEventKind.returnHomeSent ||
+            event.kind.isPatrol)) {
+      releaseTeleop();
+    }
 
     // 도움 요청은 주행 사건이 아닙니다 — 일시정지 표시·주행 알림 팝업과 따로 다룹니다.
     if (event.isHelp) {
@@ -2843,9 +3616,27 @@ class SupervisorProvider extends ChangeNotifier {
     // 홈 복귀가 성공하면 그 홈은 '가 본 자리'가 됩니다. 젯슨이 home.yaml 에
     // 이미 기록했지만, 앱 화면의 경고를 바로 내리기 위해 여기서도 반영합니다.
     if (event.kind == GoalEventKind.returnHomeSucceeded && _home != null) {
-      _home = _home!.copyWith(visitedOk: true);
-    } else if (event.kind == GoalEventKind.returnHomeFailed && _home != null) {
-      _home = _home!.copyWith(visitedOk: false);
+      _home = _home!.copyWith(visitedOk: true, note: '');
+    }
+    // 주행이 끝나면(성공·실패·취소, 홈 복귀든 안내든) 홈 상태를 로봇에서 다시 읽습니다
+    // (2026-11-19 사용자). 로봇은 홈 30 cm 안에 한 번이라도 들어오면 '가 봄'으로, 복귀가 막혀
+    // 실패하면 '접근할 수 없음'으로 적습니다 — 방향만 못 맞춰 실패·취소로 끝난 복귀도 '가 봄'이라
+    // 앱이 결과 종류만 보고 정할 수 없습니다. 로봇은 사건을 내기 전에 파일을 씁니다.
+    final home = _home;
+    final settings = _lastSettings;
+    if (home != null &&
+        settings != null &&
+        _homeMapId.isNotEmpty &&
+        (!home.visitedOk || home.note.isNotEmpty) &&
+        const {
+          GoalEventKind.succeeded,
+          GoalEventKind.failed,
+          GoalEventKind.canceled,
+          GoalEventKind.returnHomeSucceeded,
+          GoalEventKind.returnHomeFailed,
+          GoalEventKind.returnHomeCanceled,
+        }.contains(event.kind)) {
+      unawaited(refreshHome(settings, _homeMapId));
     }
 
     if (event.needsPopup) {
@@ -2867,17 +3658,8 @@ class SupervisorProvider extends ChangeNotifier {
         _lastGoalAlertId = event.id;
         _lastGoalAlertIsWait = event.kind.isWaitAlert;
       }
-      // 팝업과 별개로 알림 목록에도 남깁니다. 팝업은 그 자리에서 닫히지만
-      // 목록은 나중에 되짚을 수 있어야 합니다.
-      final where =
-          event.destinationName.isEmpty ? '' : '${event.destinationName}: ';
-      final detail = event.reason.isEmpty ? '' : ' (${event.reason})';
-      _addLog(
-        event.isFailure
-            ? LogFilter.emergencyStop
-            : LogFilter.coordinateTransfer,
-        '$where${event.title}$detail',
-      );
+      // 주행 알림(출발·도착·실패)은 알림 및 로그에 남기지 않습니다 — 팝업으로 알립니다
+      // (2026-11-17 사용자: 비상정지 분류는 실제 비상정지만).
     }
     notifyListeners();
   }
@@ -2885,6 +3667,127 @@ class SupervisorProvider extends ChangeNotifier {
   @visibleForTesting
   void handleGoalEventForTest(Map<String, Object?> message) =>
       _handleGoalEvent(message);
+
+  // ---- 지도 수정 (2026-11-19, 목업 75~82) --------------------------------
+  //
+  // 지우기·부분 스캔·되돌리기는 전부 젯슨의 map_fix_node 가 합니다. 앱은 서비스
+  // /vica/map_fix 하나로 요청하고, 부분 스캔의 진행은 토픽 /vica/map_fix/state 로 받습니다.
+  // 수정할 수 있는지(잠금)도 노드가 정합니다 — 앱은 그 답을 보여 주기만 합니다.
+
+  static const mapFixService = '/vica/map_fix';
+  static const mapFixStateTopic = '/vica/map_fix/state';
+
+  // 지도 파일을 쓰고 Nav2 가 다시 읽기를 기다리거나(노드 쪽 10 s), 스캔을 받아 자세를 맞추는
+  // 요청입니다. 나머지는 파일을 읽기만 합니다.
+  static const _mapFixSlowActions = {
+    'erase',
+    'undo',
+    'scan_apply',
+    'scan_check',
+    'scan_start',
+  };
+
+  // 거절되면 '지도 설정' 기록에 남기는 요청(지도 파일을 바꾸는 것).
+  static const _mapFixLoggedActions = {'erase', 'undo', 'scan_apply'};
+
+  MapFixStatus? _mapFixStatus;
+  String _mapFixStatusMapId = '';
+  MapFixScanState? _mapFixScan;
+
+  /// [mapId] 지도의 마지막 `get` 결과(잠금·최근 수정). 아직 못 받았거나 다른 지도면 null.
+  MapFixStatus? mapFixStatusFor(String? mapId) =>
+      (mapId != null && _mapFixStatusMapId == mapId) ? _mapFixStatus : null;
+
+  /// 부분 스캔의 최신 진행. 세션이 없거나 연결이 끊기면 null.
+  MapFixScanState? get mapFixScan => _mapFixScan;
+
+  /// 지도 수정 요청 하나를 보냅니다([action] 은 MapFix.srv 의 목록).
+  ///
+  /// 연결이 없거나 노드가 답하지 않으면 예외 대신 `reason: 'offline'` 응답을 돌려줍니다.
+  Future<MapFixResult> mapFix(
+    String mapId,
+    String action, {
+    Map<String, Object?> args = const {},
+    Duration? timeout,
+  }) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return MapFixResult.offline('ROS Bridge에 연결되지 않았습니다.');
+    }
+    MapFixResult reply;
+    var detail = '';
+    try {
+      final response = await client.callService(
+        service: mapFixService,
+        type: 'vica_interfaces/srv/MapFix',
+        args: {
+          'map_id': mapId,
+          'action': action,
+          'args_json': args.isEmpty ? '' : jsonEncode(args),
+        },
+        timeout: timeout ??
+            Duration(seconds: _mapFixSlowActions.contains(action) ? 15 : 8),
+      );
+      reply = MapFixResult.fromValues(response.values);
+    } catch (error) {
+      // 화면에는 쉬운 말만, 오류 원문(시간 초과·서비스 없음)은 기록에만 남깁니다.
+      reply = MapFixResult.offline(kMapFixNoReplyText);
+      detail = ' (map_fix_node: $error)';
+    }
+    if (!reply.accepted &&
+        !_disposed &&
+        _mapFixLoggedActions.contains(action)) {
+      _addLog(
+        LogFilter.coordinateTransfer,
+        '지도 수정 실패: ${reply.message}$detail',
+      );
+    }
+    // 지도 그림이 바뀌었으면 목록을 다시 받아 그림 버전(image_version)을 갱신합니다. 주소가 같으면
+    // 앱이 옛 그림을 그대로 씁니다(11-19 실기).
+    final settings = _lastSettings;
+    if (reply.accepted &&
+        !_disposed &&
+        settings != null &&
+        _mapFixChangesImage.contains(action)) {
+      requestMapList(settings);
+    }
+    return reply;
+  }
+
+  static const _mapFixChangesImage = {'erase', 'scan_apply', 'undo'};
+
+  /// 잠금 상태와 최근 수정 기록을 다시 받습니다. 못 받으면 비웁니다(버튼이 꺼집니다).
+  Future<MapFixResult> refreshMapFix(String mapId) async {
+    final reply = await mapFix(mapId, 'get');
+    if (_disposed) {
+      return reply;
+    }
+    _mapFixStatus =
+        reply.accepted ? MapFixStatus.fromResult(reply.result) : null;
+    _mapFixStatusMapId = reply.accepted ? mapId : '';
+    notifyListeners();
+    return reply;
+  }
+
+  void _handleMapFixState(Map<String, Object?> message) {
+    final state = MapFixScanState.fromJson(message);
+    // 끝난 세션('done')은 남기지 않습니다 — 화면이 '세션 없음'으로 돌아갑니다.
+    _mapFixScan = state.phase == 'done' ? null : state;
+    notifyListeners();
+  }
+
+  /// 화면이 다 본 진행(실패 알림을 닫았을 때 등)을 치웁니다.
+  void clearMapFixScan() {
+    if (_mapFixScan == null) {
+      return;
+    }
+    _mapFixScan = null;
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  void handleMapFixStateForTest(Map<String, Object?> message) =>
+      _handleMapFixState(message);
 
   // ---- Nav2 초기 위치 잡기 ----------------------------------------------
   //
@@ -3011,7 +3914,9 @@ class SupervisorProvider extends ChangeNotifier {
       final message = response.message.isEmpty
           ? (response.accepted ? '초기 위치를 반영했습니다.' : '반영이 거부되었습니다.')
           : response.message;
-      _addLog(LogFilter.coordinateTransfer, message);
+      if (!response.accepted) {
+        _addLog(LogFilter.coordinateTransfer, message);
+      }
       if (response.accepted) {
         // 반영이 끝나면 화면을 1단계로 되돌립니다. 남겨 두면 이미 반영한 값을
         // 다시 확정할 수 있게 보입니다.
@@ -3098,7 +4003,6 @@ class SupervisorProvider extends ChangeNotifier {
       _keepoutMaskApplied = response.values['mask_exists'] == true;
       _keepoutState = KeepoutSaveState.idle;
       _keepoutMessage = '';
-      _addLog(LogFilter.coordinateTransfer, '$mapId 금지구역 ${zones.length}개 조회');
     } catch (error) {
       _keepoutState = KeepoutSaveState.failed;
       _keepoutMessage = '금지구역을 불러오지 못했습니다: $error';
@@ -3260,7 +4164,9 @@ class SupervisorProvider extends ChangeNotifier {
       } else {
         _keepoutState = KeepoutSaveState.failed;
       }
-      _addLog(LogFilter.coordinateTransfer, '금지구역 저장: $_keepoutMessage');
+      if (_keepoutState == KeepoutSaveState.failed) {
+        _addLog(LogFilter.coordinateTransfer, '금지구역 저장: $_keepoutMessage');
+      }
     } catch (error) {
       _keepoutState = KeepoutSaveState.failed;
       _keepoutMessage = '금지구역 저장 실패: $error';
@@ -3298,7 +4204,9 @@ class SupervisorProvider extends ChangeNotifier {
     _keepoutMessage = text;
     _keepoutState =
         applied ? KeepoutSaveState.succeeded : KeepoutSaveState.failed;
-    _addLog(LogFilter.coordinateTransfer, '금지구역 상태: $text');
+    if (!applied) {
+      _addLog(LogFilter.coordinateTransfer, '금지구역 상태: $text');
+    }
     notifyListeners();
   }
 
@@ -3731,7 +4639,6 @@ class SupervisorProvider extends ChangeNotifier {
       _routePreview = null;
       _routeChecks = RouteChecks.none;
       _routeState = RouteEditState.succeeded;
-      _addLog(LogFilter.coordinateTransfer, '레일 저장: $_routeMessage');
       notifyListeners();
       await requestRouteInfo(settings, mapId);
       await loadRouteGraph(settings, mapId);
@@ -3772,7 +4679,9 @@ class SupervisorProvider extends ChangeNotifier {
     } else {
       _pendingRouteAlert = text.isEmpty ? '레일을 적용하지 못했습니다.' : text;
     }
-    _addLog(LogFilter.coordinateTransfer, '레일 상태: $text');
+    if (!applied) {
+      _addLog(LogFilter.coordinateTransfer, '레일 상태: $text');
+    }
     notifyListeners();
   }
 
@@ -3851,7 +4760,9 @@ class SupervisorProvider extends ChangeNotifier {
       final message = response.message.isEmpty
           ? (response.accepted ? '저장을 시작했습니다.' : '저장이 거부되었습니다.')
           : response.message;
-      _addLog(LogFilter.coordinateTransfer, message);
+      if (!response.accepted) {
+        _addLog(LogFilter.coordinateTransfer, message);
+      }
       return message;
     } catch (error) {
       // rosbridge 가 요청을 거부하면 StateError 로 옵니다. 정렬 요청이 거부됐다면
@@ -3908,13 +4819,27 @@ class SupervisorProvider extends ChangeNotifier {
   static const teleopMaxLinear = 0.3;
   static const teleopMaxAngular = 0.3;
 
+  /// 원격 주행의 수동 주행 상한(2026-11-18 사용자: 속도 0.1~0.7 m/s, 회전은 속도와 같이 오르내림).
+  /// 지도 그리기·홈 위치 조종판은 위 0.3 그대로입니다.
+  static const manualDriveMaxLinear = 0.7;
+  static const manualDriveMaxAngular = 0.7;
+
+  /// 수동 주행 가속 상한(2026-11-18 사용자 B안: 3.0). 직진 m/s², 회전 rad/s² 같은 수.
+  /// 출발만 완만히 합니다 — 줄이거나 방향을 바꾸거나 손을 떼면 바로 그 값을 보냅니다.
+  /// 0 → 0.3 m/s 0.1 s, 0 → 0.7 m/s 약 0.23 s. Nav2 없이도 그대로 동작합니다(앱 안 계산).
+  static const manualDriveAccel = 3.0;
+
   // 20 Hz. Safety 의 0.5초 시한보다 10배 촘촘해 한두 장을 놓쳐도 끊기지 않습니다.
   static const _teleopPeriod = Duration(milliseconds: 50);
 
   Timer? _teleopTimer;
   bool _teleopAdvertised = false;
+  // 지금 보내는 값. 가속 상한이 있으면 누르고 있는 값(_teleopTarget*)까지 50 ms 마다 서서히 올라갑니다.
   double _teleopLinear = 0;
   double _teleopAngular = 0;
+  double _teleopTargetLinear = 0;
+  double _teleopTargetAngular = 0;
+  double? _teleopAccel;
 
   bool get teleopActive => _teleopTimer != null;
 
@@ -3923,25 +4848,62 @@ class SupervisorProvider extends ChangeNotifier {
   /// 보는 이유는, 연결이 끊겨 명령이 안 나가는데 버튼만 빛나는 거짓 신호를
   /// 막기 위해서입니다 — 데드맨 조작판에서 색은 "로봇에 명령이 가고 있다"는 뜻입니다.
   bool isTeleopHeld({required double linear, required double angular}) =>
-      teleopActive && _teleopLinear == linear && _teleopAngular == angular;
+      teleopActive &&
+      _teleopTargetLinear == linear &&
+      _teleopTargetAngular == angular;
 
   /// 누르고 있는 동안 부릅니다. 값이 바뀌면 다시 부르면 됩니다.
-  void holdTeleop({required double linear, required double angular}) {
+  /// [maxLinear]·[maxAngular]·[accel] 은 수동 주행만 넘깁니다(기본은 지도 그리기 상한 0.3, 가속 제한 없음).
+  void holdTeleop({
+    required double linear,
+    required double angular,
+    double maxLinear = teleopMaxLinear,
+    double maxAngular = teleopMaxAngular,
+    double? accel,
+  }) {
     final client = _client;
     if (client == null || _connectionState != RosConnectionState.connected) {
       return;
     }
-    _teleopLinear = linear.clamp(-teleopMaxLinear, teleopMaxLinear).toDouble();
-    _teleopAngular =
-        angular.clamp(-teleopMaxAngular, teleopMaxAngular).toDouble();
+    _teleopTargetLinear = linear.clamp(-maxLinear, maxLinear).toDouble();
+    _teleopTargetAngular = angular.clamp(-maxAngular, maxAngular).toDouble();
+    _teleopAccel = accel;
+    _stepTeleop();
 
     if (!_teleopAdvertised) {
       client.advertise(topic: teleopTopic, type: _teleopType);
       _teleopAdvertised = true;
     }
     _publishTeleop();
-    _teleopTimer ??= Timer.periodic(_teleopPeriod, (_) => _publishTeleop());
+    _teleopTimer ??= Timer.periodic(_teleopPeriod, (_) {
+      _stepTeleop();
+      _publishTeleop();
+    });
     notifyListeners();
+  }
+
+  /// 보내는 값을 누르고 있는 값 쪽으로 한 걸음(50 ms) 옮깁니다. 늘릴 때만 가속 상한을 지키고,
+  /// 줄이거나 방향을 바꾸면 기다리지 않습니다(방향을 바꾸면 0 에서 다시 올라갑니다).
+  void _stepTeleop() {
+    final accel = _teleopAccel;
+    if (accel == null) {
+      _teleopLinear = _teleopTargetLinear;
+      _teleopAngular = _teleopTargetAngular;
+      return;
+    }
+    final step = accel * _teleopPeriod.inMicroseconds / 1e6;
+    double toward(double current, double target) {
+      if (current * target < 0) {
+        current = 0;
+      }
+      if (target.abs() <= current.abs()) {
+        return target;
+      }
+      return current + (target - current).clamp(-step, step);
+    }
+
+    _teleopLinear = toward(_teleopLinear, _teleopTargetLinear);
+    _teleopAngular = toward(_teleopAngular, _teleopTargetAngular);
   }
 
   /// 손을 뗐을 때 부릅니다. 0을 한 번 보내고 발행을 멈춥니다.
@@ -3953,6 +4915,8 @@ class SupervisorProvider extends ChangeNotifier {
     _teleopTimer = null;
     _teleopLinear = 0;
     _teleopAngular = 0;
+    _teleopTargetLinear = 0;
+    _teleopTargetAngular = 0;
     if (_teleopAdvertised) {
       _publishTeleop();
     }
@@ -3997,6 +4961,7 @@ class SupervisorProvider extends ChangeNotifier {
               ? '요청이 거부되었습니다.'
               : _localizeGateReason(response.message),
       failurePrefix: 'Mission Manager 요청 실패',
+      logAs: null, // 주행 요청 거부·실패는 팝업으로만(2026-11-17)
     );
     return reply.message;
   }
@@ -4004,7 +4969,8 @@ class SupervisorProvider extends ChangeNotifier {
   /// 미션·지도·홈 서비스 한 번 부르기의 공통 틀입니다.
   ///
   /// 연결을 확인하고(없으면 부르지 않고 'ROS Bridge에 연결되지 않았습니다.'), 부르고,
-  /// [describe] 가 응답으로 화면 문구를 고르고, 그 문구를 '좌표 전송' 알림에 남깁니다.
+  /// [describe] 가 응답으로 화면 문구를 고릅니다. 거부되거나 호출이 실패했을 때만 [logAs] 분류
+  /// (기본 '지도 설정')에 남깁니다 — 2026-11-17 사용자: 반영 안 된 것만 기록.
   /// 호출이 실패하면(시간 초과·서비스 없음·연결 끊김) '[failurePrefix]: 오류' 입니다.
   /// 자리마다 기본 문구와 거부 사유를 읽는 법이 달라 [describe] 로 받습니다.
   ///
@@ -4017,6 +4983,7 @@ class SupervisorProvider extends ChangeNotifier {
     Duration timeout = RosBridgeClient.defaultServiceTimeout,
     required String Function(RosServiceResponse response) describe,
     required String failurePrefix,
+    LogFilter? logAs = LogFilter.coordinateTransfer,
     void Function(RosServiceResponse response)? onAccepted,
     void Function(bool calling)? busy,
   }) async {
@@ -4033,14 +5000,19 @@ class SupervisorProvider extends ChangeNotifier {
         timeout: timeout,
       );
       final message = describe(response);
-      _addLog(LogFilter.coordinateTransfer, message);
+      // 2026-11-17 사용자: 거부(반영 안 됨)만 남긴다. 수락은 화면 문구로 충분하다.
+      if (!response.accepted && logAs != null) {
+        _addLog(logAs, message);
+      }
       if (response.accepted) {
         onAccepted?.call(response);
       }
       return (accepted: response.accepted, message: message);
     } catch (error) {
       final message = '$failurePrefix: $error';
-      _addLog(LogFilter.coordinateTransfer, message);
+      if (logAs != null) {
+        _addLog(logAs, message);
+      }
       return (accepted: false, message: message);
     } finally {
       busy?.call(false);
@@ -4139,8 +5111,6 @@ class SupervisorProvider extends ChangeNotifier {
       return;
     }
     _locationsByMap[mapId] = nextLocations;
-    _addLog(
-        LogFilter.coordinateTransfer, '$mapId 장소 ${nextLocations.length}개 수신');
     notifyListeners();
   }
 
@@ -4178,7 +5148,7 @@ class SupervisorProvider extends ChangeNotifier {
       _addLog(LogFilter.connection, errorReason);
       return;
     }
-    _addLog(LogFilter.emergencyStop, '${robot.robotName}: $errorReason');
+    // 비상정지 분류는 실제 비상정지만(2026-11-17) — 오류 사유는 시스템 진단에서 봅니다.
   }
 
   bool _isNoEventsRecorded(String message) {
@@ -4281,15 +5251,8 @@ class SupervisorProvider extends ChangeNotifier {
     }
 
     // 주행을 막는 등급만 기존 알림 목록에도 남깁니다. WARN·DEGRADED까지 넣으면
-    // 알림이 진단 화면과 중복되면서 정작 중요한 항목이 묻힙니다.
-    if (event.fault.severity.blocksDriving &&
-        event.transition != FaultTransition.reminder) {
-      final prefix = event.transition == FaultTransition.cleared ? '해소' : '발생';
-      _addLog(
-        LogFilter.emergencyStop,
-        '[$prefix] ${event.fault.componentLabelText}: ${event.fault.detail}',
-      );
-    }
+    // 결함 발생·해소는 알림 및 로그에 남기지 않습니다(2026-11-17 사용자: 비상정지 분류는 실제
+    // 비상정지만). 시스템 진단 '최근 1시간' 에서 봅니다.
 
     notifyListeners();
   }
@@ -4354,6 +5317,8 @@ class SupervisorProvider extends ChangeNotifier {
     _emergencyStopSources = rawSources is List
         ? rawSources.map((value) => value.toString()).toList()
         : const [];
+    // 서비스 호출 중이어도 기록은 방송 기준으로 남깁니다(앱으로 건 것도 sources 에 'app').
+    _logEmergencyStopChange(active, _emergencyStopSources);
 
     // 서비스 호출이 진행 중일 때는 그 응답이 상태를 결정하므로 브로드캐스트는 무시합니다.
     if (_emergencyStopState == EmergencyStopState.activating ||
@@ -4389,6 +5354,31 @@ class SupervisorProvider extends ChangeNotifier {
     if (_emergencyStopState != EmergencyStopState.inactive) {
       _setEmergencyStopState(EmergencyStopState.inactive, '');
     }
+  }
+
+  // 비상정지가 실제로 걸리고 풀린 것만 '비상정지' 분류에 남깁니다(사용자 2026-11-17).
+  // 원인이 새로 붙을 때마다 한 줄('비상정지: 물리 버튼'), 풀리면 '비상정지 해제'.
+  // 원인이 빠져도(버튼을 놓음) 래치가 남아 있는 동안은 아무것도 남기지 않습니다.
+  void _logEmergencyStopChange(bool active, List<String> sources) {
+    if (!active) {
+      if (_loggedEstopActive) {
+        _addLog(LogFilter.emergencyStop, '비상정지 해제');
+      }
+      _loggedEstopActive = false;
+      _loggedEstopSources.clear();
+      return;
+    }
+    final fresh =
+        sources.where((s) => !_loggedEstopSources.contains(s)).toList();
+    if (fresh.isEmpty && !_loggedEstopActive) {
+      // 원인을 안 보내는 옛 노드.
+      _addLog(LogFilter.emergencyStop, '비상정지 (원인 모름)');
+    }
+    for (final source in fresh) {
+      _addLog(LogFilter.emergencyStop, '비상정지: ${estopSourceLabel(source)}');
+    }
+    _loggedEstopSources.addAll(fresh);
+    _loggedEstopActive = true;
   }
 
   void _setEmergencyStopState(
@@ -4443,6 +5433,7 @@ class SupervisorProvider extends ChangeNotifier {
     _reconnectStableTimer?.cancel();
     _deliveryReturnTimer?.cancel();
     _patrolClipTimer?.cancel();
+    frontRangeTick.dispose();
     unawaited(_client?.close());
     super.dispose();
   }

@@ -86,41 +86,33 @@ class InitialPoseCard extends StatelessWidget {
               const Icon(Icons.my_location,
                   size: 20, color: VicaColors.primaryDark),
               const SizedBox(width: 8),
+              // 2026-11-17 제목·문구 간결화(사용자 승인): 제목 '초기 위치', 소개문 뺌.
               Expanded(
                 child: Text(
-                  '초기 위치 잡기',
+                  '초기 위치',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
               ),
-              TextButton(
+              PressScale(child: TextButton(
                 onPressed: busy ? null : onClose,
                 child: const Text('닫기'),
-              ),
+              )),
             ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            // 마침표에서 줄을 나누되 짧은 문장은 붙이고, 그 안은 어절 단위로
-            // 접힙니다(2026-09-15).
-            vicaKeepWords(vicaBreakAtSentences(
-              'Nav2 를 켜면 로봇은 자기가 어디 있는지 모릅니다. 지도에서 로봇이 현재 위치를 선택해 주세요.',
-            )),
-            style: const TextStyle(color: VicaColors.muted, fontSize: 13),
-          ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           _step(
             context,
             number: '1',
             title: spot == null
-                ? '지도를 눌러 로봇이 있는 위치를 선택해주세요'
-                : '선택한 위치 (${spot.dx.toStringAsFixed(2)}, ${spot.dy.toStringAsFixed(2)})',
+                ? '지도에서 위치 누르기'
+                : '(${spot.dx.toStringAsFixed(2)}, ${spot.dy.toStringAsFixed(2)})',
             done: spot != null,
           ),
           const SizedBox(height: 12),
           _step(
             context,
             number: '2',
-            title: '로봇이 보는 쪽 (지도 그림 기준)',
+            title: '방향', // 지도 그림 기준(PoseDirection)
             done: direction != null,
           ),
           const SizedBox(height: 8),
@@ -150,7 +142,7 @@ class InitialPoseCard extends StatelessWidget {
                 selected: direction == null,
                 showCheckmark: false,
                 avatar: const Icon(Icons.help_outline, size: 18),
-                label: const Text('모르겠음'),
+                label: const Text('모름'),
                 onSelected:
                     busy || spot == null ? null : (_) => onDirection(null),
               ),
@@ -159,14 +151,12 @@ class InitialPoseCard extends StatelessWidget {
           if (direction == null) ...[
             const SizedBox(height: 6),
             Text(
-              vicaKeepWords(vicaBreakAtSentences(
-                '방향을 모르면 360° 전부를 훑습니다. 느리고, 앞뒤가 같은 복도에서는 뒤집힌 자세와 구분하지 못합니다.',
-              )),
+              vicaKeepWords('모름 = 360° 탐색(느림)'),
               style: const TextStyle(color: VicaColors.muted, fontSize: 12),
             ),
           ],
           const SizedBox(height: 16),
-          FilledButton.icon(
+          PressScale(child: FilledButton.icon(
             onPressed: spot == null || busy ? null : onCheck,
             icon: busy
                 ? const SizedBox(
@@ -175,8 +165,8 @@ class InitialPoseCard extends StatelessWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.search),
-            label: Text(busy ? '확인 중…' : '여기가 맞는지 확인'),
-          ),
+            label: Text(busy ? '확인 중…' : '확인'),
+          )),
           if (result != null) ...[
             const SizedBox(height: 16),
             _Score(result: result!),
@@ -197,7 +187,7 @@ class InitialPoseCard extends StatelessWidget {
                 return Row(
                   children: [
                     Expanded(
-                      child: FilledButton.icon(
+                      child: PressScale(child: FilledButton.icon(
                         // 확정 가능 여부는 **노드가 판정합니다.** 앱은 그 결과를
                         // 그대로 씁니다. 앱에서 다시 계산하면 두 기준이 갈립니다.
                         onPressed: result!.ok && !busy ? onCommit : null,
@@ -206,15 +196,15 @@ class InitialPoseCard extends StatelessWidget {
                           oneLine ? '지금 위치로 확정' : '지금 위치\n확정',
                           textAlign: TextAlign.center,
                         ),
-                      ),
+                      )),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: OutlinedButton.icon(
+                      child: PressScale(child: OutlinedButton.icon(
                         onPressed: busy ? null : onReset,
                         icon: const Icon(Icons.refresh),
                         label: const Text('다시 선택'),
-                      ),
+                      )),
                     ),
                   ],
                 );

@@ -9,6 +9,9 @@
 //     노드가 강제 종료되기 쉽다 — 11-16 실기). 예약 중 '주행 계속'은 예약 취소입니다.
 //   - 초기 위치 대기: 원격 주행 탭의 초기 위치 카드로 보냅니다(그 카드는 그대로 씁니다).
 //   - 지도로 바꾸기([thenMapping]): 다 꺼지면 지도 모드로 들어갑니다.
+//   - 주행 끄기([stopOnly], 2026-11-17 대시보드 버튼): 다 꺼지면 모드 선택으로 돌아갑니다.
+//   - 주행 지도 바꾸기([mapChange], 2026-11-17 목업 ⑤): 젯슨이 Nav2·미션·음성을 다시 띄우는 동안
+//     진행을 보이고, 초기 위치 대기에 이르면 원격 주행 탭으로 보냅니다.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -25,6 +28,8 @@ class DriveBringupScreen extends StatefulWidget {
     super.key,
     this.submode = DriveSubmode.guideDelivery,
     this.thenMapping = false,
+    this.stopOnly = false,
+    this.mapChange,
   });
 
   /// 다 켜진 뒤 처음 열 화면을 정합니다.
@@ -32,6 +37,13 @@ class DriveBringupScreen extends StatefulWidget {
 
   /// true 면 주행을 끄는 중이고, 다 꺼지면 지도 모드로 들어갑니다.
   final bool thenMapping;
+
+  /// true 면 주행을 끄는 중이고(대시보드 '주행 끄기'), 다 꺼지면 모드 선택으로 돌아갑니다.
+  /// 끄기 요청은 연 쪽이 이미 보냈습니다.
+  final bool stopOnly;
+
+  /// 주행 지도를 바꾸는 중이면 (바꾸기 전 이름, 바꾼 이름).
+  final (String, String)? mapChange;
 
   @override
   State<DriveBringupScreen> createState() => _DriveBringupScreenState();
@@ -44,7 +56,11 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
   bool _left = false;
 
   /// 이 화면에서 끄기를 눌렀는가. 꺼지면(idle) 모드 선택으로 돌아갑니다.
-  late bool _stopRequested = widget.thenMapping;
+  late bool _stopRequested = widget.thenMapping || widget.stopOnly;
+
+  /// 지도 바꾸기: 유닛이 내려간 것을 봤는가. 요청 직후 상태가 아직 running 일 수 있어, 그 사이에
+  /// 화면을 닫지 않게 합니다(젯슨이 2 s 마다 상태를 냄).
+  bool _sawRestart = false;
 
   @override
   void initState() {
@@ -123,16 +139,25 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
         _leave((modes) {
           if (widget.thenMapping) {
             modes.select(AppMode.mapping);
+          } else if (widget.stopOnly) {
+            modes.clear();
           }
         });
-      } else if (status.state == ModeState.running && !_stopRequested) {
+      } else if (status.state == ModeState.running && !_stopRequested && _restartSeen()) {
         _leave((modes) => modes.enterDrive(widget.submode));
+      }
+      if (status.state != ModeState.running) {
+        _sawRestart = true;
       }
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.thenMapping ? '지도로 바꾸기' : '주행 준비'),
+        title: Text(widget.thenMapping
+            ? '지도로 바꾸기'
+            : widget.stopOnly
+                ? '주행 끄기'
+                : (widget.mapChange != null ? '지도 바꾸는 중' : '주행 시작')),
       ),
       body: SafeArea(
         child: Padding(
@@ -155,14 +180,17 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
 
   int get _elapsed => DateTime.now().difference(_openedAt).inSeconds;
 
+  // 지도 바꾸기가 아니면 바로, 맞으면 유닛이 내려간 것을 본 뒤(늦어도 10 s 뒤)에 running 을 믿습니다.
+  bool _restartSeen() => widget.mapChange == null || _sawRestart || _elapsed > 10;
+
   List<Widget> _content(ModeStatus? status) {
     if (status == null) {
       return const [
         _Banner(
           tone: _Tone.info,
           icon: Icons.help_outline,
-          title: '로봇에서 주행 상태를 받지 못했습니다',
-          body: '연결을 확인해 주세요. 상태가 오면 이어서 보여 드립니다.',
+          title: '주행 상태를 받지 못했습니다',
+          body: '연결을 확인해 주세요.',
         ),
       ];
     }
@@ -172,9 +200,8 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
           _Banner(
             tone: _Tone.warning,
             icon: Icons.schedule,
-            title: '끄기 예약됨',
-            body: 'Nav2 가 다 뜬 뒤 끕니다. 늦어도 ${status.stopInSec}초 안에 꺼집니다. '
-                '뜨는 도중에 끄면 노드가 강제 종료되기 쉽습니다.',
+            title: '끄기 예약',
+            body: '준비가 끝나면 바로 끕니다(늦어도 ${status.stopInSec}초).',
           ),
           const SizedBox(height: 14),
           _StepsCard(title: '주행 준비 중', elapsed: _elapsed, steps: _steps(status, pendingStop: true)),
@@ -185,11 +212,13 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
           title: '주행 끄는 중',
           elapsed: _elapsed,
           steps: [
-            const _Step('주행 노드 끄기', _StepState.current, 'Nav2·미션·손잡이·감시'),
+            const _Step('주행 끄기', _StepState.current, 'Nav2·미션·스마트핸들·음성'),
             if (widget.thenMapping)
               const _Step('지도 그리기로', _StepState.todo, '다 꺼지면 넘어갑니다'),
+            if (widget.stopOnly)
+              const _Step('모드 선택으로', _StepState.todo, '다 꺼지면 돌아갑니다'),
           ],
-          note: status.detail.isEmpty ? '보통 5~15초 걸립니다.' : status.detail,
+          note: status.detail.isEmpty ? '5~15초 걸립니다.' : status.detail,
         ),
       ];
     }
@@ -198,7 +227,7 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
         _Banner(
           tone: _Tone.danger,
           icon: Icons.error_outline,
-          title: _nav2Failed(status) ? 'Nav2 를 띄우지 못했습니다' : '주행 노드에 문제가 있습니다',
+          title: _nav2Failed(status) ? 'Nav2 시작 실패' : '주행 기능 오류',
           body: status.detail,
         ),
         const SizedBox(height: 14),
@@ -206,53 +235,89 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
         _HintCard(
           lines: _nav2Failed(status)
               ? const [
-                  '로봇이 멈춰 있는지 확인하고 Nav2 다시 띄우기를 누릅니다.',
-                  '그래도 안 되면 주행을 끄고 로봇을 재부팅합니다.',
+                  "'Nav2 다시 시작'을 누르세요.",
+                  '안 되면 주행을 끄고 재부팅하세요.',
                 ]
               : const [
-                  '주행을 끈 뒤 다시 켜 봅니다.',
-                  '그래도 안 되면 로봇을 재부팅합니다.',
+                  '주행을 끄고 다시 켜세요.',
+                  '안 되면 재부팅하세요.',
                 ],
         ),
       ];
     }
     final ready = status.state == ModeState.needInitialPose;
+    final change = widget.mapChange;
+    if (change != null) {
+      return [
+        _MapFromTo(from: change.$1, to: change.$2),
+        const SizedBox(height: 14),
+        _StepsCard(
+          title: ready ? '초기 위치를 잡아 주세요' : '지도 바꾸는 중',
+          elapsed: ready ? null : _elapsed,
+          steps: _mapSteps(status),
+          note: '로봇은 움직이지 않음 · 약 1분',
+        ),
+      ];
+    }
+    // 도크 안에서 켜면 도킹 노드가 저장된 도크 위치로 AMCL 을 자동으로 잡습니다(2026-11-18, 목업 72).
+    final dockPose = context.read<SupervisorProvider>().dockState?.poseInitPending ?? false;
     return [
       _SubmodeChip(submode: widget.submode),
       const SizedBox(height: 14),
       _StepsCard(
-        title: ready ? '초기 위치를 잡아 주세요' : '주행 준비 중',
-        elapsed: ready ? null : _elapsed,
-        steps: _steps(status),
-        note: ready
-            ? '초기 위치를 잡으면 주행을 시작할 수 있습니다.'
-            : '기동이 중단되거나 90초 동안 진행이 없으면 Nav2 를 한 번 자동으로 다시 띄웁니다.',
+        title: ready && !dockPose ? '초기 위치를 잡아 주세요' : '주행 준비 중',
+        elapsed: ready && !dockPose ? null : _elapsed,
+        steps: _steps(status, dockPose: dockPose),
+        note: dockPose
+            ? "도크에서 위치를 못 잡으면 수동 '초기 위치 잡기'로 넘어갑니다."
+            : ready
+                ? '위치를 잡으면 바로 주행할 수 있습니다.'
+                : '90초 안에 준비되지 않으면 한 번 자동으로 다시 시작합니다.',
       ),
     ];
   }
 
-  List<_Step> _steps(ModeStatus status, {bool pendingStop = false}) {
+  // 지도 바꾸기 단계(목업 ⑤). 파일은 요청 때 이미 썼습니다.
+  List<_Step> _mapSteps(ModeStatus status) {
+    final nav2Up = (status.nav2 == 'waiting_pose' || status.nav2 == 'active') && _sawRestart;
+    final voiceUp = status.voice == 'active' && _sawRestart;
+    return [
+      const _Step('지도 기록', _StepState.done, ''),
+      _Step('Nav2·미션 켜기', nav2Up ? _StepState.done : _StepState.current, ''),
+      if (status.voice != 'none')
+        _Step('음성 켜기', voiceUp ? _StepState.done : _StepState.current, ''),
+      _Step(
+        '초기 위치',
+        status.state == ModeState.running && _sawRestart
+            ? _StepState.done
+            : (nav2Up ? _StepState.current : _StepState.todo),
+        '',
+      ),
+    ];
+  }
+
+  List<_Step> _steps(ModeStatus status, {bool pendingStop = false, bool dockPose = false}) {
     final nav2Up = status.nav2 == 'waiting_pose' || status.nav2 == 'active';
     return [
       _Step(
-        '주행 노드 켜기',
+        '주행 켜기',
         status.driveOn ? _StepState.done : _StepState.current,
-        'Nav2·미션·손잡이·감시',
+        'Nav2·미션·스마트핸들·음성',
       ),
       _Step(
-        nav2Up ? 'Nav2 준비됨' : 'Nav2 뜨는 중',
+        nav2Up ? 'Nav2 준비 완료' : 'Nav2 준비',
         nav2Up ? _StepState.done : _StepState.current,
-        nav2Up ? '' : '보통 15~40초',
+        nav2Up ? '' : '15~40초',
       ),
       if (pendingStop)
         const _Step('끄기 (예약)', _StepState.todo, '')
       else
         _Step(
-          '초기 위치 대기',
+          dockPose ? '초기 위치 — 도크에서 잡는 중' : '초기 위치 잡기',
           status.state == ModeState.running
               ? _StepState.done
-              : (nav2Up ? _StepState.current : _StepState.todo),
-          '',
+              : (nav2Up || dockPose ? _StepState.current : _StepState.todo),
+          dockPose ? '도크에 들어가 있으면 저장된 도크 위치로 자동으로 잡습니다 · 최대 10초' : '',
         ),
     ];
   }
@@ -264,7 +329,7 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
     }
     if (status.stopPending) {
       return [
-        FilledButton(
+        PressScale(child: FilledButton(
           onPressed: _busy
               ? null
               : () {
@@ -272,14 +337,14 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
                   setState(() => _stopRequested = false);
                   _run(supervisor.driveStart, onRefused: () => _stopRequested = true);
                 },
-          child: const Text('끄기 취소 — 주행 계속'),
-        ),
+          child: const Text('끄기 취소'),
+        )),
       ];
     }
     if (_stopRequested || status.state == ModeState.stopping) {
       return const [];
     }
-    final stopButton = OutlinedButton(
+    final stopButton = PressScale(child: OutlinedButton(
       style: OutlinedButton.styleFrom(
         foregroundColor: VicaColors.red,
         side: const BorderSide(color: VicaColors.red),
@@ -287,14 +352,14 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
       ),
       onPressed: _busy ? null : () => _stop(supervisor),
       child: const Text('주행 끄기'),
-    );
+    ));
     if (status.state == ModeState.error) {
       return [
         if (_nav2Failed(status)) ...[
-          FilledButton(
+          PressScale(child: FilledButton(
             onPressed: _busy ? null : () => _run(supervisor.nav2Restart),
-            child: const Text('Nav2 다시 띄우기'),
-          ),
+            child: const Text('Nav2 다시 시작'),
+          )),
           const SizedBox(height: 10),
         ],
         stopButton,
@@ -302,13 +367,13 @@ class _DriveBringupScreenState extends State<DriveBringupScreen> {
     }
     if (status.state == ModeState.needInitialPose) {
       return [
-        FilledButton(
+        PressScale(child: FilledButton(
           // 초기 위치 카드는 원격 주행 탭에 있습니다. 그 탭으로 들어갑니다.
           onPressed: () => _leave(
             (modes) => modes.enterDrive(widget.submode, landingTab: '원격 주행'),
           ),
           child: const Text('초기 위치 잡기'),
-        ),
+        )),
         const SizedBox(height: 10),
         stopButton,
       ];
@@ -325,6 +390,62 @@ class _Step {
   final String label;
   final _StepState state;
   final String hint;
+}
+
+class _MapFromTo extends StatelessWidget {
+  const _MapFromTo({required this.from, required this.to});
+
+  final String from;
+  final String to;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: VicaColors.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: VicaColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '주행 지도',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: VicaColors.muted),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Flexible(
+                child: Text(
+                  from,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: VicaColors.textTertiary,
+                    decoration: TextDecoration.lineThrough,
+                  ),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 10),
+                child: Icon(Icons.arrow_forward, size: 20, color: VicaColors.primary),
+              ),
+              Flexible(
+                child: Text(
+                  to,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: VicaColors.text),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _StepsCard extends StatelessWidget {

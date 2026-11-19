@@ -13,6 +13,14 @@ const String kDriveStartService = '/vica/mode/drive_start';
 /// 주행 묶음 끄기. 움직이는 중이면 거부, Nav2 가 뜨는 중이면 다 뜬 뒤(늦어도 45 s) 끈다.
 const String kDriveStopService = '/vica/mode/drive_stop';
 
+/// 로봇 끄기(사용자 11-18): 주행 묶음 → 기본 묶음 → sync → 시스템 종료. 움직이는 중·지도 그리기 중이면
+/// 거부. 받아들이면 바로 답하고 곧 연결이 끊긴다(모드 노드·rosbridge 도 내려간다).
+const String kShutdownService = '/vica/mode/shutdown';
+
+/// 주행 켜기 거절 중 '칸(터미널)에서 띄운 주행 노드가 있다'의 앞부분(mode_logic.drive_start_refusal).
+/// 모드 노드는 프로세스로 확인한다. 앱은 이 거절이면 예전처럼 화면만 바꾼다(2026-11-18).
+const String kPaneDriveRefusal = '칸에서 띄운 주행 노드가 있습니다';
+
 /// Nav2 만 다시 띄우기(기동 실패 뒤 사람이 누름).
 const String kNav2RestartService = '/vica/mode/nav2_restart';
 
@@ -24,6 +32,17 @@ const String kDetectorOffService = '/vica/mode/detector_off';
 /// 음성이 떠 있으면 다시 띄운다(말이 끊김). 움직이는 중에는 거절된다.
 const String kVoiceLocalService = '/vica/mode/voice_offline';
 const String kVoiceApiService = '/vica/mode/voice_online';
+
+/// 주행 지도 바꾸기(사용자 11-17). std_msgs/String JSON {request_id, map_id}. Trigger 는 인자가 없어
+/// 토픽으로 보내고 결과는 모드 상태의 map_change(같은 request_id)로 받는다. 젯슨은 maps/CURRENT_MAP 을
+/// 쓰고, 주행이 떠 있으면 Nav2·미션·음성·위치 확인을 다시 띄운다(약 1분).
+const String kModeMapRequestTopic = '/vica/mode/map_request';
+
+/// 지도 바꾸기 요청에 모드 노드가 답하기를 기다리는 시간. 노드는 받자마자 상태를 다시 낸다.
+const Duration kModeMapRequestTimeout = Duration(seconds: 8);
+
+/// 답이 없으면 같은 request_id 로 다시 보내는 간격(첫 발행이 DDS 연결 전에 사라질 수 있다, 11-17 실기).
+const Duration kModeMapRequestRetry = Duration(milliseconds: 1500);
 
 /// 모드 상태가 이보다 오래 안 오면 모드 노드가 없다고 본다. 노드는 2 s 마다 낸다.
 const Duration kModeStatusStale = Duration(seconds: 8);

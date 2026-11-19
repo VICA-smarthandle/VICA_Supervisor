@@ -10,11 +10,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vica_supervisor/core/app_settings.dart';
 import 'package:vica_supervisor/models/mode_status.dart';
 import 'package:vica_supervisor/models/stack_status.dart';
+import 'package:vica_supervisor/providers/app_mode_provider.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/screens/map_locations_screen.dart';
 import 'package:vica_supervisor/widgets/drive_map_canvas.dart';
 import 'package:vica_supervisor/widgets/initial_pose_card.dart';
+import 'package:vica_supervisor/widgets/map_fix_card.dart';
 import 'package:vica_supervisor/widgets/vica_ui.dart';
 
 import '../ros/fake_ros_socket.dart';
@@ -122,6 +124,7 @@ void main() {
         providers: [
           ChangeNotifierProvider<SupervisorProvider>.value(value: supervisor),
           ChangeNotifierProvider(create: (_) => SettingsProvider()),
+          ChangeNotifierProvider(create: (_) => AppModeProvider()),
         ],
         child: const MaterialApp(
           home: Scaffold(body: MapLocationsScreen()),
@@ -158,7 +161,10 @@ void main() {
     // 2026-11-16 실기: Nav2 가 막 뜬 직후 rosapi 목록에 Nav2 가 아직 없어 잠겼다(새로고침 뒤 풀림).
     final supervisor = await pump(tester, nav2: false);
     supervisor.setModeStatusForTest(
-      const ModeStatus(mode: 'drive', state: ModeState.needInitialPose, nav2: 'waiting_pose'),
+      const ModeStatus(
+          mode: 'drive',
+          state: ModeState.needInitialPose,
+          nav2: 'waiting_pose'),
     );
     await tester.pump();
     final button = tester.widget<OutlinedButton>(
@@ -170,7 +176,8 @@ void main() {
   testWidgets('모드 노드도 Nav2 가 아직이라고 하면 잠긴 채다', (tester) async {
     final supervisor = await pump(tester, nav2: false);
     supervisor.setModeStatusForTest(
-      const ModeStatus(mode: 'drive', state: ModeState.starting, nav2: 'starting'),
+      const ModeStatus(
+          mode: 'drive', state: ModeState.starting, nav2: 'starting'),
     );
     await tester.pump();
     final button = tester.widget<OutlinedButton>(
@@ -190,12 +197,14 @@ void main() {
 
   // 2026-10-29 사용자 결정 표·목업 38~46: 대기·접근 중에도 원격 주행 탭에서 취소, 처음 안내 중엔 버튼 없음.
   group('대기·접근·처음 안내 표시', () {
-    testWidgets('대기 장소에서 기다리는 중 — 상태 줄·남은 시간·대기 취소, 요청·초기 위치 잠김', (tester) async {
+    testWidgets('대기 장소에서 기다리는 중 — 상태 줄·남은 시간·대기 취소, 요청·초기 위치 잠김',
+        (tester) async {
       await pump(tester,
           dialog: 'waiting', place: '입구 왼쪽', left: 150, last: '남자 화장실');
       expect(find.textContaining(vicaKeepWords('남자 화장실 입구 왼쪽에서 기다리는 중입니다.')),
           findsOneWidget);
-      expect(find.textContaining(vicaKeepWords('남은 시간 2분 30초')), findsOneWidget);
+      expect(
+          find.textContaining(vicaKeepWords('남은 시간 2분 30초')), findsOneWidget);
       expect(find.widgetWithText(OutlinedButton, '대기 취소'), findsOneWidget);
       expect(find.widgetWithText(FilledButton, '대기 중'), findsOneWidget);
       expect(find.text('일시정지'), findsNothing);
@@ -207,7 +216,8 @@ void main() {
 
     testWidgets('사람에게 다가가는 중 — 접근 취소 하나, 일시정지·주행 취소 없음', (tester) async {
       await pump(tester, goal: '접근 대상', dialog: 'approaching');
-      expect(find.textContaining(vicaKeepWords('사람에게 다가가는 중입니다.')), findsOneWidget);
+      expect(find.textContaining(vicaKeepWords('사람에게 다가가는 중입니다.')),
+          findsOneWidget);
       expect(find.widgetWithText(OutlinedButton, '접근 취소'), findsOneWidget);
       expect(find.text('일시정지'), findsNothing);
       expect(find.text('주행 취소'), findsNothing);
@@ -235,7 +245,8 @@ void main() {
       await tester.tap(cancel);
       await tester.pumpAndSettle();
       expect(find.text('계속 대기'), findsOneWidget);
-      expect(find.textContaining(vicaKeepWords('로봇은 그 자리에 멈춥니다')), findsOneWidget);
+      expect(
+          find.textContaining(vicaKeepWords('로봇은 그 자리에 멈춥니다')), findsOneWidget);
       await tester.tap(find.text('취소하기'));
       await tester.pumpAndSettle();
       expect(supervisor.waitCancels, 1);
@@ -252,7 +263,8 @@ void main() {
       final cancel = find.widgetWithText(OutlinedButton, '접근 취소');
       await tester.tap(cancel);
       await tester.pumpAndSettle();
-      expect(find.textContaining(vicaKeepWords('1분 동안 다시 다가가지 않습니다')), findsOneWidget);
+      expect(find.textContaining(vicaKeepWords('1분 동안 다시 다가가지 않습니다')),
+          findsOneWidget);
       await tester.tap(find.text('계속 진행'));
       await tester.pumpAndSettle();
       expect(supervisor.approachCancels, 0);
@@ -360,11 +372,12 @@ void main() {
     await tester.pump();
     await tester.tap(entry);
     await tester.pump();
-    expect(find.text('초기 위치 잡기'), findsOneWidget);
-    expect(find.text('여기가 맞는지 확인'), findsOneWidget);
+    // 카드 제목·확인 버튼은 2026-11-17 간결화(사용자 승인)로 '초기 위치'·'확인'.
+    expect(find.text('초기 위치'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '확인'), findsOneWidget);
     // 아직 안 짚었으므로 잠겨 있어야 합니다.
     final check = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, '여기가 맞는지 확인'),
+      find.widgetWithText(FilledButton, '확인'),
     );
     expect(check.onPressed, isNull);
   });
@@ -431,5 +444,88 @@ void main() {
     );
     // 홈·금지구역 조회가 응답 없이 끝나기를 기다립니다.
     await tester.pump(const Duration(seconds: 15));
+  });
+
+  // 2026-11-19 사용자: 앱 폭에서 새로고침과 주행 고르기가 두 줄로 나뉘었다 → 한 줄(새로고침 왼쪽,
+  // [원격 주행 | 수동 주행] 오른쪽), '목적지 주행' → '원격 주행', 켜고 끄는 버튼 모양.
+  for (final width in [360.0, 390.0, 820.0]) {
+    testWidgets('폭 $width — 새로고침·원격 주행·수동 주행이 한 줄', (tester) async {
+      tester.view.physicalSize = Size(width, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await pump(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('목적지 주행'), findsNothing);
+      final refresh = tester.getCenter(find.text('새로고침'));
+      final remote = tester.getCenter(find.text(vicaKeepWords('원격 주행')));
+      final manual = tester.getCenter(find.text(vicaKeepWords('수동 주행')));
+      expect((refresh.dy - remote.dy).abs(), lessThan(4));
+      expect((remote.dy - manual.dy).abs(), lessThan(4));
+      expect(refresh.dx, lessThan(remote.dx));
+      expect(remote.dx, lessThan(manual.dx));
+      await tester.pump(const Duration(seconds: 15));
+    });
+  }
+
+  testWidgets('고른 쪽이 켜진 모양 — 원격 주행이 처음, 수동 주행을 누르면 바뀐다', (tester) async {
+    await pump(tester);
+    bool on(String label) => tester
+        .widget<MapFixChoiceButton>(
+            find.widgetWithText(MapFixChoiceButton, vicaKeepWords(label)))
+        .selected;
+
+    expect((on('원격 주행'), on('수동 주행')), (true, false));
+    await tester.tap(find.text(vicaKeepWords('수동 주행')));
+    await tester.pump();
+    expect((on('원격 주행'), on('수동 주행')), (false, true));
+    await tester.pump(const Duration(seconds: 15));
+  });
+
+  // 2026-11-18: '주행 끄기'는 위쪽 막대로 옮겼습니다. 원격 주행 맨 위 줄은 뺐습니다.
+  testWidgets('주행 중이어도 원격 주행 화면 안에는 주행 끄기가 없다', (tester) async {
+    final supervisor = await pump(tester);
+    supervisor.setModeStatusForTest(
+      const ModeStatus(mode: 'drive', state: ModeState.running, nav2: 'active'),
+    );
+    await tester.pump();
+    expect(find.text('주행 끄기'), findsNothing);
+  });
+
+  // 수동 주행(2026-11-18): 로봇이 할 일이 없을 때만 열린다. 경비 구간·찾기·대화 중은 current_goal 이
+  // 비어 있어도 막아야 한다(검토 지적 — Nav2 와 같은 /cmd_vel_req 에 섞인다).
+  group('수동 주행 막기', () {
+    Future<void> openManual(WidgetTester tester) async {
+      await tester.tap(find.text(vicaKeepWords('수동 주행')));
+      await tester.pump();
+    }
+
+    testWidgets('쉬는 중이면 열린다', (tester) async {
+      await pump(tester);
+      await openManual(tester);
+      expect(find.text('현재 주행 중입니다.\n주행이 완료된 후 사용해주세요.'), findsNothing);
+      expect(find.text('속도'), findsOneWidget);
+    });
+
+    for (final dialog in [
+      'patrolling',
+      'patrol_dwell',
+      'seeking',
+      'confirming',
+      'asking_next',
+      'returning'
+    ]) {
+      testWidgets('$dialog 이면 막는다', (tester) async {
+        await pump(tester, dialog: dialog);
+        await openManual(tester);
+        expect(find.text('현재 주행 중입니다.\n주행이 완료된 후 사용해주세요.'), findsOneWidget);
+      });
+    }
+
+    testWidgets('목적지 주행 중이면 막는다', (tester) async {
+      await pump(tester, goal: '로비');
+      await openManual(tester);
+      expect(find.text('현재 주행 중입니다.\n주행이 완료된 후 사용해주세요.'), findsOneWidget);
+    });
   });
 }

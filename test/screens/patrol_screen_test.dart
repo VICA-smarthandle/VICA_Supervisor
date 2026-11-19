@@ -340,8 +340,8 @@ void main() {
       await tester.pump();
       await _answerRoute(tester, server, 6);
 
+      // 본문 큰 제목 '경비'는 뺐습니다 — 제목줄과 같은 말입니다(2026-11-17 사용자 승인).
       for (final text in [
-        '경비',
         '경비가 꺼져 있습니다',
         '순찰 경로',
         '장소 6곳',
@@ -542,7 +542,7 @@ void main() {
       await tester.pumpWidget(_app(const PatrolScreen(), supervisor));
       await tester.pump();
 
-      expect(find.text('ROS 연결 안 됨'), findsOneWidget);
+      expect(find.text('로봇 오프라인'), findsOneWidget);
       expect(find.text('경비가 꺼져 있습니다'), findsNothing);
       final start = tester.widget<FilledButton>(
         find.widgetWithText(FilledButton, '경비 시작'),
@@ -720,6 +720,8 @@ void main() {
       ));
       await tester.pump();
       await tester.pump();
+      // 탭을 바꾸면 새 화면이 옆에서 밀려 들어온다(2026-11-18 전환 효과 ②) — 끝날 때까지 넘긴다.
+      await tester.pump(kVicaTransition);
       await _answerRoute(tester, server, 6);
 
       await tester.ensureVisible(find.text('경비 종료'));
@@ -1498,7 +1500,8 @@ void main() {
       final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
       expect(
         bar.destinations.map((d) => (d as NavigationDestination).label),
-        ['대시보드', '지도 설정', '원격 주행', '물류 배송', '경비', '더보기'],
+        // 2026-11-17 탭 라벨 간결화(사용자 승인). 제목줄은 '지도 설정'·'원격 주행'·'물류 배송' 그대로.
+        ['대시보드', '지도', '주행', '배송', '경비', '더보기'],
       );
       await tester.tap(find.descendant(
         of: find.byType(NavigationBar),
@@ -1595,7 +1598,7 @@ void main() {
         tester.widgetList<ChoiceChip>(find.byType(ChoiceChip)).map(
               (chip) => (chip.label as Text).data,
             ),
-        ['전체', '긴급 정지', '좌표 전송', '연결 상태', '물류 배송', '경비 기록'],
+        ['전체', '비상정지', '지도 설정', '연결 상태', '물류 배송', '경비 기록'],
       );
       for (final text in [
         '침입 감지 · 사람',

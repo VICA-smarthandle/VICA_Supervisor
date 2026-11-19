@@ -38,7 +38,12 @@ class RosBridgeClient {
   RosBridgeClient({
     required this.onState,
     RosChannelConnector? connector,
-  }) : _connector = connector ?? WebSocketChannel.connect;
+    DateTime Function()? now,
+  })  : _connector = connector ?? WebSocketChannel.connect,
+        _now = now ?? DateTime.now;
+
+  /// 시각. 시험은 가짜 시계를 끼웁니다.
+  final DateTime Function() _now;
 
   final RosStateHandler onState;
   final RosChannelConnector _connector;
@@ -50,6 +55,14 @@ class RosBridgeClient {
   RosConnectionState _state = RosConnectionState.disconnected;
 
   RosConnectionState get state => _state;
+
+  /// 마지막으로 무엇이든 받은 시각(토픽·서비스 응답 모두). 붙은 순간도 여기서 시작합니다.
+  ///
+  /// 소켓은 붙어 있는데 아무것도 오지 않는 상태를 가려내는 데 씁니다. 2026-11-17
+  /// rosbridge 안의 ROS 처리 스레드가 예외로 죽어(rclpy InvalidHandle) 소켓만 살아
+  /// 있었고, 앱은 '온라인'인데 토픽·서비스가 하나도 오지 않았습니다.
+  DateTime? get lastReceivedAt => _lastReceivedAt;
+  DateTime? _lastReceivedAt;
 
   // 기존 channel을 확실히 닫고 새 WebSocket 연결을 하나만 생성합니다.
   Future<void> connect(String url) async {
@@ -69,6 +82,7 @@ class RosBridgeClient {
           'ROS 연결 오류: $error',
         ),
       );
+      _lastReceivedAt = _now();
       _setState(RosConnectionState.connected, 'ROS 연결 완료');
     } catch (error) {
       _setState(RosConnectionState.failed, 'ROS 연결 실패: $error');
@@ -134,11 +148,14 @@ class RosBridgeClient {
   // publish op 자체는 타입을 받지 않습니다. 그래프에 이미 같은 토픽의 발행자가
   // 있으면 rosbridge 가 타입을 알아내지만, 매핑 중에는 /cmd_vel_req 를 아무도
   // 발행하지 않으므로(Nav2 가 꺼져 있다) 미리 advertise 해야 합니다.
-  void advertise({required String topic, required String type}) {
+  /// [latch] 면 rosbridge 가 마지막 값을 늦게 붙은 구독자에게도 줍니다(TRANSIENT_LOCAL).
+  void advertise(
+      {required String topic, required String type, bool latch = false}) {
     _send({
       'op': 'advertise',
       'topic': topic,
       'type': type,
+      if (latch) 'latch': true,
     });
   }
 
@@ -195,6 +212,9 @@ class RosBridgeClient {
       'service': service,
       'type': type,
       'args': args,
+      // rosbridge 도 같은 시간까지 기다리게 합니다. 안 실으면 rosbridge 의 기본값(운영 5초)에서
+      // 먼저 끊겨, 앱이 더 기다리는 호출(지도 수정 8~15초)이 중간에 실패합니다.
+      'timeout': timeout.inMilliseconds / 1000.0,
     });
     return completer.future.timeout(
       timeout,
@@ -213,6 +233,7 @@ class RosBridgeClient {
   }
 
   void _handleRawMessage(dynamic raw) {
+    _lastReceivedAt = _now();
     try {
       final decoded = jsonDecode(raw as String) as Map<String, Object?>;
 

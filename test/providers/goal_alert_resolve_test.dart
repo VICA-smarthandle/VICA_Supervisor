@@ -81,13 +81,13 @@ void main() {
     expect(provider.isGoalAlertResolved(second.id), isFalse);
   });
 
-  test('실패 사실은 알림 목록에 남는다', () {
+  test('주행 실패는 팝업으로만 — 알림 목록에는 남기지 않는다(2026-11-17)', () {
     provider.handleGoalEventForTest(goalEvent('goal_failed'));
     provider.handleGoalEventForTest(goalEvent('goal_sent'));
 
     expect(
       provider.logs.map((log) => log.message),
-      contains(contains('주행 실패')),
+      isNot(contains(contains('주행 실패'))),
     );
   });
 

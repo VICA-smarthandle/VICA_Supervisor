@@ -53,14 +53,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        const Icon(
-                          Icons.admin_panel_settings_outlined,
-                          size: 58,
-                          color: VicaColors.primaryDark,
-                        ),
+                        // 2026-11-17 사용자: 앱 이름 옆에도 로고(관리자 방패 아이콘 대신).
+                        const Center(child: VicaLogo(size: 72)),
                         const SizedBox(height: 18),
                         Text(
-                          'VICA_Supervisor',
+                          'VICA_SUPERVISOR',
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.headlineSmall,
                         ),
@@ -97,7 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           decoration: InputDecoration(
                             labelText: '비밀번호',
                             prefixIcon: const Icon(Icons.lock_outline),
-                            suffixIcon: IconButton(
+                            suffixIcon: PressScale(child: IconButton(
                               onPressed: () => setState(
                                 () => _obscurePassword = !_obscurePassword,
                               ),
@@ -108,7 +105,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               tooltip:
                                   _obscurePassword ? '비밀번호 표시' : '비밀번호 숨기기',
-                            ),
+                            )),
                           ),
                           validator: (value) => value == null || value.isEmpty
                               ? '비밀번호를 입력하세요.'
@@ -127,7 +124,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ],
                         const SizedBox(height: 22),
-                        FilledButton.icon(
+                        PressScale(child: FilledButton.icon(
                           onPressed: _submitting ? null : _submit,
                           icon: _submitting
                               ? const SizedBox.square(
@@ -139,7 +136,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 )
                               : const Icon(Icons.login),
                           label: Text(_submitting ? '로그인 중' : '로그인'),
-                        ),
+                        )),
                       ],
                     ),
                   ),

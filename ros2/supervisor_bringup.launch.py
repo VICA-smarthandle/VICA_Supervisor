@@ -23,6 +23,8 @@ WORKSPACE_ROOT = SUPERVISOR_ROOT.parent.parent
 MAP_LIST_NODE = SUPERVISOR_ROOT / "map_list_node.py"
 STATUS_NODE = SUPERVISOR_ROOT / "vica_status_app_node.py"
 KEEPOUT_NODE = SUPERVISOR_ROOT / "keepout_map_node.py"
+# 지도 수정(지우기·부분 스캔, 2026-11-19). 지도 파일을 쓰는 주체를 하나로 두려고 따로 둡니다.
+MAP_FIX_NODE = SUPERVISOR_ROOT / "map_fix_node.py"
 # 레일 편집(2026-09-30). 금지구역 노드와 따로 둔다 — route_graph_node.py 맨 위 참고.
 ROUTE_NODE = SUPERVISOR_ROOT / "route_graph_node.py"
 MAP_HTTP_SERVER = SUPERVISOR_ROOT / "map_http_server.py"
@@ -105,6 +107,15 @@ def generate_launch_description() -> LaunchDescription:
             ExecuteProcess(
                 cmd=[sys.executable, str(KEEPOUT_NODE)],
                 output="screen",
+            ),
+            # 지도 수정. 쉬는 동안에는 서비스 하나만 열어 둡니다(map_fix_node.py 맨 위 참고).
+            # 지도 수정(2026-11-19). 예상 밖으로 죽어도 3초 뒤 다시 뜹니다 — 앱 기능 하나 때문에
+            # 지도 유닛 전체를 다시 켤 일이 없게(독립 검토 6).
+            ExecuteProcess(
+                cmd=[sys.executable, str(MAP_FIX_NODE)],
+                output="screen",
+                respawn=True,
+                respawn_delay=3.0,
             ),
             ExecuteProcess(
                 cmd=[sys.executable, str(ROUTE_NODE)],

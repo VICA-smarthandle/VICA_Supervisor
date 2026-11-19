@@ -5,8 +5,10 @@
 //     2026-11-14 경비 탭이 더보기 앞에 들어가 6개가 됐다(목업 PatrolHome).
 //     나머지 네 화면(현재 위치·시스템 진단·알림 및 로그·설정)과 모드 바꾸기·로그아웃은
 //     '더보기' 탭 안 목록으로 간다. 갈 수 있는 곳은 전과 같다 — 가는 길만 바뀌었다.
-//   - 태블릿·데스크톱: 어두운 사이드바 + 본문 위 페이지 헤더(제목·설명·실시간 수신 칩·
+//   - 태블릿·데스크톱: 어두운 사이드바 + 본문 위 페이지 헤더(제목·실시간 수신 칩·
 //     모드 바꾸기·비상정지). 접고 펼치기는 그대로 둔다.
+//   2026-11-17 제목·문구 간결화(사용자 승인): 제목은 하나만 — 폰 부제·넓은 창 설명문·경로를
+//   뺐고, 하단 탭·사이드바 라벨은 짧게('지도'·'주행'·'배송'). 제목줄(_titles)은 그대로다.
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -22,10 +24,13 @@ import 'providers/ui_preferences_provider.dart';
 import 'ros/ros_bridge_client.dart';
 import 'widgets/confirm_logout.dart';
 import 'widgets/delivery_notice_dialog.dart';
+import 'widgets/drive_stop_button.dart';
+import 'widgets/duplicate_run_banner.dart';
 import 'widgets/goal_alert_dialog.dart';
 import 'widgets/help_alert_dialog.dart';
 import 'widgets/patrol_alarm_dialog.dart';
 import 'widgets/patrol_ui.dart';
+import 'widgets/ros_connection_tile.dart';
 import 'widgets/route_dialogs.dart';
 import 'widgets/voice_alert_snack.dart';
 import 'widgets/vica_ui.dart';
@@ -72,6 +77,19 @@ ThemeData vicaTheme() {
       surface: VicaColors.background,
     ),
     useMaterial3: true,
+    // 클릭 효과 ② 살짝 눌림(2026-11-18 사용자) — 물결은 끄고 PressScale 이 줄였다 돌립니다.
+    splashFactory: NoSplash.splashFactory,
+    // 화면 전환 ② 옆으로 밀기(2026-11-18 사용자) — 모든 플랫폼 같게.
+    pageTransitionsTheme: const PageTransitionsTheme(
+      builders: {
+        TargetPlatform.android: VicaSlidePageTransitionsBuilder(),
+        TargetPlatform.iOS: VicaSlidePageTransitionsBuilder(),
+        TargetPlatform.linux: VicaSlidePageTransitionsBuilder(),
+        TargetPlatform.macOS: VicaSlidePageTransitionsBuilder(),
+        TargetPlatform.windows: VicaSlidePageTransitionsBuilder(),
+        TargetPlatform.fuchsia: VicaSlidePageTransitionsBuilder(),
+      },
+    ),
     appBarTheme: const AppBarTheme(
       backgroundColor: VicaColors.card,
       foregroundColor: VicaColors.text,
@@ -235,7 +253,8 @@ class VicaSupervisorApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'VICA_Supervisor',
+      // 2026-11-17 사용자: 앱 이름은 모두 대문자.
+      title: 'VICA_SUPERVISOR',
       debugShowCheckedModeBanner: false,
       theme: vicaTheme(),
       home: const AuthGate(),
@@ -304,13 +323,22 @@ class _SupervisorShellState extends State<SupervisorShell> {
   /// 떠나면 비워, 다음에 메뉴로 들어가면 지금처럼 '전체'로 엽니다.
   LogFilter? _logsJumpFilter;
 
+  /// 도킹 실패 팝업의 '도크 위치 다시 잡기'(2026-11-19, 목업 92)로 지도 설정에 들어갈 때 도크 위치
+  /// 칸을 펼치라는 요청 번호. 지도 설정을 떠나면 0 으로 돌려, 다음에 메뉴로 들어가면 지금처럼
+  /// 접힌 채로 엽니다.
+  int _dockPanelRequest = 0;
+
   // 대시보드 배너가 진단 화면으로 보내려면 콜백이 필요해 const 리스트를 게터로 바꿨습니다.
   List<Widget> get _screens => [
         DashboardScreen(
           onOpenDiagnostics: () =>
               setState(() => _index = _systemDiagnosticsIndex),
         ),
-        const SaveLocationScreen(),
+        SaveLocationScreen(
+          // '초기 위치 잡으러 가기'(목업 88) — 초기 위치는 원격 주행 탭에서 잡습니다.
+          onOpenDrive: () => setState(() => _index = _driveIndex),
+          dockPanelRequest: _dockPanelRequest,
+        ),
         const MapLocationsScreen(),
         const DeliveryScreen(),
         PatrolScreen(
@@ -340,6 +368,8 @@ class _SupervisorShellState extends State<SupervisorShell> {
   static int get _settingsIndex => _titles.indexOf('설정');
   static int get _moreIndex => _titles.indexOf('더보기');
   static int get _logsIndex => _titles.indexOf('알림 및 로그');
+  static int get _mapSettingsIndex => _titles.indexOf('지도 설정');
+  static int get _driveIndex => _titles.indexOf('원격 주행');
 
   /// 하단 탭에 직접 올라가는 화면 수. 이 뒤의 화면은 '더보기' 탭이 대표합니다.
   /// 2026-11-14 경비 탭이 들어가 4 → 5 (목업 PatrolHome 의 아래 탭 6칸).
@@ -356,34 +386,6 @@ class _SupervisorShellState extends State<SupervisorShell> {
     '알림 및 로그',
     '설정',
     '더보기',
-  ];
-
-  /// 폰 AppBar 제목 아래 한 줄. 짧아야 합니다 — 오른쪽에 버튼 두 개가 섭니다.
-  static const _subtitles = [
-    '로봇 현황',
-    '장소 · 홈 · 금지구역',
-    '목적지 지정 · 주행 제어',
-    '도착 문자 · 자동 복귀',
-    '순찰 경로 · 감시 항목',
-    '상태 원본값',
-    '결함 · 준비 상태',
-    '종류별 알림',
-    '계정 · 네트워크 · ROS',
-    '나머지 메뉴',
-  ];
-
-  /// 넓은 창 페이지 헤더의 설명문. 폰보다 자리가 넓어 문장으로 적습니다.
-  static const _descriptions = [
-    '로봇 현황과 최근 알림을 한눈에 확인합니다',
-    '장소 · 홈 위치 · 금지구역을 지도 위에서 설정합니다',
-    '목적지를 지정해 로봇을 보내고 주행을 제어합니다',
-    '연락처가 저장된 장소로 물건을 보내고 도착 문자를 발송합니다',
-    '순찰 경로 · 감시 항목',
-    '로봇이 보고하는 위치와 상태 원본값을 확인합니다',
-    '로봇이 보고한 상태와 결함, 항목별 준비 상태입니다',
-    '로봇과 앱에서 발생한 알림을 종류별로 확인합니다',
-    '계정, 네트워크, ROS 토픽과 좌표 보정값을 관리합니다',
-    '나머지 메뉴',
   ];
 
   @override
@@ -408,9 +410,21 @@ class _SupervisorShellState extends State<SupervisorShell> {
           return;
         }
         supervisor.consumeGoalAlert();
-        showDialog<void>(
+        showVicaDialog<void>(
           context: context,
-          builder: (_) => GoalAlertDialog(event: alert),
+          builder: (_) => GoalAlertDialog(
+            event: alert,
+            // '도크 위치 다시 잡기'(목업 92) — 지도 설정의 도크 위치 칸으로 갑니다.
+            onRedoDock: () {
+              if (!mounted) {
+                return;
+              }
+              setState(() {
+                _dockPanelRequest += 1;
+                _index = _mapSettingsIndex;
+              });
+            },
+          ),
         );
       });
     }
@@ -441,7 +455,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
         if (!mounted) {
           return;
         }
-        showDialog<void>(
+        showVicaDialog<void>(
           context: context,
           barrierDismissible: false,
           builder: (_) => HelpAlertDialog(helpId: helpId),
@@ -470,7 +484,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
         if (!mounted) {
           return;
         }
-        showDialog<void>(
+        showVicaDialog<void>(
           context: context,
           barrierDismissible: false,
           builder: (_) => PatrolAlarmDialog(alarmId: alarmId),
@@ -497,7 +511,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
           return;
         }
         supervisor.consumeDeliveryNotice();
-        showDialog<void>(
+        showVicaDialog<void>(
           context: context,
           builder: (_) => DeliveryNoticeDialog(notice: deliveryNotice),
         );
@@ -514,7 +528,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
           return;
         }
         supervisor.consumeRouteAlert();
-        showDialog<void>(
+        showVicaDialog<void>(
           context: context,
           builder: (_) => RouteApplyFailedDialog(reason: routeAlert),
         );
@@ -541,6 +555,9 @@ class _SupervisorShellState extends State<SupervisorShell> {
         final index = useSidebar && _index == _moreIndex ? 0 : _index;
         if (index != _logsIndex) {
           _logsJumpFilter = null;
+        }
+        if (index != _mapSettingsIndex) {
+          _dockPanelRequest = 0;
         }
 
         return PopScope(
@@ -573,13 +590,22 @@ class _SupervisorShellState extends State<SupervisorShell> {
                                     settings: settings,
                                     supervisor: supervisor,
                                   ),
-                                  Expanded(child: _screens[index]),
+                                  // 어느 탭이든 위쪽에(2026-11-17 목업 ② 띠).
+                                  const DuplicateRunBanner(),
+                                  Expanded(
+                child: VicaScreenSwitcher(index: index, child: _screens[index])),
                                 ],
                               ),
                             ),
                           ],
                         )
-                      : _screens[index],
+                      : Column(
+                          children: [
+                            const DuplicateRunBanner(),
+                            Expanded(
+                child: VicaScreenSwitcher(index: index, child: _screens[index])),
+                          ],
+                        ),
                 ),
                 bottomNavigationBar:
                     useSidebar ? null : _buildBottomNavigation(index),
@@ -608,10 +634,8 @@ class _SupervisorShellState extends State<SupervisorShell> {
     return AppBar(
       toolbarHeight: 66,
       titleSpacing: 20,
-      title: _PageTitle(
-        title: _titles[index],
-        subtitle: _subtitles[index],
-      ),
+      // 제목만 둡니다(2026-11-17 제목·문구 간결화, 사용자 승인 — 부제 줄 뺌).
+      title: _PageTitle(title: _titles[index]),
       actions: [
         if (index == _settingsIndex) ...[
           SettingsSaveButton(
@@ -619,17 +643,14 @@ class _SupervisorShellState extends State<SupervisorShell> {
           ),
           const SizedBox(width: 6),
         ],
-        IconButton(
-          onPressed: () => _changeMode(context),
-          icon: const Icon(Icons.swap_horiz),
-          tooltip: '모드 바꾸기',
-        ),
+        // 주행 중이면 '모드 ▾' 메뉴에 '주행 끄기'가 함께 있습니다(2026-11-18 목업 '폰 C').
+        PhoneModeButton(onChangeMode: () => _changeMode(context)),
         // 설정은 '더보기' 안에도 있지만, 주소를 고칠 일이 잦아 한 번에 갑니다.
-        IconButton(
+        PressScale(child: IconButton(
           onPressed: () => setState(() => _index = _settingsIndex),
           icon: const Icon(Icons.settings_outlined),
           tooltip: '설정',
-        ),
+        )),
         const SizedBox(width: 2),
         _EmergencyStopButton(
           compact: true,
@@ -695,14 +716,10 @@ class _SupervisorShellState extends State<SupervisorShell> {
       primary: false,
       automaticallyImplyLeading: false,
       backgroundColor: VicaColors.background,
-      toolbarHeight: 108,
+      toolbarHeight: 76, // 제목 한 줄만 남아 108 → 76(2026-11-17)
       titleSpacing: 32,
-      title: _PageTitle(
-        title: _titles[index],
-        subtitle: _descriptions[index],
-        breadcrumb: '주행 모드',
-        large: true,
-      ),
+      // 제목만 둡니다(2026-11-17 제목·문구 간결화, 사용자 승인 — 경로·설명문 뺌).
+      title: _PageTitle(title: _titles[index], large: true),
       actions: [
         if (index == _settingsIndex) ...[
           SettingsSaveButton(
@@ -710,9 +727,19 @@ class _SupervisorShellState extends State<SupervisorShell> {
           ),
           const SizedBox(width: 12),
         ],
-        _LiveChip(state: supervisor.connectionState),
+        RosSilenceBuilder(
+          builder: (context, silent) => _LiveChip(
+            state: supervisor.connectionState,
+            silent: silent,
+          ),
+        ),
         const SizedBox(width: 12),
-        OutlinedButton.icon(
+        // 주행 중에만 — 비상정지와 붙지 않게 모드 바꾸기 왼쪽(2026-11-18 목업 '넓은 화면').
+        if (supervisor.modeStatus?.driveOn ?? false) ...[
+          const DriveStopButton(),
+          const SizedBox(width: 12),
+        ],
+        PressScale(child: OutlinedButton.icon(
           onPressed: () => _changeMode(context),
           style: OutlinedButton.styleFrom(
             minimumSize: const Size(0, 42),
@@ -720,7 +747,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
           ),
           icon: const Icon(Icons.swap_horiz, size: 18),
           label: const Text('모드 바꾸기'),
-        ),
+        )),
         const SizedBox(width: 12),
         _EmergencyStopButton(
           compact: false,
@@ -791,7 +818,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
     required Color onDark,
   }) {
     final foreground = selected ? VicaColors.primaryDark : onDark;
-    final destination = Material(
+    final destination = PressScale(child: Material(
       color: selected ? VicaColors.accentTint : Colors.transparent,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
@@ -829,7 +856,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
           ),
         ),
       ),
-    );
+    ));
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -840,14 +867,14 @@ class _SupervisorShellState extends State<SupervisorShell> {
   }
 
   Widget _buildSidebarHeader(bool expanded, Color onDark) {
-    final toggleButton = IconButton(
+    final toggleButton = PressScale(child: IconButton(
       onPressed: () => context.read<UiPreferencesProvider>().toggleSidebar(),
       icon: Icon(expanded ? Icons.menu_open : Icons.menu, size: 20),
       color: onDark,
       tooltip: expanded ? '사이드 메뉴 접기' : '사이드 메뉴 펼치기',
       visualDensity: VisualDensity.compact,
-    );
-    const logo = _BrandMark(size: 36);
+    ));
+    const logo = _BrandMark(size: 40);
 
     if (expanded) {
       return SizedBox(
@@ -873,7 +900,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
                       ),
                     ),
                     Text(
-                      'Supervisor',
+                      'SUPERVISOR',
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.6),
                         fontSize: 11,
@@ -919,7 +946,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
         ),
       ),
     );
-    final logoutButton = IconButton(
+    final logoutButton = PressScale(child: IconButton(
       onPressed: () => confirmLogout(context),
       icon: const Icon(Icons.logout, size: 18),
       color: onDark,
@@ -930,7 +957,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
         minimumSize: const Size(36, 36),
         padding: EdgeInsets.zero,
       ),
-    );
+    ));
 
     if (!expanded) {
       return Padding(
@@ -1078,7 +1105,8 @@ class _SupervisorShellState extends State<SupervisorShell> {
   }
 
   /// 사이드바(전부)와 하단 탭(앞 다섯 개)이 같은 목록을 씁니다. 순서는 _titles 와
-  /// 같아야 합니다 — supervisor_shell_test 가 잠급니다.
+  /// 같아야 합니다 — supervisor_shell_test 가 잠급니다. 라벨은 제목보다 짧을 수
+  /// 있습니다('지도'→제목 '지도 설정', 2026-11-17 제목·문구 간결화, 사용자 승인).
   static const _navigationItems = [
     _NavigationItem(
       icon: Icons.grid_view_outlined,
@@ -1088,17 +1116,17 @@ class _SupervisorShellState extends State<SupervisorShell> {
     _NavigationItem(
       icon: Icons.place_outlined,
       selectedIcon: Icons.place,
-      label: '지도 설정',
+      label: '지도',
     ),
     _NavigationItem(
       icon: Icons.near_me_outlined,
       selectedIcon: Icons.near_me,
-      label: '원격 주행',
+      label: '주행',
     ),
     _NavigationItem(
       icon: Icons.inventory_2_outlined,
       selectedIcon: Icons.inventory_2,
-      label: '물류 배송',
+      label: '배송',
     ),
     _NavigationItem(
       icon: Icons.shield_outlined,
@@ -1140,118 +1168,59 @@ class _NavigationItem {
   final String label;
 }
 
-/// 틸 원 안의 번개. 사이드바가 씁니다(시안의 사이드바 로고는 원입니다).
+/// 사이드바 로고. 사이드바가 어두워 흰 둥근 바탕 위에 올립니다.
 class _BrandMark extends StatelessWidget {
-  const _BrandMark({this.size = 36});
+  const _BrandMark({this.size = 40});
 
   final double size;
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: const BoxDecoration(
-        color: VicaColors.primary,
-        shape: BoxShape.circle,
-      ),
-      child: Icon(Icons.bolt, color: Colors.white, size: size * 0.55),
-    );
-  }
+  Widget build(BuildContext context) => VicaLogo(size: size, framed: true);
 }
 
-/// AppBar 안의 제목 묶음. 폰은 제목+짧은 부제, 넓은 창은 경로+큰 제목+설명.
+/// AppBar 안의 제목. 폰은 20, 넓은 창은 26.
+///
+/// 2026-11-17 제목·문구 간결화(사용자 승인): 부제·설명문·경로를 빼고 제목 한 줄만 둡니다.
 class _PageTitle extends StatelessWidget {
-  const _PageTitle({
-    required this.title,
-    required this.subtitle,
-    this.breadcrumb,
-    this.large = false,
-  });
+  const _PageTitle({required this.title, this.large = false});
 
   final String title;
-  final String subtitle;
-  final String? breadcrumb;
   final bool large;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // 경로는 Text 하나로 그립니다. 제목 글자를 따로 Text 로 두면 AppBar 안에
-        // 같은 글자가 둘이 되어 find.widgetWithText(AppBar, 제목) 이 둘을 셉니다.
-        if (breadcrumb != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(
-                    text: '$breadcrumb  ›  ',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: VicaColors.textTertiary,
-                    ),
-                  ),
-                  TextSpan(
-                    text: title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: VicaColors.muted,
-                    ),
-                  ),
-                ],
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, height: 1.2),
-            ),
-          ),
-        Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: large ? 26 : 20,
-            fontWeight: FontWeight.w900,
-            color: VicaColors.text,
-            height: 1.15,
-          ),
-        ),
-        const SizedBox(height: 3),
-        Text(
-          subtitle,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: large ? 13 : 12,
-            fontWeight: FontWeight.w500,
-            color: VicaColors.muted,
-            height: 1.2,
-          ),
-        ),
-      ],
+    return Text(
+      title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: large ? 26 : 20,
+        fontWeight: FontWeight.w900,
+        color: VicaColors.text,
+        height: 1.15,
+      ),
     );
   }
 }
 
 /// 헤더의 '실시간 수신 중' 알약. 연결 상태를 그대로 옮긴 표시일 뿐 누를 수 없습니다.
 class _LiveChip extends StatelessWidget {
-  const _LiveChip({required this.state});
+  const _LiveChip({required this.state, this.silent = false});
 
   final RosConnectionState state;
+
+  /// 소켓은 붙었는데 5초 넘게 받은 것이 없음(2026-11-17 rosbridge 처리 스레드 사망).
+  final bool silent;
 
   @override
   Widget build(BuildContext context) {
     final (label, color) = switch (state) {
-      RosConnectionState.connected => ('실시간 수신 중', VicaColors.green),
-      RosConnectionState.connecting => ('연결 중', VicaColors.primary),
+      RosConnectionState.connected when silent => ('응답 없음', VicaColors.warning),
+      RosConnectionState.connected => ('온라인', VicaColors.green),
+      RosConnectionState.connecting => ('접속 중', VicaColors.primary),
       // 연결 칸(RosConnectionTile)과 같은 회색(2026-10-12 사용자 결정).
-      RosConnectionState.failed => ('연결 실패', VicaColors.muted),
-      RosConnectionState.disconnected => ('연결 안 됨', VicaColors.muted),
+      RosConnectionState.failed => ('접속 실패', VicaColors.muted),
+      RosConnectionState.disconnected => ('오프라인', VicaColors.muted),
     };
     return VicaStatusChip(label: label, color: color);
   }
@@ -1280,7 +1249,7 @@ class _EmergencyStopButton extends StatelessWidget {
         child: SizedBox(
           width: 32,
           height: 32,
-          child: FilledButton(
+          child: PressScale(child: FilledButton(
             onPressed: enabled ? onPressed : null,
             style: FilledButton.styleFrom(
               backgroundColor: VicaColors.red,
@@ -1295,11 +1264,11 @@ class _EmergencyStopButton extends StatelessWidget {
               size: 17,
               semanticLabel: '비상정지',
             ),
-          ),
+          )),
         ),
       );
     }
-    return FilledButton.icon(
+    return PressScale(child: FilledButton.icon(
       onPressed: enabled ? onPressed : null,
       style: FilledButton.styleFrom(
         backgroundColor: VicaColors.red,
@@ -1310,7 +1279,7 @@ class _EmergencyStopButton extends StatelessWidget {
       ),
       icon: const Icon(Icons.warning_amber_rounded, size: 18),
       label: const Text('비상정지'),
-    );
+    ));
   }
 }
 
@@ -1387,7 +1356,7 @@ class _MoreTile extends StatelessWidget {
         border: Border.all(color: VicaColors.border),
         borderRadius: BorderRadius.circular(kVicaCardRadius),
       ),
-      child: Material(
+      child: PressScale(child: Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(kVicaCardRadius),
         child: InkWell(
@@ -1427,7 +1396,7 @@ class _MoreTile extends StatelessWidget {
             ),
           ),
         ),
-      ),
+      )),
     );
   }
 }
@@ -1564,7 +1533,7 @@ class _EmergencyStopOverlay extends StatelessWidget {
                         // 버튼 자리에 두어 화면이 굳은 것이 아님을 알립니다.
                         SizedBox(
                           width: double.infinity,
-                          child: OutlinedButton.icon(
+                          child: PressScale(child: OutlinedButton.icon(
                             onPressed: null,
                             icon: const SizedBox(
                               width: 16,
@@ -1572,14 +1541,14 @@ class _EmergencyStopOverlay extends StatelessWidget {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             ),
                             label: const Text('응답 대기 중'),
-                          ),
+                          )),
                         )
                       else
                         Column(
                           children: [
                             SizedBox(
                               width: double.infinity,
-                              child: FilledButton.icon(
+                              child: PressScale(child: FilledButton.icon(
                                 onPressed: () => _handleAction(state),
                                 style: FilledButton.styleFrom(
                                   backgroundColor: accent,
@@ -1589,19 +1558,19 @@ class _EmergencyStopOverlay extends StatelessWidget {
                                   size: 18,
                                 ),
                                 label: Text(_actionLabel(state)),
-                              ),
+                              )),
                             ),
                             if (state ==
                                 EmergencyStopState.activationFailed) ...[
                               const SizedBox(height: 10),
                               SizedBox(
                                 width: double.infinity,
-                                child: OutlinedButton.icon(
+                                child: PressScale(child: OutlinedButton.icon(
                                   onPressed:
                                       supervisor.dismissEmergencyStopFailure,
                                   icon: const Icon(Icons.close, size: 18),
                                   label: const Text('취소하고 돌아가기'),
-                                ),
+                                )),
                               ),
                             ],
                           ],

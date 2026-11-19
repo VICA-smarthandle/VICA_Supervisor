@@ -69,6 +69,33 @@ ORIGINAL_DIRNAME = ".original"
 ORIGINAL_SUFFIXES = (".pgm", ".json")
 
 
+# 지도 수정(map_fix_node)이 고치기 전 그림을 두는 곳입니다 — maps/.fix_backup/<map_id>/.
+# 점 폴더라 목록(maps/*.png)에는 안 잡히지만, 지도를 지울 때 같이 지우지 않으면 같은 이름의
+# 새 지도에서 '되돌리기'가 옛 지도의 그림을 되살립니다(map_fix_store.BACKUP_DIRNAME 과 같은 값).
+FIX_BACKUP_DIRNAME = ".fix_backup"
+
+
+def fix_backup_dir(maps_root: Path, map_id: str) -> Path:
+    return maps_root / FIX_BACKUP_DIRNAME / map_id
+
+
+def remove_fix_backups(maps_root: Path, map_id: str) -> Path | None:
+    """그 지도의 수정 백업 폴더를 지우고 지운 경로를 돌려줍니다. 없으면 None."""
+    folder = fix_backup_dir(maps_root, map_id)
+    if not folder.is_dir():
+        return None
+    shutil.rmtree(folder)
+    return folder
+
+
+def image_version(image_path: Path) -> int:
+    """지도 그림의 수정 시각(ms). 앱이 그림 주소 뒤에 붙여, 그림이 바뀌면 다시 받습니다."""
+    try:
+        return image_path.stat().st_mtime_ns // 1_000_000
+    except OSError:
+        return 0
+
+
 def map_file_targets(maps_root: Path, map_id: str) -> list[Path]:
     """지도 하나를 지울 때 지울 파일 전부. 숨김 원본까지 포함한다."""
     targets = [maps_root / f"{map_id}{suffix}" for suffix in MAP_SUFFIXES]
@@ -217,6 +244,14 @@ class MapListNode(Node):
                 response.removed = removed
                 return response
 
+        try:
+            backups = remove_fix_backups(self.maps_root, map_id)
+            if backups is not None:
+                removed.append(str(backups))
+        except OSError as error:
+            # 지도는 이미 지워졌다. 사실만 알리고 성공으로 둔다(아래 카탈로그와 같은 처리).
+            self.get_logger().warn(f"수정 백업 정리 실패: {error}")
+
         if request.delete_destinations:
             catalog = self.destination_root / map_id
             if catalog.is_dir():
@@ -246,7 +281,7 @@ class MapListNode(Node):
             3. PNG 헤더에서 width/height를 읽습니다.
             4. 앱이 이해하는 JSON 목록으로 묶어 /map_list에 publish합니다.
         """
-        payload = build_map_list(self.maps_root, self._current_map_id())
+        payload = build_map_list(self.maps_root, self._current_map_id(), self.destination_root)
         msg = String()
         msg.data = json.dumps(payload, ensure_ascii=False)
         self.publisher.publish(msg)
@@ -258,7 +293,9 @@ class MapListNode(Node):
         return png_size(path)
 
 
-def build_map_list(maps_root: Path, current_map_id: str) -> dict[str, Any]:
+def build_map_list(
+    maps_root: Path, current_map_id: str, destinations_root: Path | None = None
+) -> dict[str, Any]:
     """앱이 이해하는 지도 목록 JSON. 노드 없이도 부를 수 있게 함수로 뺐다.
 
     ``current_map_id`` 는 maps/CURRENT_MAP 의 지도 이름이다. 목록의 각 지도에
@@ -266,6 +303,9 @@ def build_map_list(maps_root: Path, current_map_id: str) -> dict[str, Any]:
     이 지도를 먼저 고르고 드롭다운에 '(현재)'를 붙인다 — 그전에는 이름순 첫
     지도를 골라, 새로 그린 지도가 앞에 오면 로봇이 달리는 지도와 다른 지도를
     보고 있었다. 터미네이터에서 지도를 잘못 띄웠을 때도 앱에서 바로 보인다.
+
+    지도마다 준비 상태도 싣는다(2026-11-17 주행 지도 바꾸기 목록): 레일(_route.geojson)·
+    금지구역(_keepout.yaml) 파일이 있는가, 목적지 수(destinations_root 를 넘길 때만), 저장 시각.
     """
     maps = []
     for image_path in sorted(maps_root.glob("*.png")):
@@ -283,12 +323,20 @@ def build_map_list(maps_root: Path, current_map_id: str) -> dict[str, Any]:
                 # 계속 map_id 를 쓴다 — 앱도 map_id 로만 장소·홈·금지구역을 찾는다.
                 "map_name": display_name or image_path.stem,
                 "image_url": f"/maps/{image_path.name}",
+                "image_version": image_version(image_path),
                 "resolution": float(metadata.get("resolution", 0.05)),
                 "origin_x": float(metadata.get("origin_x", 0.0)),
                 "origin_y": float(metadata.get("origin_y", 0.0)),
                 "width": width,
                 "height": height,
                 "is_current": image_path.stem == current_map_id,
+                "has_route": (maps_root / f"{image_path.stem}{ROUTE_SUFFIX}.geojson").is_file(),
+                "has_keepout": (maps_root / f"{image_path.stem}_keepout.yaml").is_file(),
+                "destination_count": (
+                    count_destinations(destinations_root / image_path.stem / "destinations.yaml")
+                    if destinations_root is not None else None
+                ),
+                "saved_at": read_saved_at(image_path.with_suffix(".meta.json")),
             }
         )
     return {"maps": maps, "current_map_id": current_map_id}
@@ -358,6 +406,40 @@ def apply_display_name(maps_root: Path, map_id: str, display_name: str) -> tuple
     except OSError as error:
         return False, f"{meta_path} 를 쓰지 못했습니다: {error}"
     return True, f"'{map_id}' 의 이름을 '{name}' 으로 바꿨습니다."
+
+
+def count_destinations(path: Path) -> int:
+    """destinations.yaml 의 목적지 수. 파일이 없으면 0(미션이 모든 목적지 요청을 막는다).
+
+    YAML 패키지 없이 센다 — 목적지 관리자가 쓰는 꼴은 'destinations:' 아래 맨 앞 '- ' 한 줄이 한 곳이다.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return 0
+    count = 0
+    inside = False
+    for line in text.splitlines():
+        if line.startswith("destinations:"):
+            inside = "[]" not in line
+            continue
+        if not inside:
+            continue
+        if line.startswith("- "):
+            count += 1
+        elif line and not line.startswith((" ", "#")):
+            inside = False
+    return count
+
+
+def read_saved_at(path: Path) -> str:
+    """maps/<id>.meta.json 의 saved_at(ISO 문자열). 없으면 빈 문자열."""
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    value = document.get("saved_at") if isinstance(document, dict) else None
+    return value if isinstance(value, str) else ""
 
 
 def read_display_name(path: Path) -> str:

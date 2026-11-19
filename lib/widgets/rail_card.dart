@@ -187,11 +187,11 @@ class RailCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: FilledButton.icon(
+                child: PressScale(child: FilledButton.icon(
                   onPressed: canStart ? onDraft : null,
                   icon: const Icon(Icons.auto_awesome_outlined),
                   label: const Text('자동 초안 만들기'),
-                ),
+                )),
               ),
             ],
           ),
@@ -199,11 +199,11 @@ class RailCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: OutlinedButton.icon(
+                child: PressScale(child: OutlinedButton.icon(
                   onPressed: canStart ? onStartEdit : null,
                   icon: const Icon(Icons.edit_outlined, size: 18),
                   label: const Text('직접 그리기'),
-                ),
+                )),
               ),
             ],
           ),
@@ -215,20 +215,20 @@ class RailCard extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: FilledButton.icon(
+              child: PressScale(child: FilledButton.icon(
                 onPressed: canStart ? onStartEdit : null,
                 icon: const Icon(Icons.edit_outlined),
                 label: const Text('레일 편집'),
-              ),
+              )),
             ),
             const SizedBox(width: 10),
             // Expanded 없이 두면 버튼 테마 최소 폭(무한대) 때문에 화면이 깨집니다(2026-09-14).
             Expanded(
-              child: OutlinedButton.icon(
+              child: PressScale(child: OutlinedButton.icon(
                 onPressed: connected && !_busy ? onReload : null,
                 icon: const Icon(Icons.refresh, size: 18),
                 label: const Text('다시 불러오기'),
-              ),
+              )),
             ),
           ],
         ),
@@ -236,11 +236,11 @@ class RailCard extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: OutlinedButton.icon(
+              child: PressScale(child: OutlinedButton.icon(
                 onPressed: canStart ? onDraft : null,
                 icon: const Icon(Icons.auto_awesome_outlined, size: 18),
                 label: const Text('자동 초안 새로 만들기'),
-              ),
+              )),
             ),
           ],
         ),
@@ -299,7 +299,7 @@ class RailCard extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: FilledButton.icon(
+              child: PressScale(child: FilledButton.icon(
                 onPressed:
                     _busy || !connected || sketch.edges.isEmpty ? null : onSave,
                 icon: state == RouteEditState.saving
@@ -312,25 +312,25 @@ class RailCard extends StatelessWidget {
                 label: Text(
                   state == RouteEditState.saving ? '저장 중...' : '저장·적용',
                 ),
-              ),
+              )),
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: OutlinedButton(
+              child: PressScale(child: OutlinedButton(
                 onPressed: _busy ? null : onCancel,
                 child: const Text('취소'),
-              ),
+              )),
             ),
           ],
         ),
         const SizedBox(height: 4),
         Align(
           alignment: Alignment.centerRight,
-          child: TextButton.icon(
+          child: PressScale(child: TextButton.icon(
             onPressed: _busy || !connected ? null : onDraft,
             icon: const Icon(Icons.auto_awesome_outlined, size: 16),
             label: const Text('자동 초안으로 다시 시작'),
-          ),
+          )),
         ),
       ],
     );
@@ -376,7 +376,7 @@ class RailCard extends StatelessWidget {
   Widget _badgeRow() {
     final Widget badge;
     if (!connected) {
-      badge = const VicaStateBadge(text: 'ROS 연결 없음', color: VicaColors.red);
+      badge = const VicaStateBadge(text: '오프라인', color: VicaColors.red);
     } else if (drivingHold && info?.status != 'apply_pending') {
       badge =
           const VicaStateBadge(text: '주행 중 · 편집 잠김', color: VicaColors.muted);

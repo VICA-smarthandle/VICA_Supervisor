@@ -51,6 +51,7 @@ class AppSettings {
     this.routeStateTopic = '/vica/route/state',
     this.routeSavedTopic = '/vica/route/saved',
     this.deliverySmsResultTopic = '/vica/delivery/sms_result',
+    this.deliveryNoteTopic = '/vica/delivery/note',
     this.missionReturnHomeService = '/vica/mission/return_home',
     this.goalEventTopic = '/vica_goal_event',
     this.robotStatusTopic = '/robot_status',
@@ -125,6 +126,10 @@ class AppSettings {
   /// 관리자 유심 폰이 다른 화면(웹 등)에서 보낸 배송의 도착 문자를 대신 보내고 그 결과를
   /// 알리는 토픽(2026-10-10). 배송을 보낸 화면이 이 결과로 지금과 같은 팝업을 띄웁니다.
   final String deliverySmsResultTopic;
+
+  /// 배송을 보낸 화면이 받는 분께 남긴 메시지를 싣는 토픽(2026-11-17). 대신 보내는 관리자 유심 폰이
+  /// 기억했다가 그 장소의 도착 문자에 넣습니다. 늦게 붙어도 받도록 래치(latch)로 냅니다.
+  final String deliveryNoteTopic;
 
   // 홈 복귀. **관리자 전용 경로입니다.**
   //
@@ -213,6 +218,7 @@ class AppSettings {
     String? routeStateTopic,
     String? routeSavedTopic,
     String? deliverySmsResultTopic,
+    String? deliveryNoteTopic,
     String? missionReturnHomeService,
     String? goalEventTopic,
     String? missionRequestService,
@@ -278,6 +284,7 @@ class AppSettings {
       routeSavedTopic: routeSavedTopic ?? this.routeSavedTopic,
       deliverySmsResultTopic:
           deliverySmsResultTopic ?? this.deliverySmsResultTopic,
+      deliveryNoteTopic: deliveryNoteTopic ?? this.deliveryNoteTopic,
       missionReturnHomeService:
           missionReturnHomeService ?? this.missionReturnHomeService,
       goalEventTopic: goalEventTopic ?? this.goalEventTopic,

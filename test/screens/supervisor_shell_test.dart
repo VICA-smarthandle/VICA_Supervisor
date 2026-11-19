@@ -84,22 +84,23 @@ void main() {
   testWidgets('사이드 메뉴를 누르면 같은 이름의 화면이 뜬다', (tester) async {
     await pumpShell(tester);
 
-    // 메뉴 라벨과 AppBar 제목이 같아야 합니다. 목록이 어긋나면 여기서 깨집니다.
+    // 메뉴 라벨 → AppBar 제목. 목록이 어긋나면 여기서 깨집니다. 2026-11-17 제목·문구
+    // 간결화(사용자 승인)로 라벨 셋이 제목보다 짧아졌습니다('지도' → '지도 설정').
     const expected = [
-      '대시보드',
-      '지도 설정',
-      '원격 주행',
-      '물류 배송',
+      ('대시보드', '대시보드'),
+      ('지도', '지도 설정'),
+      ('주행', '원격 주행'),
+      ('배송', '물류 배송'),
       // 2026-11-14 경비 탭. 물류 배송과 현재 위치 사이입니다(폰은 더보기 앞).
-      '경비',
-      '현재 위치',
-      '시스템 진단',
-      '알림 및 로그',
-      '설정',
+      ('경비', '경비'),
+      ('현재 위치', '현재 위치'),
+      ('시스템 진단', '시스템 진단'),
+      ('알림 및 로그', '알림 및 로그'),
+      ('설정', '설정'),
     ];
 
     final sidebar = find.byKey(const ValueKey('desktop_sidebar'));
-    for (final label in expected) {
+    for (final (label, title) in expected) {
       // 사이드바 안의 라벨을 누릅니다. 같은 글자가 AppBar 나 본문에도 있을 수
       // 있으므로 사이드바 안으로 범위를 좁힙니다.
       await tester.tap(
@@ -109,9 +110,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.widgetWithText(AppBar, label),
+        find.widgetWithText(AppBar, title),
         findsOneWidget,
-        reason: "'$label' 을 눌렀는데 그 제목의 화면이 뜨지 않았습니다.",
+        reason: "'$label' 을 눌렀는데 '$title' 화면이 뜨지 않았습니다.",
       );
     }
   });

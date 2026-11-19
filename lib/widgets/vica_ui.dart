@@ -3,8 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../core/layout_breakpoints.dart';
+import '../core/log_filter.dart';
 import '../models/robot_status.dart';
 import '../models/supervisor_log.dart';
+import 'vica_motion.dart';
+
+// 클릭·화면 전환 효과(2026-11-18). vica_ui 를 쓰는 화면이 따로 import 하지 않아도 됩니다.
+export 'vica_motion.dart';
 
 /// 모서리 둥글기. 화면마다 제각기 숫자를 적으면 같은 카드가 화면마다 다르게
 /// 보인다. Figma 의 라운딩 토큰과 같은 값이다.
@@ -75,8 +80,8 @@ class VicaColors {
 /// 화면 본문의 공통 틀. 좌우 여백·최대 폭·세로 스크롤을 맡는다.
 ///
 /// 제목은 이제 선택이다(2026-09-14 리디자인). 화면 제목은 AppBar 가 그리므로
-/// 본문이 다시 적으면 같은 글자가 두 번 보인다. 모드 선택처럼 AppBar 가 없는
-/// 화면만 제목을 넘긴다.
+/// 본문이 다시 적으면 같은 글자가 두 번 보인다. 제목줄과 다른 말일 때만 넘긴다
+/// (2026-11-17 제목·문구 간결화, 사용자 승인 — 지금은 지도 모드의 '새 지도 그리기'뿐).
 class VicaPage extends StatelessWidget {
   const VicaPage({
     super.key,
@@ -232,6 +237,37 @@ class VicaIconCircle extends StatelessWidget {
   }
 }
 
+/// 비카 로봇 로고(2026-11-17 사용자 제공, assets/images/vica_robot.png 256px·투명 바탕).
+///
+/// [framed] 가 true 면 흰 둥근 바탕 위에 올린다 — 어두운 사이드바용.
+/// 밝은 AppBar·로그인 카드에서는 false(그림만).
+class VicaLogo extends StatelessWidget {
+  const VicaLogo({super.key, this.size = 40, this.framed = false});
+
+  final double size;
+  final bool framed;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = Image.asset(
+      'assets/images/vica_robot.png',
+      fit: BoxFit.contain,
+      semanticLabel: 'VICA',
+    );
+    if (!framed) return SizedBox.square(dimension: size, child: image);
+    return Container(
+      width: size,
+      height: size,
+      padding: EdgeInsets.all(size * 0.08),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(size * 0.28),
+      ),
+      child: image,
+    );
+  }
+}
+
 /// 앱의 모든 확인 팝업이 쓰는 틀. 왼쪽 위 아이콘 원, 제목, 설명, (선택) 값 줄,
 /// 아래 버튼 줄. AlertDialog 대신 이것을 쓰면 화면마다 팝업 모양이 갈리지 않는다.
 ///
@@ -353,7 +389,7 @@ class VicaCancelButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return OutlinedButton(
+    return PressScale(child: OutlinedButton(
       onPressed: onPressed,
       style: OutlinedButton.styleFrom(
         foregroundColor: VicaColors.primary,
@@ -363,7 +399,7 @@ class VicaCancelButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12),
       ),
       child: Text(label, textAlign: TextAlign.center),
-    );
+    ));
   }
 }
 
@@ -388,7 +424,7 @@ Future<bool> showVicaConfirm(
   IconData? confirmIcon,
   bool danger = false,
 }) async {
-  final confirmed = await showDialog<bool>(
+  final confirmed = await showVicaDialog<bool>(
     context: context,
     builder: (dialogContext) {
       void pop(bool value) => Navigator.of(dialogContext).pop(value);
@@ -405,18 +441,18 @@ Future<bool> showVicaConfirm(
         actions: [
           VicaCancelButton(onPressed: () => pop(false), label: cancelLabel),
           if (confirmIcon == null)
-            FilledButton(
+            PressScale(child: FilledButton(
               onPressed: () => pop(true),
               style: style,
               child: Text(confirmLabel),
-            )
+            ))
           else
-            FilledButton.icon(
+            PressScale(child: FilledButton.icon(
               onPressed: () => pop(true),
               style: style,
               icon: Icon(confirmIcon, size: 18),
               label: Text(confirmLabel),
-            ),
+            )),
         ],
       );
     },
@@ -438,7 +474,7 @@ Future<void> showVicaNotice(
   String okLabel = '확인',
   IconData? okIcon,
 }) {
-  return showDialog<void>(
+  return showVicaDialog<void>(
     context: context,
     builder: (dialogContext) {
       void close() => Navigator.of(dialogContext).pop();
@@ -451,13 +487,13 @@ Future<void> showVicaNotice(
         rows: rows,
         actions: [
           if (okIcon == null)
-            FilledButton(onPressed: close, child: Text(okLabel))
+            PressScale(child: FilledButton(onPressed: close, child: Text(okLabel)))
           else
-            FilledButton.icon(
+            PressScale(child: FilledButton.icon(
               onPressed: close,
               icon: Icon(okIcon, size: 18),
               label: Text(okLabel),
-            ),
+            )),
         ],
       );
     },
@@ -620,7 +656,7 @@ class VicaExpandPanel extends StatelessWidget {
           // Material 로 한 번 감쌉니다. InkWell 의 물결은 '가장 가까운 Material'
           // 위에 그려지는데, 그것이 이 칸 뒤의 Scaffold 면 물결이 흰 배경에
           // 가려 보이지 않습니다. 눌러도 아무 반응이 없는 것처럼 보입니다.
-          Material(
+          PressScale(child: Material(
             color: Colors.transparent,
             borderRadius: BorderRadius.circular(kVicaCardRadius),
             child: InkWell(
@@ -675,7 +711,7 @@ class VicaExpandPanel extends StatelessWidget {
                 ),
               ),
             ),
-          ),
+          )),
           if (expanded) ...[
             const Divider(height: 1, color: VicaColors.border),
             Padding(
@@ -816,22 +852,25 @@ class VicaDisconnectedNotice extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // 2026-11-17 사용자: 'ROS 연결 안 됨' → '로봇 오프라인'.
                 const Text(
-                  'ROS 연결 안 됨',
+                  '로봇 오프라인',
                   style: TextStyle(
                     fontWeight: FontWeight.w800,
                     color: VicaColors.red,
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  vicaKeepWords(
-                    vicaBreakAtSentences(
-                      detail.isEmpty ? '로봇 상태를 받을 수 없습니다.' : detail,
-                    ),
+                const Text('상태 수신 멈춤 · 주소 확인', style: TextStyle(fontSize: 13)),
+                // 연결 노드가 남긴 원인(예: 연결 오류 내용)은 진단용으로 작게 둡니다.
+                if (detail.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    vicaKeepWords(detail),
+                    style:
+                        const TextStyle(fontSize: 11, color: VicaColors.muted),
                   ),
-                  style: const TextStyle(fontSize: 13),
-                ),
+                ],
               ],
             ),
           ),
@@ -841,203 +880,116 @@ class VicaDisconnectedNotice extends StatelessWidget {
   }
 }
 
-/// 대시보드 위쪽의 지표 카드. 상태색 하나([color])로 카드 전체의 분위기를 정합니다.
-///
-/// 흰 카드 넷이 나란히 서면 어느 것이 위험한지 숫자를 읽기 전엔 모릅니다.
-/// 카드 배경을 상태색의 옅은 틴트로 깔고 숫자를 상태색으로 찍어, 색만으로
-/// 상태가 읽히게 합니다(2026-09-14 시안). 아이콘과 배지는 흰 원·흰 알약이라
-/// 틴트 위에서 떠 보입니다.
-///
-/// [badge] 와 [unit] 은 선택입니다. 없으면 그 자리를 비웁니다.
-class VicaMetricCard extends StatelessWidget {
-  const VicaMetricCard({
-    super.key,
-    required this.icon,
+/// [VicaCountStrip] 의 칸 하나. 큰 숫자([value])와 그 아래 작은 라벨.
+class VicaCount {
+  const VicaCount({
     required this.label,
     required this.value,
-    required this.color,
-    this.labelMaxLines = 1,
-    this.labelFontSize = 12,
-    this.badge,
-    this.unit = '',
+    this.color = VicaColors.text,
+    this.accent,
   });
 
-  /// 글자 배율 1.0에서 카드 한 장이 차지하는 높이입니다.
-  ///
-  /// 카드를 놓는 쪽이 이 값을 배율에 맞춰 늘려야 합니다. 고정 높이로 두면 배율을
-  /// 올린 기기에서 카드 아래가 잘립니다. 라벨이 두 줄인 카드까지 들어가는
-  /// 값입니다 — 한 줄이면 남는 자리를 아이콘 줄과 숫자 사이가 먹습니다.
-  static const double baseHeight = 124;
-
-  final IconData icon;
   final String label;
   final String value;
 
-  /// 카드의 상태색. 숫자·아이콘·배지 글자에 그대로 쓰고, 배경 틴트는
-  /// [tintFor] 로 여기서 계산합니다.
+  /// 숫자 색. 상태를 색으로 알려야 하는 칸(오류)만 바꿉니다.
   final Color color;
-  final int labelMaxLines;
-  final double labelFontSize;
 
-  /// 오른쪽 위 흰 알약에 들어가는 짧은 상태 글자('정상', '이상 없음').
-  final String? badge;
+  /// 칸 바탕(아주 옅게)과 라벨 앞 점의 색. 없으면 바탕 없이 그립니다(2026-11-18 사용자).
+  final Color? accent;
+}
 
-  /// 큰 숫자 옆에 작게 붙는 단위('대', '건').
-  final String unit;
+/// 대시보드 위쪽의 숫자 줄. 카드 하나 안에 칸을 나란히 둡니다.
+///
+/// 2026-11-17 제목·문구 간결화(사용자 승인): 지표 카드 넷(옛 VicaMetricCard — 틴트 배경·
+/// 아이콘·배지·단위)을 카드 하나 안의 칸 넷으로 바꿨습니다. 폭과 상관없이 언제나 한 줄입니다.
+/// 2026-11-18 사용자: 칸마다 은은한 바탕색([VicaCount.accent] 7 %)을 깔고 세로선 대신 틈으로 나눕니다.
+class VicaCountStrip extends StatelessWidget {
+  const VicaCountStrip({super.key, required this.items});
 
-  /// 상태색에서 배경 틴트를 얻습니다.
-  ///
-  /// 브랜드색은 이미 정해 둔 [VicaColors.accentTint] 를 쓰고, 나머지는 상태색을
-  /// 옅게 깝니다. 초록은 다른 색보다 연해 보여 한 단계(12%) 더 진하게 깝니다.
-  static Color tintFor(Color color) {
-    if (color == VicaColors.primary) {
-      return VicaColors.accentTint;
-    }
-    if (color == VicaColors.green) {
-      return color.withValues(alpha: 0.12);
-    }
-    return color.withValues(alpha: 0.10);
-  }
+  final List<VicaCount> items;
 
   @override
   Widget build(BuildContext context) {
+    return VicaCard(
+      padding: const EdgeInsets.all(8),
+      // 칸 높이를 가장 높은 칸에 맞춥니다. 칸이 넷뿐이라 한 번 더 재는 값이 작습니다.
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < items.length; i++) ...[
+              if (i > 0) const SizedBox(width: 8),
+              Expanded(child: _CountCell(item: items[i])),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CountCell extends StatelessWidget {
+  const _CountCell({required this.item});
+
+  final VicaCount item;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = item.accent;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
       decoration: BoxDecoration(
-        color: tintFor(color),
-        borderRadius: BorderRadius.circular(kVicaCardRadius),
+        color: accent?.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Row(
-            children: [
-              _MetricIconBox(icon: icon, color: color),
-              const SizedBox(width: 6),
-              // 배지는 남는 폭만 씁니다. 좁은 카드에서 아이콘을 밀어내면 안 됩니다.
-              Expanded(
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: badge == null
-                      ? const SizedBox.shrink()
-                      : _MetricBadge(text: badge!, color: color),
-                ),
-              ),
-            ],
-          ),
-          const Spacer(),
-          const SizedBox(height: 4),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              // 카드가 좁아지면 두 자리 숫자가 두 줄로 접혀 카드 아래로 넘쳤습니다.
-              // 숫자는 줄을 바꾸지 않고 자리에 맞게 줄어들게 합니다. 지표는 한눈에
-              // 읽는 값이라 말줄임표로 자르면 뜻이 사라집니다.
-              Flexible(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    value,
-                    maxLines: 1,
-                    softWrap: false,
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontSize: 28,
-                          height: 1.15,
-                          color: color,
-                        ),
-                  ),
-                ),
-              ),
-              if (unit.isNotEmpty) ...[
-                const SizedBox(width: 4),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
-                    unit,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: VicaColors.muted,
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          Text(
-            label,
-            maxLines: labelMaxLines,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontSize: labelFontSize,
-                  height: 1.25,
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 흰 원 안의 아이콘. 틴트 배경 위에서 아이콘이 상태색으로 또렷이 보입니다.
-class _MetricIconBox extends StatelessWidget {
-  const _MetricIconBox({required this.icon, required this.color});
-
-  final IconData icon;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 32,
-      height: 32,
-      decoration: const BoxDecoration(
-        color: VicaColors.card,
-        shape: BoxShape.circle,
-      ),
-      child: Icon(icon, color: color, size: 18),
-    );
-  }
-}
-
-/// 카드 오른쪽 위의 흰 알약. 점과 글자를 상태색으로 찍습니다.
-class _MetricBadge extends StatelessWidget {
-  const _MetricBadge({required this.text, required this.color});
-
-  final String text;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: VicaColors.card,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 5),
-          Flexible(
+          // 칸이 좁아져도 숫자는 줄을 바꾸지 않고 자리에 맞게 줄어듭니다. 지표는 한눈에
+          // 읽는 값이라 말줄임표로 자르면 뜻이 사라집니다.
+          FittedBox(
+            fit: BoxFit.scaleDown,
             child: Text(
-              text,
+              item.value,
               maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+              softWrap: false,
               style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
                 height: 1.2,
-                color: color,
+                color: item.color,
               ),
             ),
+          ),
+          const SizedBox(height: 2),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (accent != null) ...[
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: accent,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 5),
+              ],
+              Flexible(
+                child: Text(
+                  item.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.25,
+                    color: VicaColors.muted,
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1059,7 +1011,8 @@ class VicaRobotCard extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _IconBox(icon: Icons.smart_toy, color: VicaColors.primaryDark),
+          // 2026-11-17 사용자: 초록 로봇 아이콘 → 비카 로고.
+          const VicaLogo(size: 50),
           const SizedBox(width: 14),
           // Wrap은 자식에게 폭 제한을 물려주지 않아 긴 문구가 그대로 카드 밖으로
           // 나갔습니다. 실제로 쓸 수 있는 폭을 재서 각 항목에 직접 넘깁니다.
@@ -1092,38 +1045,22 @@ class VicaRobotCard extends StatelessWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 4),
-                    Text('ID: ${robot.robotId}',
-                        style: Theme.of(context).textTheme.bodySmall),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 14,
-                      runSpacing: 8,
-                      children: [
-                        _InfoChip(
-                            icon: Icons.location_on_outlined,
-                            maxWidth: contentWidth,
-                            text:
-                                '현재 위치: ${_empty(robot.currentLocation, '수신 대기')}'),
-                        _InfoChip(
-                            icon: Icons.flag_outlined,
-                            maxWidth: contentWidth,
-                            text: '목적지: ${_empty(robot.currentGoal, '없음')}'),
-                        _InfoChip(
-                            icon: Icons.schedule,
-                            maxWidth: contentWidth,
-                            text: '마지막 통신: ${_relativeTime(robot.timestamp)}'),
-                        // 좌표를 표시하는 이유: 이 카드에서 10 Hz로 실제 변하는
-                        // 값은 좌표뿐입니다. 나머지(상태·현재 위치·마지막 통신)는
-                        // 몇 초씩 같은 값이라, 좌표가 없으면 화면이 멈춘 것처럼
-                        // 보입니다. 2026-08-02에 "상태가 갱신되지 않는다"는 보고가
-                        // 있었고 실제로는 초당 6회 갱신 중이었습니다.
-                        _InfoChip(
-                            icon: Icons.my_location_outlined,
-                            maxWidth: contentWidth,
-                            text:
-                                '좌표: ${robot.x.toStringAsFixed(2)}, ${robot.y.toStringAsFixed(2)}'),
-                      ],
+                    // 2026-11-17 제목·문구 간결화(사용자 승인): ID·좌표 줄을 빼고 라벨/값 두 열로
+                    // 둡니다. 통신이 살아 있는지는 '수신 N초 전'(10 Hz 수신이면 늘 0초 전)이 보여 줍니다.
+                    const SizedBox(height: 12),
+                    _RobotCardRow(
+                      label: '위치',
+                      value: _empty(robot.currentLocation, '수신 대기'),
+                    ),
+                    const SizedBox(height: 6),
+                    _RobotCardRow(
+                      label: '목적지',
+                      value: _empty(robot.currentGoal, '없음'),
+                    ),
+                    const SizedBox(height: 6),
+                    _RobotCardRow(
+                      label: '수신',
+                      value: _relativeTime(robot.timestamp),
                     ),
                   ],
                 );
@@ -1270,6 +1207,28 @@ class VicaInfoRow extends StatelessWidget {
   }
 }
 
+/// 로그 분류의 색(2026-11-17 알림·로그 시각화). 숫자 줄·시간대 막대·로그 줄 점이 같은 색을 씁니다.
+///
+/// 2026-11-17 사용자 채택 '색 G': 색약 배려 Okabe–Ito 조합. 색만으로 가르지 않게 라벨을 늘 함께 적습니다.
+Color vicaLogColor(LogFilter filter) => switch (filter) {
+      LogFilter.emergencyStop => const Color(0xFFD55E00), // 주홍
+      LogFilter.connection => const Color(0xFF0072B2), // 파랑
+      LogFilter.delivery => const Color(0xFF009E73), // 청록
+      LogFilter.coordinateTransfer => const Color(0xFFE69F00), // 주황
+      LogFilter.patrol => const Color(0xFFCC79A7), // 분홍보라
+      LogFilter.all => VicaColors.primaryDark,
+    };
+
+/// 흰 바탕 위 숫자 글자색. 막대·점은 [vicaLogColor] 그대로, 글자만 같은 색조를 어둡게 해
+/// 대비 4.5:1 이상으로 맞춥니다(2026-11-17 사용자: 주황·분홍보라 숫자가 흐림, 2.3·3.1:1).
+Color vicaLogTextColor(LogFilter filter) => switch (filter) {
+      LogFilter.emergencyStop => const Color(0xFFC25600), // 4.5:1
+      LogFilter.delivery => const Color(0xFF008662), // 4.6:1
+      LogFilter.coordinateTransfer => const Color(0xFF9C6C00), // 4.6:1
+      LogFilter.patrol => const Color(0xFFA36186), // 4.6:1
+      _ => vicaLogColor(filter), // 연결 파랑은 원래 5.2:1
+    };
+
 class VicaLogTile extends StatelessWidget {
   const VicaLogTile({
     super.key,
@@ -1286,8 +1245,18 @@ class VicaLogTile extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _LogIconBox(
-              icon: Icons.info_outline, color: VicaColors.primaryDark),
+          // 분류색 점(2026-11-17, 시각화 초안 ①). 전에는 모든 줄이 같은 정보 아이콘이었습니다.
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: vicaLogColor(log.filter),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -1329,80 +1298,39 @@ class VicaLogTile extends StatelessWidget {
   }
 }
 
-class _LogIconBox extends StatelessWidget {
-  const _LogIconBox({required this.icon, required this.color});
+/// 로봇 카드의 한 줄: 왼쪽 라벨(옅은 글자, 56px) + 오른쪽 값(굵은 글자).
+class _RobotCardRow extends StatelessWidget {
+  const _RobotCardRow({required this.label, required this.value});
 
-  final IconData icon;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 32,
-      height: 32,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        shape: BoxShape.circle,
-      ),
-      child: Icon(icon, color: color, size: 18),
-    );
-  }
-}
-
-class _IconBox extends StatelessWidget {
-  const _IconBox({required this.icon, required this.color});
-
-  final IconData icon;
-  final Color color;
+  final String label;
+  final String value;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 50,
-      height: 50,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        shape: BoxShape.circle,
-      ),
-      child: Icon(icon, color: color, size: 24),
-    );
-  }
-}
-
-class _InfoChip extends StatelessWidget {
-  const _InfoChip({
-    required this.icon,
-    required this.text,
-    required this.maxWidth,
-  });
-
-  final IconData icon;
-  final String text;
-
-  /// 이 항목이 차지해도 되는 최대 폭입니다. Wrap 자식은 폭 제한을 받지 못하므로
-  /// 부모가 잰 값을 여기로 넘겨야 문구가 카드 밖으로 나가지 않습니다.
-  final double maxWidth;
-
-  @override
-  Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxWidth: maxWidth),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 문구가 여러 줄로 접히면 아이콘이 가운데로 떠 보이므로 첫 줄에 맞춥니다.
-          Padding(
-            padding: const EdgeInsets.only(top: 1),
-            child: Icon(icon, size: 16, color: const Color(0xFF758198)),
+    // 라벨 열은 글자 배율만큼 넓힙니다. 56 으로 묶어 두면 큰 글자에서 '목적지'가 두 줄로 접힙니다.
+    final labelWidth = MediaQuery.textScalerOf(context).scale(56);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: labelWidth,
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 13, color: VicaColors.muted),
           ),
-          const SizedBox(width: 4),
-          // 장소 이름은 관리자가 읽어야 할 정보라 말줄임표로 자르지 않고 줄을 바꿉니다.
-          Flexible(
-            child: Text(text, style: Theme.of(context).textTheme.bodySmall),
+        ),
+        // 장소 이름은 관리자가 읽어야 할 정보라 말줄임표로 자르지 않고 줄을 바꿉니다.
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: VicaColors.text,
+            ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

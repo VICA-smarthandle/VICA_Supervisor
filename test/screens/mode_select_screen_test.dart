@@ -13,6 +13,7 @@ import 'package:vica_supervisor/providers/app_mode_provider.dart';
 import 'package:vica_supervisor/providers/auth_provider.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
+import 'package:vica_supervisor/ros/ros_bridge_client.dart';
 import 'package:vica_supervisor/screens/mode_select_screen.dart';
 import 'package:vica_supervisor/widgets/vica_ui.dart';
 
@@ -42,14 +43,14 @@ class _FakeSupervisor extends SupervisorProvider {
   }
 }
 
-ModeStatus mode(String m, ModeState state, {List<String> stopTimeouts = const []}) =>
-    ModeStatus(mode: m, state: state, stopTimeouts: stopTimeouts);
+ModeStatus mode(String m, ModeState state, {List<String> stopTimeouts = const [], List<String>? paneNodes}) =>
+    ModeStatus(mode: m, state: state, stopTimeouts: stopTimeouts, paneNodes: paneNodes);
 
 // 주행 카드를 누르면 하위 모드 시트가 뜹니다(2026-11-16 목업 '안 2'). 그중 하나를 고릅니다.
 Future<void> chooseSubmode(WidgetTester tester, String title) async {
   await tester.tap(find.text('주행'));
   await tester.pumpAndSettle();
-  expect(find.text('어떤 일을 할까요?'), findsOneWidget);
+  expect(find.text('주행 모드 선택'), findsOneWidget);
   await tester.tap(find.text(title));
   await tester.pumpAndSettle();
 }
@@ -119,7 +120,7 @@ void main() {
 
     // 안내문은 어절 단위 줄바꿈(vicaKeepWords)을 거치므로 같은 변환으로 찾습니다.
     expect(
-      find.textContaining(vicaKeepWords('로봇 상태를 확인할 수 없습니다')),
+      find.textContaining(vicaKeepWords('오프라인 · 상태')),  // 2026-11-17 온라인/오프라인
       findsOneWidget,
     );
     expect(find.textContaining('확인 불가'), findsNWidgets(2));
@@ -201,6 +202,35 @@ void main() {
       expect(modeProvider.landingTab, '경비');
     });
 
+    // 2026-11-18: 강제 종료된 노드는 노드 목록(/rosapi/nodes)에 20 s 남는다(FastDDS 수명 측정). 주행을
+    // 막 끈 뒤 낡은 목록이 'Nav2 가 떠 있다'고 해도, 모드 노드가 있으면 켜기를 요청해 모드 노드가 판단한다.
+    testWidgets('노드 목록이 Nav2 가 떠 있다고 해도 모드 노드가 꺼짐이면 켜기를 요청한다', (tester) async {
+      final supervisor = _FakeSupervisor();
+      final modeProvider = await pump(tester, supervisor, status: stack(nodes: ['/amcl', '/bt_navigator']));
+      supervisor.injectMode(mode('idle', ModeState.idle));
+      await tester.pump();
+
+      await chooseSubmode(tester, '경비');
+
+      expect(supervisor.calls, ['drive_start']);
+      expect(find.text('주행 시작'), findsOneWidget);
+      expect(modeProvider.mode, isNull);
+    });
+
+    testWidgets('터미널에서 띄운 Nav2 라고 모드 노드가 거절하면 예전처럼 화면만 바꾼다', (tester) async {
+      final supervisor = _FakeSupervisor()..reply = (false, '칸에서 띄운 주행 노드가 있습니다: bt_navigator, amcl');
+      final modeProvider = await pump(tester, supervisor, status: stack(nodes: ['/amcl', '/bt_navigator']));
+      supervisor.injectMode(mode('idle', ModeState.idle));
+      await tester.pump();
+
+      await chooseSubmode(tester, '경비');
+
+      expect(supervisor.calls, ['drive_start']);
+      expect(find.text('주행을 켜지 못했습니다'), findsNothing);
+      expect(modeProvider.mode, AppMode.drive);
+      expect(modeProvider.driveSubmode, DriveSubmode.patrol);
+    });
+
     testWidgets('꺼져 있으면 주행 묶음을 켜고 준비 화면으로 간다', (tester) async {
       final supervisor = _FakeSupervisor();
       final modeProvider = await pump(tester, supervisor);
@@ -211,7 +241,7 @@ void main() {
       await chooseSubmode(tester, '경비');
 
       expect(supervisor.calls, ['drive_start']);
-      expect(find.text('주행 준비'), findsOneWidget);
+      expect(find.text('주행 시작'), findsOneWidget);
       expect(find.text('경비 모드'), findsOneWidget);
       expect(modeProvider.mode, isNull, reason: '다 켜지기 전에는 주행 화면에 들어가지 않는다');
     });
@@ -226,7 +256,7 @@ void main() {
 
       expect(find.text('주행을 켜지 못했습니다'), findsOneWidget);
       expect(find.textContaining(vicaKeepWords('지도 그리기 중입니다')), findsOneWidget);
-      expect(find.text('주행 준비'), findsNothing);
+      expect(find.text('주행 시작'), findsNothing);
     });
 
     testWidgets('다 켜져 있으면 고른 하위 모드로 바로 들어간다', (tester) async {
@@ -306,7 +336,71 @@ void main() {
     await pump(tester, _FakeSupervisor());
     await tester.tap(find.text('주행'));
     await tester.pumpAndSettle();
-    expect(find.text('어떤 일을 할까요?'), findsOneWidget);
+    expect(find.text('주행 모드 선택'), findsOneWidget);
     expect(find.text('로컬(LOCAL)'), findsNothing);
   });
+
+  // 2026-11-18: 화면이 열려 있는 동안 노드 목록을 5 s 마다 다시 조회한다(한 번만 조회하면 낡은 목록이 굳었다).
+  testWidgets('연결돼 있으면 노드 목록을 5초마다 다시 조회하고, 화면을 떠나면 멈춘다', (tester) async {
+    final supervisor = _CountingSupervisor();
+    await pump(tester, supervisor);
+    final first = supervisor.refreshes;
+    expect(first, 1, reason: '뜨자마자 한 번');
+
+    await tester.pump(const Duration(seconds: 5));
+    expect(supervisor.refreshes, first + 1);
+    await tester.pump(const Duration(seconds: 5));
+    expect(supervisor.refreshes, first + 2);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 15));
+    expect(supervisor.refreshes, first + 2);
+  });
+
+  // 2026-11-18 B안: 모드 노드가 pane_nodes(유닛 밖에서 뜬 주행 노드)를 보내면 노드 목록 대신 그것을 본다.
+  group('모드 노드의 pane_nodes', () {
+    final stale = stack(nodes: ['/amcl', '/bt_navigator', '/controller_server', '/planner_server']);
+
+    testWidgets('주행을 막 꺼 노드 목록에 Nav2 가 남아 있어도 모드 노드가 없다고 하면 꺼짐으로 보인다', (tester) async {
+      final supervisor = _FakeSupervisor();
+      await pump(tester, supervisor, status: stale);
+      supervisor.injectMode(mode('idle', ModeState.idle, paneNodes: const []));
+      await tester.pump();
+
+      expect(find.textContaining('꺼져 있음'), findsOneWidget);
+      expect(find.text('주행 노드 실행 중'), findsNothing);
+      expect(find.textContaining('Nav2 실행 중'), findsNothing, reason: '지도 카드도 막지 않는다');
+    });
+
+    testWidgets('모드 노드가 터미널에서 띄운 Nav2 를 알리면 노드 목록이 비어도 그렇게 보인다', (tester) async {
+      final supervisor = _FakeSupervisor();
+      await pump(tester, supervisor, status: stack());
+      supervisor.injectMode(mode('idle', ModeState.idle, paneNodes: const ['amcl', 'bt_navigator']));
+      await tester.pump();
+
+      expect(find.text('주행 노드 실행 중'), findsOneWidget);
+      expect(find.textContaining('Nav2 실행 중'), findsOneWidget);
+    });
+
+    testWidgets('옛 모드 노드(pane_nodes 없음)면 예전처럼 노드 목록으로 판단한다', (tester) async {
+      final supervisor = _FakeSupervisor();
+      await pump(tester, supervisor, status: stale);
+      supervisor.injectMode(mode('idle', ModeState.idle));
+      await tester.pump();
+
+      expect(find.text('주행 노드 실행 중'), findsOneWidget);
+    });
+  });
+}
+
+class _CountingSupervisor extends _FakeSupervisor {
+  int refreshes = 0;
+
+  @override
+  RosConnectionState get connectionState => RosConnectionState.connected;
+
+  @override
+  Future<void> refreshStackStatus() async {
+    refreshes += 1;
+  }
 }

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vica_supervisor/models/mode_status.dart';
 import 'package:vica_supervisor/providers/app_mode_provider.dart';
+import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/widgets/drive_nodes_card.dart';
 import 'package:vica_supervisor/widgets/vica_ui.dart';
@@ -24,7 +25,23 @@ class _FakeSupervisor extends SupervisorProvider {
     calls.add('voice_${choice.wire}');
     return reply;
   }
+
+  @override
+  Future<(bool, String)> driveStop() async {
+    calls.add('drive_stop');
+    return reply;
+  }
+
+  @override
+  Future<(bool, String)> setWakeDoaTurn(bool on) async {
+    calls.add(on ? 'beam_on' : 'beam_off');
+    return reply;
+  }
 }
+
+// 2026-11-19: 스위치가 둘(카메라 감지·빔포밍 회전)이라 키로 찾습니다.
+final _detectorSwitch = find.byKey(const ValueKey('drive_nodes_detector_switch'));
+final _beamSwitch = find.byKey(const ValueKey('drive_nodes_wake_doa_turn_switch'));
 
 ModeStatus drive({String detector = 'active', VoiceChoice voice = VoiceChoice.local}) => ModeStatus(
       mode: 'drive',
@@ -52,6 +69,7 @@ void main() {
         providers: [
           ChangeNotifierProvider<SupervisorProvider>.value(value: supervisor),
           ChangeNotifierProvider(create: (_) => AppModeProvider()),
+          ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ],
         child: const MaterialApp(home: Scaffold(body: SingleChildScrollView(child: DriveNodesCard()))),
       ),
@@ -62,16 +80,17 @@ void main() {
 
   testWidgets('주행이 꺼져 있거나 모드 노드가 없으면 그리지 않는다', (tester) async {
     await pump(tester, null);
-    expect(find.text('주행 노드'), findsNothing);
+    expect(find.text('주행 설정'), findsNothing);
     await pump(tester, const ModeStatus(mode: 'idle', state: ModeState.idle));
-    expect(find.text('주행 노드'), findsNothing);
+    expect(find.text('주행 설정'), findsNothing);
   });
 
   testWidgets('사람 감지 스위치를 끄면 감지기만 끄라고 보낸다', (tester) async {
     final supervisor = await pump(tester, drive());
-    expect(find.textContaining(vicaKeepWords('켜짐 · 지팡이 사용자')), findsOneWidget);
+    // 2026-11-17 간결화(사용자 승인): 감지기 'active' 는 '켜짐' 한 단어. 음성 줄도 '켜짐'이라 둘입니다.
+    expect(find.text(vicaKeepWords('켜짐')), findsNWidgets(2));
 
-    await tester.tap(find.byType(Switch));
+    await tester.tap(_detectorSwitch);
     await tester.pump();
     expect(supervisor.calls, ['detector_off']);
   });
@@ -79,12 +98,111 @@ void main() {
   testWidgets('잠시 꺼진 감지기는 이유와 함께 보이고, 다시 켤 수 있다', (tester) async {
     final supervisor = await pump(tester, drive(detector: 'inactive'));
     expect(find.text(vicaKeepWords('잠시 꺼짐')), findsOneWidget);
-    expect(find.textContaining(vicaKeepWords('주행을 껐다 켜면 자동으로 켜집니다')), findsOneWidget);
+    expect(
+      find.text(vicaKeepWords('감지 꺼짐 · 접근 요청·경비 알림 없음 · 다시 켜면 10~20초')),
+      findsOneWidget,
+    );
 
-    await tester.tap(find.byType(Switch));
+    await tester.tap(_detectorSwitch);
     await tester.pump();
     expect(supervisor.calls, ['detector_on']);
   });
+
+  // ---- 빔포밍 회전(2026-11-19 사용자, 캔버스 101번 보드) ----
+
+  Switch beamSwitch(WidgetTester tester) => tester.widget<Switch>(_beamSwitch);
+
+  testWidgets('빔포밍 켜짐: 켜진 스위치, 나침반 아이콘, 경고 칸 없음', (tester) async {
+    final supervisor = await pump(tester, drive());
+    supervisor.setWakeDoaTurnForTest(true);
+    await tester.pump();
+    expect(find.text('빔포밍 회전'), findsOneWidget);
+    // 감지기·빔포밍·음성 세 줄이 '켜짐'.
+    expect(find.text(vicaKeepWords('켜짐')), findsNWidgets(3));
+    expect(beamSwitch(tester).value, isTrue);
+    expect(beamSwitch(tester).onChanged, isNotNull);
+    expect(find.byIcon(Icons.explore_outlined), findsOneWidget);
+    expect(find.text(vicaKeepWords('회전 꺼짐')), findsNothing);
+  });
+
+  testWidgets('빔포밍 꺼짐: 잠시 꺼짐과 경고 칸, 사선 나침반', (tester) async {
+    final supervisor = await pump(tester, drive());
+    supervisor.setWakeDoaTurnForTest(false);
+    await tester.pump();
+    expect(find.text(vicaKeepWords('잠시 꺼짐')), findsOneWidget);
+    expect(find.text(vicaKeepWords('회전 꺼짐')), findsOneWidget);
+    expect(beamSwitch(tester).value, isFalse);
+    expect(find.byIcon(Icons.explore_off_outlined), findsOneWidget);
+
+    await tester.tap(_beamSwitch);
+    await tester.pump();
+    expect(supervisor.calls, ['beam_on']);
+  });
+
+  testWidgets('끄면 beam_off 를 보내고 노드 문구를 띄우지만, 표시는 상태 토픽이 올 때까지 그대로', (tester) async {
+    final supervisor = await pump(tester, drive());
+    supervisor
+      ..setWakeDoaTurnForTest(true)
+      ..reply = (true, '빔포밍 회전을 껐습니다');
+    await tester.pump();
+
+    await tester.tap(_beamSwitch);
+    await tester.pumpAndSettle();
+    expect(supervisor.calls, ['beam_off']);
+    expect(find.text('빔포밍 회전을 껐습니다'), findsOneWidget);
+    expect(beamSwitch(tester).value, isTrue);
+  });
+
+  testWidgets('빔포밍 거절이면 이유를 띄운다', (tester) async {
+    final supervisor = await pump(tester, drive());
+    supervisor
+      ..setWakeDoaTurnForTest(true)
+      ..reply = (false, '빔포밍 회전을 바꾸지 못했습니다.');
+    await tester.pump();
+
+    await tester.tap(_beamSwitch);
+    await tester.pumpAndSettle();
+    expect(find.text('안 됐습니다: 빔포밍 회전을 바꾸지 못했습니다.'), findsOneWidget);
+  });
+
+  // 2026-11-19 사용자: 음성이 다시 뜨는 동안은 이전 값 대신 '재가동 중'(캔버스 101 ③).
+  ModeStatus driveVoice(String voice) => ModeStatus(
+        mode: 'drive',
+        state: ModeState.running,
+        nav2: 'active',
+        detector: 'active',
+        voice: voice,
+        voiceChoice: VoiceChoice.local,
+      );
+
+  testWidgets('음성은 active 인데 상태를 아직 못 받았으면 재가동 중, 스위치는 잠긴다', (tester) async {
+    final supervisor = await pump(tester, drive());
+    expect(find.text(vicaKeepWords('재가동 중')), findsOneWidget);
+    expect(beamSwitch(tester).onChanged, isNull);
+
+    await tester.tap(_beamSwitch);
+    await tester.pump();
+    expect(supervisor.calls, isEmpty);
+  });
+
+  for (final voice in ['deactivating', 'activating']) {
+    testWidgets('음성 유닛이 $voice 이면 남아 있는 켜짐 값 대신 재가동 중', (tester) async {
+      final supervisor = await pump(tester, driveVoice(voice));
+      supervisor.setWakeDoaTurnForTest(true);
+      await tester.pump();
+      expect(find.text(vicaKeepWords('재가동 중')), findsOneWidget);
+      expect(beamSwitch(tester).onChanged, isNull);
+    });
+  }
+
+  for (final voice in ['inactive', 'failed', 'none']) {
+    testWidgets('음성 유닛이 $voice 이면 음성 꺼짐 · 바꿀 수 없음', (tester) async {
+      await pump(tester, driveVoice(voice));
+      expect(find.text(vicaKeepWords('음성 꺼짐 · 바꿀 수 없음')), findsOneWidget);
+      expect(find.text(vicaKeepWords('재가동 중')), findsNothing);
+      expect(beamSwitch(tester).onChanged, isNull);
+    });
+  }
 
   testWidgets('음성을 외부 API 로 고르면 음성만 바꾸라고 보낸다', (tester) async {
     final supervisor = await pump(tester, drive());
@@ -122,5 +240,12 @@ void main() {
     await tester.pump();
 
     expect(find.textContaining(vicaKeepWords('외부 API 연결 실패 → 로컬 API 로 전환')), findsOneWidget);
+  });
+
+  // 2026-11-18: '주행 끄기'는 위쪽 막대로 옮겼습니다(drive_stop_button_test.dart).
+  testWidgets('카드에는 주행 끄기 버튼이 없다', (tester) async {
+    await pump(tester, drive());
+    expect(find.text('주행 끄기'), findsNothing);
+    expect(find.text('주행 설정'), findsOneWidget);
   });
 }
