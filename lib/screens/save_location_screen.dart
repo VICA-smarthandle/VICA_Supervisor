@@ -28,6 +28,7 @@ import '../widgets/rail_card.dart';
 import '../widgets/rail_far_place_dialog.dart';
 import '../widgets/route_dialogs.dart';
 import '../widgets/map_delete_card.dart';
+import '../widgets/map_fix_panel.dart';
 import '../widgets/vica_ui.dart';
 import '../widgets/wait_spot_overlay.dart';
 
@@ -501,6 +502,16 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               onCancel: supervisor.cancelRouteEdit,
               onTool: supervisor.setRouteTool,
             ),
+          ),
+          // 지도 수정(2026-11-19, 목업 75) — 지우기·부분 스캔·되돌리기. 펼침 여부는 칸이 스스로
+          // 들고 있고, 다른 칸과 한 번에 하나만 펼쳐지도록 서로 접어 줍니다.
+          MapFixPanel(
+            map: map,
+            otherPanelOpen: _panel != _SettingsPanel.none,
+            onCloseOthers: () async {
+              await _openPanel(context, supervisor, _SettingsPanel.none);
+              return _panel == _SettingsPanel.none;
+            },
           ),
           // 지도 삭제도 다른 셋과 같은 접히는 칸입니다. 되돌릴 수 없는 일이라
           // 목록 맨 아래에 두고 **기본으로 접어** 둡니다 — 지도를 고르는
