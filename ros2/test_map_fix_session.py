@@ -124,7 +124,8 @@ def test_remaining_seconds_count_down():
 # ---------------------------------------------------------------------------
 
 
-def test_refine_failure_goes_to_failed_with_reason():
+def test_ambiguous_axis_goes_on_with_the_amcl_value():
+    """앞뒤가 구분되지 않아도 세션은 이어지고, 상태에 그 축을 알립니다(11-19 사용자 결정)."""
     data = np.full((80, 640), 100, dtype=np.int8)
     data[20:60, 20:620] = 0                              # 폭 2 m · 길이 30 m 복도
     corridor = MapGrid(data, RES, 0.0, 0.0)
@@ -133,8 +134,18 @@ def test_refine_failure_goes_to_failed_with_reason():
 
     run.on_scan(0.1, *cast(corridor, middle, LASER, depth=HALF, max_range=16.0), middle, LASER)
 
-    assert (run.phase, run.reason) == ("failed", "ambiguous")
+    assert run.phase == "step_back"
     assert run.state(0.1)["ambiguous"] == ["forward"]
+
+
+def test_refine_failure_goes_to_failed_with_reason():
+    saved = room(6.0, 5.0)
+    far = (TRUE[0] + 0.6, TRUE[1], TRUE[2])               # AMCL 이 0.6 m 틀림(한도 0.30 m)
+    run = start(saved)
+
+    run.on_scan(0.1, *cast(saved, TRUE, LASER, depth=HALF), far, LASER)
+
+    assert (run.phase, run.reason) == ("failed", "low_match")
     run.tick(100.0)
     assert run.phase == "failed"                         # 실패한 뒤에는 아무것도 진행하지 않습니다
 

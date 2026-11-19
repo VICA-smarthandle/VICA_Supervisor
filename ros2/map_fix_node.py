@@ -135,6 +135,19 @@ def pose_of(transform: Any) -> tuple[float, float, float]:
     return transform.translation.x, transform.translation.y, yaw_of(transform.rotation)
 
 
+# 몸체(base_footprint 기준 다각형, m). vica_nav2/config/nav2_params.yaml 의 footprint 와 같은 값입니다.
+# 이 다각형과 사방 body_margin_m 안에 떨어진 라이다 빔은 지도·미리보기에 쓰지 않습니다(map_fix_scan.mask_body).
+DEFAULT_FOOTPRINT = "[[0.151, 0.225], [0.151, -0.225], [-0.459, -0.225], [-0.569, -0.035], [-0.569, 0.035], [-0.459, 0.225]]"
+
+
+def parse_body(footprint: str, margin: float) -> tuple[tuple, float]:
+    """Nav2 형식 footprint 글자 '[[x, y], ...]' 와 여유(m)."""
+    points = tuple((float(x), float(y)) for x, y in json.loads(footprint))
+    if len(points) < 3:
+        raise ValueError(f"footprint 는 꼭짓점이 셋 이상이어야 합니다: {footprint!r}")
+    return points, float(margin)
+
+
 def compose_pose(a: tuple, b: tuple) -> tuple[float, float, float]:
     """평면 자세 a 위에 b 를 얹습니다(map→odom · odom→base = map→base)."""
     c, s = math.cos(a[2]), math.sin(a[2])
@@ -169,12 +182,16 @@ class MapFixNode(Node):
         self.declare_parameter("base_frame", "base_footprint")
         self.declare_parameter("map_frame", "map")
         self.declare_parameter("odom_frame", "odom")
+        self.declare_parameter("robot_footprint", DEFAULT_FOOTPRINT)
+        self.declare_parameter("body_margin_m", 0.20)
 
         self._callbacks = ReentrantCallbackGroup()
         self._request_lock = threading.Lock()     # 요청은 한 번에 하나
         # 스캔 콜백·세션 타이머·요청 처리가 서로 다른 스레드에서 세션을 건드립니다. core 는 이 잠금
         # 안에서만 부릅니다. 기다리는 일(스캔 한 장·load_map 응답)의 신호는 잠금 밖에서 세웁니다.
         self._core_lock = threading.RLock()
+        self._body = parse_body(str(self.get_parameter("robot_footprint").value),
+                                float(self.get_parameter("body_margin_m").value))
         self._state_lock = threading.Lock()
 
         self._status: Optional[dict] = None
@@ -418,20 +435,34 @@ class MapFixNode(Node):
             self.get_logger().warn(f"자세를 못 얻음 — TF {', '.join(missing)} 없음(초기 위치·Nav2 확인)",
                                    throttle_duration_sec=5.0)
             return None
-        return mfc.ScanInput(msg.ranges, msg.angle_min, msg.angle_increment, guess, sensor)
+        import map_fix_scan as scan   # 첫 요청 전에는 numpy 를 올리지 않습니다
 
+        ranges = scan.mask_body(msg.ranges, msg.angle_min, msg.angle_increment, sensor, *self._body)
+        return mfc.ScanInput(ranges, msg.angle_min, msg.angle_increment, guess, sensor)
+
+    # 스캔·오도메트리 콜백은 코어 잠금을 기다리지 않습니다. scan_apply 는 load_map 응답을 기다리는 동안
+    # (최대 apply_timeout_sec) 잠금을 쥡니다. 그때 초당 수십 번 오는 이 콜백들이 잠금을 기다리면 실행
+    # 스레드가 전부 여기 묶여 load_map 응답을 받을 스레드가 남지 않습니다(11-19 실기: Nav2 는 0.06 s 에
+    # 읽었는데 apply_timeout, 그동안 앱 요청도 답을 못 받음). 잠금이 잡혀 있으면 그 표본은 버립니다 —
+    # 다음 표본이 0.1 s 안에 옵니다.
     def _on_scan(self, msg) -> None:
         self._scan_msg = msg
         self._scan_event.set()
         if self.core.session is not None:
             taken = self._scan_input(msg)
-            with self._core_lock:
-                self.core.feed_scan(taken)
+            if self._core_lock.acquire(blocking=False):
+                try:
+                    self.core.feed_scan(taken)
+                finally:
+                    self._core_lock.release()
 
     def _on_odom(self, msg) -> None:
         twist = msg.twist.twist
-        with self._core_lock:
-            self.core.feed_motion(float(twist.linear.x), float(twist.angular.z))
+        if self._core_lock.acquire(blocking=False):
+            try:
+                self.core.feed_motion(float(twist.linear.x), float(twist.angular.z))
+            finally:
+                self._core_lock.release()
 
     def _grab_scan(self) -> Optional[mfc.ScanInput]:
         """scan_check 용 — 센서를 잠깐 열어 스캔 한 장을 받습니다."""

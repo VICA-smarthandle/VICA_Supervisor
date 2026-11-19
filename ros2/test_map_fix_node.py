@@ -136,13 +136,7 @@ def test_pose_is_found_while_amcl_stamps_map_to_odom_in_the_future():
         buffer.set_transform(_stamped("odom", "base_footprint", 2.0, 0.0, now - back), "ekf")
     buffer.set_transform_static(_stamped("base_footprint", "laser_frame", 0.1, 0.0, 0.0), "urdf")
 
-    frames = {"base_frame": "base_footprint", "map_frame": "map", "odom_frame": "odom"}
-    fake = node.MapFixNode.__new__(node.MapFixNode)
-    fake._tf_buffer = buffer
-    fake._sensors_opened_at = 0.0
-    fake.get_parameter = lambda name: SimpleNamespace(value=frames[name])
-    quiet = SimpleNamespace(warn=lambda *a, **k: None, info=lambda *a, **k: None)
-    fake.get_logger = lambda: quiet
+    fake = _fake_node(buffer)
     scan = SimpleNamespace(header=SimpleNamespace(frame_id="laser_frame"),
                            ranges=[1.0], angle_min=0.0, angle_increment=0.1)
 
@@ -151,6 +145,85 @@ def test_pose_is_found_while_amcl_stamps_map_to_odom_in_the_future():
     assert taken is not None
     x, y, yaw = taken.guess
     assert math.isclose(x, 1.0, abs_tol=1e-6) and math.isclose(y, 2.0) and math.isclose(yaw, math.pi / 2)
+
+
+def _fake_node(buffer):
+    frames = {"base_frame": "base_footprint", "map_frame": "map", "odom_frame": "odom"}
+    fake = node.MapFixNode.__new__(node.MapFixNode)
+    fake._tf_buffer = buffer
+    fake._sensors_opened_at = 0.0
+    fake._body = node.parse_body(node.DEFAULT_FOOTPRINT, 0.20)
+    fake.get_parameter = lambda name: SimpleNamespace(value=frames[name])
+    quiet = SimpleNamespace(warn=lambda *a, **k: None, info=lambda *a, **k: None)
+    fake.get_logger = lambda: quiet
+    return fake
+
+
+def _standing_buffer():
+    tf2_ros = pytest.importorskip("tf2_ros")
+    buffer = tf2_ros.Buffer()
+    buffer.set_transform(_stamped("map", "odom", 0.0, 0.0, 1000.0), "amcl")
+    buffer.set_transform(_stamped("odom", "base_footprint", 0.0, 0.0, 1000.0), "ekf")
+    buffer.set_transform_static(_stamped("base_footprint", "laser_frame", 0.0, 0.0, 0.0), "urdf")
+    return buffer
+
+
+def test_scan_input_drops_beams_on_the_body():
+    """11-19 실기: 로봇 뒤쪽 차체(0.36~0.46 m)가 지도에 써졌다. 몸체 + 사방 0.20 m 안의 빔은 버린다."""
+    fake = _fake_node(_standing_buffer())
+    scan = SimpleNamespace(header=SimpleNamespace(frame_id="laser_frame"),
+                           ranges=[2.0, 0.40], angle_min=0.0, angle_increment=math.pi)   # 앞 2 m · 뒤 0.4 m
+
+    taken = fake._scan_input(scan, wait=0.0)
+
+    assert taken.ranges[0] == 2.0 and math.isnan(taken.ranges[1])
+
+
+def _hold_core_lock(fake):
+    import threading
+
+    held, release = threading.Event(), threading.Event()
+
+    def hold():
+        with fake._core_lock:
+            held.set()
+            release.wait(5.0)
+
+    thread = threading.Thread(target=hold)
+    thread.start()
+    held.wait(1.0)
+    return release, thread
+
+
+def test_odom_and_scan_do_not_wait_while_an_apply_holds_the_core():
+    """11-19 실기: scan_apply 가 load_map 응답을 기다리는 10 s 동안 잠금을 쥐고 있어, 오도메트리·스캔
+    콜백이 잠금을 기다리며 실행 스레드를 다 묶었다 → load_map 응답을 받을 스레드가 없어 apply_timeout,
+    그동안 앱 요청도 답을 못 받았다. 잠금이 잡혀 있으면 그 표본은 버리고 바로 돌아온다."""
+    import threading
+    import time
+
+    fake = node.MapFixNode.__new__(node.MapFixNode)
+    fake._core_lock = threading.RLock()
+    fed = []
+    fake.core = SimpleNamespace(session=object(), feed_motion=lambda *a: fed.append(a),
+                                feed_scan=lambda taken: fed.append(taken))
+    fake._scan_event = threading.Event()
+    fake._scan_input = lambda msg: "taken"
+    odom = SimpleNamespace(twist=SimpleNamespace(twist=SimpleNamespace(
+        linear=SimpleNamespace(x=0.0), angular=SimpleNamespace(z=0.0))))
+    release, thread = _hold_core_lock(fake)
+    try:
+        start = time.monotonic()
+        fake._on_odom(odom)
+        fake._on_scan(SimpleNamespace())
+        took = time.monotonic() - start
+    finally:
+        release.set()
+        thread.join()
+
+    assert took < 0.5 and fed == []
+    fake._on_odom(odom)                     # 잠금이 풀리면 평소대로
+    assert len(fed) == 1
 
 
 def test_importing_the_node_does_not_load_numpy():

@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -325,16 +326,21 @@ def test_refine_ignores_a_moved_object():
     assert got.kept_beams < got.used_beams
 
 
-def test_long_corridor_is_ambiguous_forward():
+def test_long_corridor_keeps_the_amcl_forward_and_passes():
+    """앞뒤가 구분되지 않으면 그 축만 출발 자세(AMCL — 지금 주행에 쓰는 위치)를 두고 통과합니다
+    (11-19 사용자 결정: 좁은 범위 스캔을 거부하는 것은 불편하다)."""
     data = np.full((80, 640), 100, dtype=np.int8)   # 32 × 4 m 판
     data[20:60, 20:620] = 0                          # 폭 2 m · 길이 30 m 복도
     corridor = MapGrid(data, RES, 0.0, 0.0)
     middle = (16.0, 2.0, 0.0)                        # 양 끝 벽이 15 m 밖(라이다 유효 11 m 밖)
+    guess = off(middle, 0.03, 0.02, 0.5)
 
-    got = refine(corridor, corridor, middle, off(middle, 0.03, 0.02, 0.5), max_range=16.0)
+    got = refine(corridor, corridor, middle, guess, max_range=16.0)
 
-    assert not got.ok and got.reason == "ambiguous"
+    assert got.ok and got.reason == ""
     assert got.ambiguous == ("forward",)
+    assert math.isclose(got.x, guess[0], abs_tol=0.003)                 # 앞뒤(이 복도에서는 x)는 AMCL
+    assert abs(got.y - middle[1]) <= 0.012 and abs(got.yaw - middle[2]) <= math.radians(0.3)
 
 
 def test_room_corner_is_not_ambiguous():
@@ -416,21 +422,24 @@ def test_small_square_room_is_not_ambiguous():
     assert got.ok and got.ambiguous == ()
 
 
-def test_round_room_is_ambiguous_in_yaw():
-    """로봇이 둥근 방 한가운데면 어느 쪽을 보는지 벽으로는 알 수 없습니다."""
+def test_round_room_keeps_the_amcl_yaw():
+    """로봇이 둥근 방 한가운데면 어느 쪽을 보는지 벽으로는 알 수 없습니다 — 방향은 AMCL 을 둡니다."""
     size = 120
     rows, cols = np.mgrid[0:size, 0:size]
     distance = np.hypot((cols + 0.5) * RES - 3.0, (rows + 0.5) * RES - 3.0)
     data = np.where(distance < 2.0, 0, 100).astype(np.int8)
     round_room = MapGrid(data, RES, 0.0, 0.0)
     centre = (3.0, 3.0, 0.4)
+    guess = centre        # 방향이 전혀 안 정해지는 장면이라 출발값을 틀어 두면 탐색이 멀리 미끄러져
+                          # 옮긴 양 한도(10°)에 걸립니다 — 그때는 거부가 맞습니다.
 
     ranges, angle_min, increment = cast(round_room, centre, NO_OFFSET, depth=HALF)
     field = build_likelihood_field(round_room)
-    got = scan.refine_pose(round_room, field, ranges, angle_min, increment, centre, NO_OFFSET)
+    got = scan.refine_pose(round_room, field, ranges, angle_min, increment, guess, NO_OFFSET)
 
-    assert not got.ok and got.reason == "ambiguous"
-    assert got.ambiguous == ("yaw",)
+    assert got.ok and got.ambiguous == ("yaw",)
+    assert math.isclose(got.yaw, guess[2], abs_tol=1e-9)               # 방향은 AMCL 그대로
+    assert math.hypot(got.x - centre[0], got.y - centre[1]) <= 0.012
 
 
 def test_refine_refuses_to_jump_far_from_the_guess():
@@ -495,3 +504,39 @@ def test_fit_above_the_rms_limit_is_low_match(monkeypatch):
 
     assert not got.ok and got.reason == "low_match"
     assert got.rms_m > scan.MAX_RMS_M and got.kept_beams >= scan.MIN_KEPT
+
+
+# ---------------------------------------------------------------------------
+# 몸체 거르기 (11-19 실기: 로봇 뒤쪽 차체 0.36~0.46 m 가 지도에 장애물로 써졌다)
+# ---------------------------------------------------------------------------
+
+
+def test_beams_on_the_body_or_within_twenty_centimetres_are_dropped():
+    """몸체(Nav2 footprint)와 그 사방 0.20 m 안에 떨어진 빔은 버립니다(11-19 사용자 결정)."""
+    centre = (0.0, 0.0, 0.0)
+    # 0: 앞 · π/2: 왼쪽 · π: 뒤 · 3π/2: 오른쪽
+    inside = scan.mask_body(np.array([0.34, 0.42, 0.76, 0.42]), 0.0, math.pi / 2, centre)
+    outside = scan.mask_body(np.array([0.36, 0.44, 0.78, 0.44]), 0.0, math.pi / 2, centre)
+
+    assert np.isnan(inside).all()
+    assert np.array_equal(outside, [0.36, 0.44, 0.78, 0.44])
+    assert scan.BODY_MARGIN_M == 0.20
+
+
+def test_body_mask_uses_where_the_lidar_sits():
+    """라이다가 뒤를 보고 0.1 m 앞에 달렸으면, 라이다의 0° 빔 0.5 m 는 로봇 중심 뒤 0.4 m(몸체 안)입니다."""
+    got = scan.mask_body(np.array([0.5, 0.5]), 0.0, math.pi, (0.1, 0.0, math.pi))
+
+    assert np.isnan(got[0]) and got[1] == 0.5                          # 1번 빔은 앞 0.6 m — 밖
+
+
+def test_hold_axes_replaces_only_the_named_axes():
+    fitted = (1.00, 2.00, 0.0)
+    amcl = (1.10, 2.05, math.radians(3.0))
+
+    assert scan.hold_axes(fitted, amcl, ("forward",)) == pytest.approx((1.10, 2.00, 0.0))
+    assert scan.hold_axes(fitted, amcl, ("lateral",)) == pytest.approx((1.00, 2.05, 0.0))
+    assert scan.hold_axes(fitted, amcl, ("yaw",)) == pytest.approx((1.00, 2.00, math.radians(3.0)))
+    # 로봇이 +y 를 보면 앞뒤는 y 축입니다
+    facing_y = (1.00, 2.00, math.pi / 2)
+    assert scan.hold_axes(facing_y, (1.10, 2.05, math.pi / 2), ("forward",)) == pytest.approx((1.00, 2.05, math.pi / 2))

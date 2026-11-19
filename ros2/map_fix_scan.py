@@ -407,8 +407,65 @@ def refine_pose(grid: MapGrid, field: np.ndarray, ranges, angle_min: float, angl
 
     ambiguous = _ambiguous_axes(surface, grid, kept_beams, (x, y, yaw), sensor)
     if ambiguous:
-        return result(False, "ambiguous", (x, y, yaw), kept, rms, ambiguous)
+        # 구분되지 않는 축은 거부하지 않고 출발 자세(AMCL — 지금 주행에 쓰는 위치)를 둡니다(11-19 사용자
+        # 결정). 그 축은 벽이 정해 주지 못하므로 맞춘 값이 더 낫다고 할 근거가 없고, AMCL 값을 두면 고친
+        # 칸이 지금 Nav2 가 믿는 자리와 맞습니다. 적용 전 미리보기로 확인합니다.
+        x, y, yaw = hold_axes((x, y, yaw), guess, ambiguous)
+        return result(True, "", (x, y, yaw), kept, rms, ambiguous)
     return done
+
+
+def hold_axes(pose: tuple, guess: tuple, axes) -> tuple[float, float, float]:
+    """pose 의 axes('forward' · 'lateral' · 'yaw')를 guess 값으로 바꿉니다. 앞뒤·좌우는 바꾼 방향 기준입니다."""
+    x, y, yaw = pose
+    if "yaw" in axes:
+        yaw = guess[2]
+    dx, dy = guess[0] - x, guess[1] - y
+    for axis, (ux, uy) in (("forward", (math.cos(yaw), math.sin(yaw))),
+                           ("lateral", (-math.sin(yaw), math.cos(yaw)))):
+        if axis in axes:
+            along = dx * ux + dy * uy
+            x, y = x + along * ux, y + along * uy
+    return x, y, yaw
+
+
+# ---------------------------------------------------------------------------
+# 몸체 거르기
+# ---------------------------------------------------------------------------
+#
+# 11-19 실기: 로봇이 서 있으니 뒤쪽 차체(라이다 뒤 0.36~0.46 m)가 스캔마다 같은 자리에 찍혀 '새로 생김'
+# 기준(N 의 80 %)을 넘었고, 지도에 장애물로 써졌습니다. 몸체와 그 사방 BODY_MARGIN_M 안에 떨어진 빔은
+# 지도에도 미리보기 점에도 쓰지 않습니다(사용자 결정 '몸체 + 사방 20 cm').
+#
+# FOOTPRINT 는 vica_nav2/config/nav2_params.yaml 의 footprint 와 같은 값입니다(base_footprint 기준, m).
+FOOTPRINT = ((0.151, 0.225), (0.151, -0.225), (-0.459, -0.225), (-0.569, -0.035), (-0.569, 0.035), (-0.459, 0.225))
+BODY_MARGIN_M = 0.20
+
+
+def mask_body(ranges, angle_min: float, angle_increment: float, sensor: tuple[float, float, float],
+              footprint=FOOTPRINT, margin: float = BODY_MARGIN_M) -> np.ndarray:
+    """몸체 안이나 몸체에서 margin 안에 떨어진 빔을 NaN 으로 바꾼 사본. sensor 는 base 기준 라이다 자리입니다."""
+    out = np.asarray(ranges, dtype=np.float64).copy()
+    angles = angle_min + np.arange(out.size) * angle_increment + sensor[2]
+    with np.errstate(invalid="ignore"):
+        px = sensor[0] + out * np.cos(angles)
+        py = sensor[1] + out * np.sin(angles)
+    finite = np.isfinite(px) & np.isfinite(py)
+    poly = np.asarray(footprint, dtype=np.float64)
+    ax, ay = poly[:, 0], poly[:, 1]
+    bx, by = np.roll(ax, -1), np.roll(ay, -1)
+    x, y = px[finite, None], py[finite, None]
+    # 안쪽(짝홀 규칙)
+    crosses = ((ay > y) != (by > y)) & (x < (bx - ax) * (y - ay) / np.where(by == ay, 1e-12, by - ay) + ax)
+    inside = crosses.sum(axis=1) % 2 == 1
+    # 변까지 거리
+    ex, ey = bx - ax, by - ay
+    t = np.clip(((x - ax) * ex + (y - ay) * ey) / (ex * ex + ey * ey), 0.0, 1.0)
+    near = (np.hypot(x - (ax + t * ex), y - (ay + t * ey)).min(axis=1) <= margin)
+    drop = np.zeros(out.size, dtype=bool)
+    drop[finite] = inside | near
+    out[drop] = np.nan
+    return out
 
 
 def pose_score_percent(grid: MapGrid, field: np.ndarray, ranges, angle_min: float,
