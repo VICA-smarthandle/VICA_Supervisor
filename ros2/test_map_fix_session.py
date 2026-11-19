@@ -60,6 +60,13 @@ def test_happy_path_refine_stepback_scan_preview():
     run.on_scan(0.1, *one_scan, GUESS, LASER)
     assert run.phase == "step_back"
     assert math.hypot(run.pose[0] - TRUE[0], run.pose[1] - TRUE[1]) <= 0.012
+    # 반경 원의 중심은 로봇이 아니라 라이다 자리입니다(앞 0.185 m). 앱이 '이 원 밖으로'를 여기에
+    # 그립니다(11-19 독립 검토 3).
+    cx, cy = run.state(0.1)["centre"]
+    lx = run.pose[0] + math.cos(run.pose[2]) * LASER[0]
+    ly = run.pose[1] + math.sin(run.pose[2]) * LASER[0]
+    assert math.hypot(cx - lx, cy - ly) < 0.002
+    assert math.hypot(cx - run.pose[0], cy - run.pose[1]) > 0.18
 
     run.tick(5.0)
     assert run.phase == "step_back"      # 0.1 에 시작했으니 5.1 에 끝납니다
@@ -93,7 +100,7 @@ def test_state_carries_every_key_the_app_reads():
 
     assert set(state) == {
         "session", "map_id", "phase", "reason", "remaining_s", "radius_m", "moved_m", "moved_deg",
-        "score", "score_before", "score_after", "added", "removed", "cells", "ambiguous",
+        "score", "score_before", "score_after", "added", "removed", "cells", "ambiguous", "centre",
     }
     assert (state["session"], state["map_id"], state["phase"], state["radius_m"]) == ("s1", "test_map", "step_back", 2.0)
     assert state["score"] > 80 and state["cells"] == [] and state["ambiguous"] == []

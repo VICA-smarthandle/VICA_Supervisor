@@ -44,6 +44,7 @@ UNKNOWN = 205
 
 # 한 번에 지울 수 있는 사각형 수. 앱 목록이 한 화면에 들어오는 양입니다.
 MAX_RECTS = 10   # 한 번에 지울 수 있는 구역 수(11-19 사용자)
+MAX_COORD_M = 1000.0   # 구역 좌표의 절댓값 상한(m)
 # 이보다 작은 변은 손가락이 스친 것으로 봅니다. 지도 한 칸(0.05 m)과 같습니다.
 MIN_RECT_M = 0.05
 
@@ -171,7 +172,8 @@ def normalize_rects(raw: Any) -> list[dict]:
             y_a, y_b = float(item["y_min"]), float(item["y_max"])
         except (KeyError, TypeError, ValueError):
             raise MapFixError("bad_rect", f"{index + 1}번 구역의 좌표가 올바르지 않습니다.") from None
-        if not all(math.isfinite(value) for value in (x_a, x_b, y_a, y_b)):
+        # 무한·아주 큰 값은 칸 범위 계산(math.ceil)에서 넘칩니다. 지도는 ±1 km 안입니다.
+        if not all(math.isfinite(value) and abs(value) <= MAX_COORD_M for value in (x_a, x_b, y_a, y_b)):
             raise MapFixError("bad_rect", f"{index + 1}번 구역의 좌표가 올바르지 않습니다.")
         rect = {
             "x_min": min(x_a, x_b), "y_min": min(y_a, y_b),
@@ -364,11 +366,37 @@ def backup_root(maps_root: Path, map_id: str) -> Path:
         raise MapFixError(error.reason, error.message) from None
 
 
-def _order(folder: Path) -> tuple[str, int]:
-    """폴더 이름의 시각과 같은 초 안의 순번. 수정 시각(mtime)은 복사하면 바뀌어 믿지 않습니다."""
+def _raw_entry(folder: Path) -> dict:
+    try:
+        entry = json.loads((folder / ENTRY_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return entry if isinstance(entry, dict) else {}
+
+
+def _order(folder: Path) -> tuple[int, str, int]:
+    """저장한 순번(entry.json 의 seq)이 먼저입니다. 벽시계는 폐쇄망·재부팅에서 뒤로 갈 수 있어
+    폴더 이름의 시각은 순번이 없는 옛 백업에만 씁니다. 수정 시각(mtime)은 복사하면 바뀌어 믿지 않습니다."""
+    seq = _raw_entry(folder).get("seq")
     name = folder.name
     tail = name.rsplit("_", 1)[-1]
-    return name[:_STAMP_LENGTH], int(tail) if tail.isdigit() else 1
+    return (seq if isinstance(seq, int) else -1), name[:_STAMP_LENGTH], int(tail) if tail.isdigit() else 1
+
+
+def _map_meta(maps_root: Path, map_id: str) -> km.MapMeta:
+    try:
+        return km.read_map_meta(maps_root, map_id)
+    except km.KeepoutError as error:
+        raise MapFixError(error.reason, error.message) from None
+
+
+def _fsync(path: Path) -> None:
+    """파일이나 폴더를 디스크에 내려씁니다. 전원이 나가도 '온전한' 백업에 빈 파일이 남지 않게."""
+    descriptor = os.open(str(path), os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _complete_backups(maps_root: Path, map_id: str) -> list[Path]:
@@ -381,22 +409,20 @@ def _complete_backups(maps_root: Path, map_id: str) -> list[Path]:
 
 
 def _read_entry(folder: Path) -> dict:
-    try:
-        entry = json.loads((folder / ENTRY_NAME).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        entry = {}
-    if not isinstance(entry, dict):
-        entry = {}
+    entry = _raw_entry(folder)
     return {key: entry.get(key) for key in ENTRY_KEYS}
 
 
 def save_backup(maps_root: Path, map_id: str, kind: str, entry: dict, now: datetime) -> Path:
     """지금의 pgm·png 를 백업하고 그 폴더를 돌려줍니다. 끝나면 KEEP_BACKUPS 개만 남깁니다."""
     paths = map_paths(maps_root, map_id)
+    meta = _map_meta(maps_root, map_id)
     root = backup_root(maps_root, map_id)
     stamp = now.strftime("%Y%m%d_%H%M%S")
     try:
         root.mkdir(parents=True, exist_ok=True)
+        seqs = [_raw_entry(path).get("seq") for path in _complete_backups(maps_root, map_id)]
+        seq = max([value for value in seqs if isinstance(value, int)], default=0) + 1
         same_second = [path for path in root.iterdir() if path.name.startswith(stamp)]
         suffix = f"_{len(same_second) + 1}" if same_second else ""
         folder = root / f"{stamp}_{kind}{suffix}"
@@ -404,12 +430,19 @@ def save_backup(maps_root: Path, map_id: str, kind: str, entry: dict, now: datet
         for path in paths.values():
             if path.is_file():
                 shutil.copy2(path, folder / path.name)
+                _fsync(folder / path.name)
         record = {key: entry.get(key) for key in ENTRY_KEYS}
         record["at"] = now.isoformat(timespec="seconds")
         record["kind"] = kind
+        record["seq"] = seq
+        # 되돌릴 때 지금 지도와 같은 지도인지 견줍니다(크기·해상도·원점).
+        record["map"] = {"width": meta.width, "height": meta.height, "resolution": meta.resolution,
+                         "origin_x": meta.origin_x, "origin_y": meta.origin_y}
         temp = folder / (ENTRY_NAME + ".tmp")
         temp.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+        _fsync(temp)
         os.replace(str(temp), str(folder / ENTRY_NAME))
+        _fsync(folder)
         for old in _complete_backups(maps_root, map_id)[:-KEEP_BACKUPS]:
             shutil.rmtree(old, ignore_errors=True)
     except OSError as error:
@@ -423,17 +456,40 @@ def list_history(maps_root: Path, map_id: str, limit: int = 3) -> list[dict]:
     return [_read_entry(folder) for folder in list(newest_first)[:limit]]
 
 
+BACKUP_MISMATCH = "백업 지도가 지금 지도와 달라 되돌리지 않았습니다."
+
+
 def restore_backup(maps_root: Path, map_id: str, backup: Path) -> None:
-    """백업 폴더의 pgm·png 를 지금 자리에 원자적으로 되살립니다."""
+    """백업 폴더의 pgm·png 를 지금 자리에 원자적으로 되살립니다.
+
+    지금 지도와 크기·해상도·원점이 다른 백업(그 사이 지도를 다시 맞춘 경우)이나 깨진 백업
+    그림(전원이 나가 빈 파일)은 쓰지 않습니다 — 쓰면 지도가 어긋나거나 망가집니다.
+    """
     paths = map_paths(maps_root, map_id)
+    meta = _map_meta(maps_root, map_id)
+    pgm_path = backup / paths["pgm"].name
+    if not pgm_path.is_file():
+        raise MapFixError("io_error", "백업에 지도 그림이 없어 되돌리지 못했습니다.")
+    saved = _raw_entry(backup).get("map")
+    if isinstance(saved, dict):
+        same = (saved.get("width"), saved.get("height")) == (meta.width, meta.height) and all(
+            isinstance(saved.get(key), (int, float)) and abs(float(saved[key]) - value) < 1e-9
+            for key, value in (("resolution", meta.resolution), ("origin_x", meta.origin_x),
+                               ("origin_y", meta.origin_y)))
+        if not same:
+            raise MapFixError("bad_map", BACKUP_MISMATCH)
     try:
-        pgm = (backup / paths["pgm"].name).read_bytes()
+        _read_pgm(pgm_path, meta.width, meta.height)   # 머리말·크기·잘림 검사
+    except MapFixError:
+        raise MapFixError("bad_map", BACKUP_MISMATCH) from None
+    try:
+        pgm = pgm_path.read_bytes()
+        targets = [(paths["pgm"], pgm)]
+        png_backup = backup / paths["png"].name
+        if png_backup.is_file():
+            targets.append((paths["png"], png_backup.read_bytes()))
     except OSError:
         raise MapFixError("io_error", "백업에 지도 그림이 없어 되돌리지 못했습니다.") from None
-    targets = [(paths["pgm"], pgm)]
-    png_backup = backup / paths["png"].name
-    if png_backup.is_file():
-        targets.append((paths["png"], png_backup.read_bytes()))
     try:
         km.write_all_atomic(targets)
     except km.KeepoutError as error:

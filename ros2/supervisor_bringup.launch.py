@@ -109,9 +109,13 @@ def generate_launch_description() -> LaunchDescription:
                 output="screen",
             ),
             # 지도 수정. 쉬는 동안에는 서비스 하나만 열어 둡니다(map_fix_node.py 맨 위 참고).
+            # 지도 수정(2026-11-19). 예상 밖으로 죽어도 3초 뒤 다시 뜹니다 — 앱 기능 하나 때문에
+            # 지도 유닛 전체를 다시 켤 일이 없게(독립 검토 6).
             ExecuteProcess(
                 cmd=[sys.executable, str(MAP_FIX_NODE)],
                 output="screen",
+                respawn=True,
+                respawn_delay=3.0,
             ),
             ExecuteProcess(
                 cmd=[sys.executable, str(ROUTE_NODE)],

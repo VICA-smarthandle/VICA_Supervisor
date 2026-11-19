@@ -63,6 +63,15 @@ def test_state_is_published_on_change_and_then_only_as_a_heartbeat():
     assert node.STATE_HEARTBEAT_SEC <= 2.0
 
 
+def test_a_request_that_ends_the_session_publishes_done_once():
+    """적용·버리기·중지로 세션이 끝나면 'done' 을 한 번 냅니다. 다른 기기나 응답을 놓친 앱이
+    미리보기를 쥐고 남지 않게 합니다(11-19 독립 검토 4)."""
+    done = node.ended_state("s1", "vica_map_0630", "scan_apply", None)
+    assert done == {"session": "s1", "map_id": "vica_map_0630", "phase": "done", "reason": "scan_apply"}
+    assert node.ended_state("", "vica_map_0630", "erase", None) is None          # 세션이 없었다
+    assert node.ended_state("s1", "vica_map_0630", "get", "s1") is None          # 아직 있다
+
+
 def test_fill_response_writes_json():
     response = SimpleNamespace()
     node.fill_response(response, (True, "no_nav2", "Nav2가 실행되면 적용됩니다.", {"applied": False, "black": 3}))
@@ -107,13 +116,16 @@ def test_running_node_stays_light_until_the_first_request():
         "import rclpy, map_fix_node\n"
         "rclpy.init()\n"
         "node = map_fix_node.MapFixNode()\n"
-        "print('numpy' in sys.modules, node._load_map_client is None)\n"
+        "from rclpy.callback_groups import MutuallyExclusiveCallbackGroup as M\n"
+        "print('numpy' in sys.modules, node._load_map_client is None,"
+        " isinstance(node._housekeeping_timer.callback_group, M))\n"
         "node.destroy_node(); rclpy.shutdown()\n" % str(HERE)
     )
     env = {**os.environ, "ROS_DOMAIN_ID": "99", "ROS_LOCALHOST_ONLY": "1"}
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=60)
     assert out.returncode == 0, out.stderr[-800:]
-    assert out.stdout.strip().splitlines()[-1] == "False True"
+    # 정리 타이머는 한 번에 하나만 돕니다 — Nav2 가 답하지 않을 때 대기 스레드가 쌓이지 않게(검토 2).
+    assert out.stdout.strip().splitlines()[-1] == "False True True"
 
 
 def test_launch_starts_the_map_fix_node(tmp_path):
@@ -138,3 +150,9 @@ def test_launch_starts_the_map_fix_node(tmp_path):
 
     assert module.MAP_FIX_NODE == HERE / "map_fix_node.py"
     assert sum(str(module.MAP_FIX_NODE) in argv for argv in commands) == 1
+    # 예상 밖으로 죽어도 다시 뜹니다(검토 6).
+    process = next(entity for entity in module.generate_launch_description().entities
+                   if isinstance(entity, ExecuteProcess)
+                   and str(module.MAP_FIX_NODE) in [perform_substitutions(context, part) for part in entity.cmd])
+    respawn = getattr(process, "_ExecuteLocal__respawn", getattr(process, "_ExecuteProcess__respawn", None))
+    assert respawn is True

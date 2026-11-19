@@ -50,6 +50,7 @@ MESSAGES = {
     "busy_session": "부분 스캔이 진행 중입니다.",
     "not_current_map": "현재 지도에서만 부분 스캔할 수 있습니다.",
     "apply_failed": "Nav2가 지도를 읽지 못해 수정을 취소했습니다.",
+    "internal_error": "지도 수정 중 오류가 났습니다.",
     "no_pose": "로봇 위치나 라이다를 받지 못했습니다.",
     "no_session": "진행 중인 부분 스캔이 없습니다.",
     "bad_action": "알 수 없는 요청입니다.",
@@ -149,6 +150,11 @@ class MapFixCore:
             return getattr(self, "_do_" + action)(store, map_id, args)
         except (Refusal, store.MapFixError) as error:
             return False, error.reason, error.message, {}
+        except Exception as error:  # noqa: BLE001 - 예상 밖 예외로 노드가 죽으면 앱 기능 전체가 멈춥니다.
+            import traceback
+
+            self._log(f"지도 수정 {action}({map_id}) 처리 중 예외: {error!r}\n{traceback.format_exc()}")
+            return False, "internal_error", MESSAGES["internal_error"], {}
 
     @staticmethod
     def _parse(args_json: str) -> dict:
@@ -326,6 +332,7 @@ class MapFixCore:
             "used_beams": got.used_beams, "kept_beams": got.kept_beams,
             "ambiguous": list(got.ambiguous),
             "x": round(got.x, 3), "y": round(got.y, 3), "yaw": round(got.yaw, 4),
+            "centre": [round(value, 3) for value in scan.sensor_position((got.x, got.y, got.yaw), taken.sensor)],
             "hits": [[round(float(x), 3), round(float(y), 3)] for x, y in got.hits[:MAX_HITS]],
         }
         return True, "", "", result

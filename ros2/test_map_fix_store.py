@@ -150,6 +150,9 @@ def test_rect_messages_use_the_app_word_area(tmp_path):
     assert message_of(lambda: store.normalize_rects([])) == "지울 구역이 없습니다."
     assert message_of(lambda: store.normalize_rects([{"x_min": "a"}])) == "1번 구역의 좌표가 올바르지 않습니다."
     assert message_of(lambda: store.count_erase(image, [outside])) == "구역이 지도 밖에 있습니다."
+    # 아주 큰 좌표(1e308)는 칸 범위 계산에서 넘쳐 노드가 죽었습니다(11-19 독립 검토 6).
+    huge = {"x_min": 0.0, "y_min": 0.0, "x_max": 1e308, "y_max": 1.0}
+    assert message_of(lambda: store.normalize_rects([huge])) == "1번 구역의 좌표가 올바르지 않습니다."
     assert reason_of(lambda: store.apply_erase(image, [outside])) == "out_of_map"
 
 
@@ -368,6 +371,58 @@ def test_restore_leaves_original_when_backup_is_broken(tmp_path):
     assert reason_of(lambda: store.undo_last(root, MAP)) == "io_error"
     assert files(root) == current
     assert backup.exists()
+
+
+def test_undo_refuses_a_backup_that_no_longer_fits_the_map(tmp_path):
+    """지도를 다른 크기·원점으로 바꾼 뒤(예: 배율 맞춤 도구) 옛 백업을 되돌리면 지도가 어긋납니다.
+    지금 지도와 크기·해상도·원점이 다르면 되돌리지 않습니다(11-19 독립 검토 1)."""
+    root = with_png(tmp_path)
+    erase_once(root, 0)
+    yaml = root / f"{MAP}.yaml"
+    yaml.write_text(yaml.read_text(encoding="utf-8").replace("origin: [-0.5, -0.4, 0]", "origin: [-0.6, -0.4, 0]"),
+                    encoding="utf-8")
+    current = files(root)
+
+    error = pytest.raises(store.MapFixError, store.undo_last, root, MAP).value
+    assert (error.reason, error.message) == ("bad_map", "백업 지도가 지금 지도와 달라 되돌리지 않았습니다.")
+    assert files(root) == current
+
+    # 크기가 달라져도 같습니다(그림 크기는 pgm 머리말에서 봅니다).
+    root2 = with_png(tmp_path / "b")
+    erase_once(root2, 0)
+    (root2 / f"{MAP}.pgm").write_bytes(b"P5\n12 8\n255\n" + bytes([254]) * 96)
+    (root2 / f"{MAP}.png").unlink()
+    assert reason_of(lambda: store.undo_last(root2, MAP)) == "bad_map"
+
+
+def test_undo_refuses_an_empty_backup_picture(tmp_path):
+    """복사 도중 전원이 나가 0바이트가 된 백업 그림은 쓰지 않습니다."""
+    root = with_png(tmp_path)
+    backup = erase_once(root, 0)
+    (backup / f"{MAP}.pgm").write_bytes(b"")
+    current = files(root)
+
+    assert reason_of(lambda: store.undo_last(root, MAP)) == "bad_map"
+    assert files(root) == current and backup.exists()
+
+
+def test_backup_order_follows_saving_order_not_the_clock(tmp_path):
+    """시계가 뒤로 가도(폐쇄망·재부팅) 가장 나중에 만든 백업이 '최근'입니다(11-19 독립 검토 8)."""
+    root = with_png(tmp_path)
+    first = store.save_backup(root, MAP, "erase", {"black": 1}, at(30))
+    second = store.save_backup(root, MAP, "erase", {"black": 2}, at(10))   # 시계가 20 s 뒤로
+    third = store.save_backup(root, MAP, "scan", {"added": 3}, at(20))
+
+    assert store.latest_backup(root, MAP) == third
+    assert [entry["kind"] for entry in store.list_history(root, MAP)] == ["scan", "erase", "erase"]
+    assert store.list_history(root, MAP)[1]["black"] == 2
+    assert first.exists() and second.exists()
+
+    # 정리할 때도 저장한 순서로 오래된 것부터 지웁니다.
+    for second_ in range(9, 0, -1):
+        store.save_backup(root, MAP, "erase", {"black": 100 + second_}, at(second_))
+    assert not first.exists() and not second.exists() and third.exists()
+    assert len(store.list_history(root, MAP, limit=20)) == store.KEEP_BACKUPS
 
 
 def test_drop_backup_removes_only_that_folder(tmp_path):

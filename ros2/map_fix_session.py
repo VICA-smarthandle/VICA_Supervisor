@@ -62,6 +62,7 @@ class ScanSession:
         self.phase = "refine"
         self.reason = ""
         self.pose: Optional[tuple[float, float, float]] = None
+        self.centre: Optional[tuple[float, float]] = None
         self.changes: Optional[scan.Changes] = None
         self.score_before = 0.0
         self.score_after = 0.0
@@ -91,6 +92,7 @@ class ScanSession:
                 self._fail(refined.reason)
                 return
             self.pose = (refined.x, refined.y, refined.yaw)
+            self.centre = scan.sensor_position(self.pose, sensor)   # 반경 원의 중심(라이다 자리)
             self._enter("step_back", now)
         elif self.phase == "scanning":
             self._last_scan = now
@@ -159,6 +161,8 @@ class ScanSession:
             "removed": int(len(changes.removed)) if changes else 0,
             "cells": cells_payload(self.grid, changes) if changes else [],
             "ambiguous": list(refined.ambiguous) if refined else [],
+            # 반경 원의 중심(라이다 자리, map 좌표). 자세를 맞추기 전에는 빈 목록입니다.
+            "centre": [round(self.centre[0], 3), round(self.centre[1], 3)] if self.centre else [],
         }
 
     # --- 안쪽 --------------------------------------------------------------

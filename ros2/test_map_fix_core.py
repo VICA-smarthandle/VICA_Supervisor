@@ -303,9 +303,28 @@ def test_scan_check_measures_without_starting_a_session(tmp_path):
     assert result["ok"] is True and result["reason"] == "" and result["score"] > 80
     assert 0 < len(result["hits"]) <= 180 and len(result["hits"][0]) == 2
     assert math.hypot(result["x"] - TRUE[0], result["y"] - TRUE[1]) <= 0.012
+    cx, cy = result["centre"]   # 반경 원은 라이다 자리를 중심으로 그립니다
+    assert abs(math.hypot(cx - result["x"], cy - result["y"]) - 0.185) < 0.002
     assert rig.core.session is None and rig.sensing == []
     rig.scan_input = None
     assert rig.call("scan_check", None, BIG)[:2] == (False, "no_pose")
+
+
+def test_unexpected_error_is_answered_not_crashed(tmp_path):
+    """예상 밖 예외(파일 인코딩·넘침 등)로 노드가 죽지 않고 internal_error 로 답합니다(11-19 독립 검토 6)."""
+    rig = Rig(with_png(tmp_path))
+    logged = []
+    rig.core._log = logged.append
+
+    def boom(*_):
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    rig.core._do_get = boom
+    accepted, reason, message, result = rig.core.handle(MAP, "get", "")
+
+    assert (accepted, reason, result) == (False, "internal_error", {})
+    assert message == "지도 수정 중 오류가 났습니다."
+    assert logged and "UnicodeDecodeError" in logged[-1]
 
 
 def test_scan_start_needs_the_current_map_and_a_sane_radius(tmp_path):

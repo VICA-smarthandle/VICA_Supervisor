@@ -88,8 +88,7 @@ class ScanAccumulator:
         """
         x, y, yaw = pose
         sx, sy, syaw = sensor
-        lx = x + math.cos(yaw) * sx - math.sin(yaw) * sy
-        ly = y + math.sin(yaw) * sx + math.cos(yaw) * sy
+        lx, ly = sensor_position(pose, sensor)
         if self._centre is None:
             self._set_centre(lx, ly)
         self.n_scans += 1
@@ -171,6 +170,13 @@ def patched_grid(grid: MapGrid, changes: Changes) -> MapGrid:
     if len(changes.removed):
         data[changes.removed[:, 0], changes.removed[:, 1]] = 0
     return MapGrid(data, grid.resolution, grid.origin_x, grid.origin_y)
+
+
+def sensor_position(pose: tuple[float, float, float], sensor: tuple[float, float, float]) -> tuple[float, float]:
+    """base 의 map 자세와 base 기준 라이다 자리로 라이다의 map 위치를 냅니다. 반경은 여기서 잽니다."""
+    x, y, yaw = pose
+    sx, sy = sensor[0], sensor[1]
+    return x + math.cos(yaw) * sx - math.sin(yaw) * sy, y + math.sin(yaw) * sx + math.cos(yaw) * sy
 
 
 def cell_centres(grid: MapGrid, cells: np.ndarray) -> np.ndarray:

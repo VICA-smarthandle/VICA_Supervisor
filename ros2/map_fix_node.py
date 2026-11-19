@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import rclpy
-from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -84,6 +84,17 @@ def should_publish(state: dict, last: Optional[dict], since_sec: float) -> bool:
     5분이고 상태에 변경된 칸 목록(최대 2000칸)이 실려, 0.5초마다 다시 내면 와이파이에 무겁습니다.
     """
     return last is None or state != last or since_sec >= STATE_HEARTBEAT_SEC
+
+
+def ended_state(before: str, map_id: str, action: str, after: Optional[str]) -> Optional[dict]:
+    """요청 하나가 세션을 끝냈으면 토픽에 한 번 낼 'done' 상태, 아니면 None.
+
+    적용·버리기·중지로 세션이 없어지면 tick 은 더 낼 것이 없습니다. 그대로 두면 다른 기기나 응답을
+    놓친 앱이 미리보기를 계속 쥐고 있습니다(11-19 독립 검토 4).
+    """
+    if not before or after:
+        return None
+    return {"session": before, "map_id": map_id, "phase": "done", "reason": action}
 
 
 def fresh_status(status: Optional[dict], age_sec: float) -> Optional[dict]:
@@ -183,7 +194,12 @@ class MapFixNode(Node):
         self._load_map_tried = False
         self._load_map_made_at = 0.0
         self._setup_service()
-        self.create_timer(HOUSEKEEPING_SEC, self._housekeeping, callback_group=self._callbacks)
+        # 정리·세션 타이머는 각자 한 번에 하나만 돕니다(MutuallyExclusive). Reentrant 로 두면 Nav2
+        # load_map 이 답하지 않는 동안 같은 타이머가 계속 새 스레드에서 돌아 대기 스레드가 쌓이고,
+        # 결국 응답 처리도 요청도 못 돕니다(11-19 독립 검토 2).
+        self._housekeeping_timer = self.create_timer(
+            HOUSEKEEPING_SEC, self._housekeeping, callback_group=MutuallyExclusiveCallbackGroup())
+        self._tick_group = MutuallyExclusiveCallbackGroup()
         self.get_logger().info(f"vica_map_fix 시작: maps_root={self.maps_root}")
 
     # ------------------------------------------------------------------
@@ -227,7 +243,13 @@ class MapFixNode(Node):
                 self._setup_load_map_client()
             self._open_status()
             with self._core_lock:
+                before = self.core.session.session_id if self.core.session else ""
                 answer = self.core.handle(request.map_id, request.action, request.args_json)
+                done = ended_state(before, request.map_id, request.action,
+                                   self.core.session.session_id if self.core.session else None)
+                if done is not None:
+                    self._publish_state(done, force=True)
+                    self._last_state = None
             if not answer[0] or answer[1]:
                 self.get_logger().info(
                     f"map_fix {request.action}({request.map_id}): accepted={answer[0]} reason={answer[1]}")
@@ -261,6 +283,12 @@ class MapFixNode(Node):
             return fresh_status(self._status, time.monotonic() - self._status_at)
 
     def _housekeeping(self) -> None:
+        try:
+            self._housekeeping_once()
+        except Exception as error:  # noqa: BLE001 - 타이머 예외가 spin 까지 올라가면 노드가 끝납니다.
+            self.get_logger().error(f"정리 중 예외: {error!r}")
+
+    def _housekeeping_once(self) -> None:
         with self._core_lock:
             self.core.retry_pending()
         idle = time.monotonic() - self._last_request
@@ -280,7 +308,7 @@ class MapFixNode(Node):
             self._open_sensors()
             if self._session_timer is None:
                 self._session_timer = self.create_timer(
-                    SESSION_TICK_SEC, self._on_session_tick, callback_group=self._callbacks)
+                    SESSION_TICK_SEC, self._on_session_tick, callback_group=self._tick_group)
         else:
             self._close_sensors()
 
@@ -365,21 +393,32 @@ class MapFixNode(Node):
             if opened_here and self.core.session is None:
                 self._close_sensors()
 
-    def _on_session_tick(self) -> None:
-        with self._core_lock:
-            state = self.core.tick()
-            finished = self.core.session is None
+    def _publish_state(self, state: dict, force: bool = False) -> None:
         now = time.monotonic()
-        if state is not None and should_publish(state, self._last_state, now - self._last_state_at):
+        if force or should_publish(state, self._last_state, now - self._last_state_at):
             self.state_publisher.publish(String(data=json.dumps(state, ensure_ascii=False)))
             self._last_state, self._last_state_at = state, now
-        if finished:
-            self._last_state = None   # 다음 세션의 첫 상태는 바로 냅니다
-        if finished and self._session_timer is not None:
-            self._session_timer.cancel()
-            self.destroy_timer(self._session_timer)
-            self._session_timer = None
-            self._close_sensors()
+
+    def _on_session_tick(self) -> None:
+        try:
+            self._session_tick_once()
+        except Exception as error:  # noqa: BLE001 - 타이머 예외가 spin 까지 올라가면 노드가 끝납니다.
+            self.get_logger().error(f"부분 스캔 진행 중 예외: {error!r}")
+
+    def _session_tick_once(self) -> None:
+        # 정리까지 잠금 안에서 합니다. 잠금을 놓은 틈에 scan_start 가 끼면 새 세션이 타이머 없이
+        # 남았습니다(11-19 독립 검토 2) — 그래서 세션이 정말 없는지 잠금 안에서 다시 봅니다.
+        with self._core_lock:
+            state = self.core.tick()
+            if state is not None:
+                self._publish_state(state)
+            if self.core.session is None:
+                self._last_state = None   # 다음 세션의 첫 상태는 바로 냅니다
+                if self._session_timer is not None:
+                    self._session_timer.cancel()
+                    self.destroy_timer(self._session_timer)
+                    self._session_timer = None
+                self._close_sensors()
 
     # ------------------------------------------------------------------
     # Nav2 반영
