@@ -129,12 +129,13 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
           const Divider(height: 28, color: VicaColors.border),
           // 2026-11-19 사용자: 빔포밍 회전(캔버스 101번 보드). 상태는 음성 노드가 남긴 토픽만 따릅니다.
           // 음성 유닛이 active 가 아니면 남아 있는 값은 낡은 것이라 모름으로 그립니다.
+          // 다시 뜨는 중이거나 새 노드가 아직 상태를 안 냈으면 '재가동 중'(11-19 사용자, 캔버스 101 ③).
           _Row(
             icon: beamOn == false
                 ? Icons.explore_off_outlined
                 : Icons.explore_outlined,
             title: '빔포밍 회전',
-            state: _beamText(beamOn),
+            state: _beamText(beamOn, status.voice),
             trailing: Switch(
               key: const ValueKey('drive_nodes_wake_doa_turn_switch'),
               value: beamOn ?? false,
@@ -206,10 +207,11 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
         _ => ('유닛 없음', VicaColors.muted),
       };
 
-  static (String, Color) _beamText(bool? on) => switch (on) {
-        true => ('켜짐', VicaColors.green),
-        false => ('잠시 꺼짐', const Color(0xFF8A5F1C)),
-        null => ('음성 꺼짐 · 바꿀 수 없음', VicaColors.muted),
+  static (String, Color) _beamText(bool? on, String voice) => switch ((on, voice)) {
+        (true, _) => ('켜짐', VicaColors.green),
+        (false, _) => ('잠시 꺼짐', const Color(0xFF8A5F1C)),
+        (null, 'active' || 'activating' || 'deactivating') => ('재가동 중', VicaColors.primary),
+        (null, _) => ('음성 꺼짐 · 바꿀 수 없음', VicaColors.muted),
       };
 
   // 음성 줄: 유닛 상태에 마지막 연결 알림을 붙입니다(목업 D). 색은 알림을 따릅니다.

@@ -165,9 +165,19 @@ void main() {
     expect(find.text('안 됐습니다: 빔포밍 회전을 바꾸지 못했습니다.'), findsOneWidget);
   });
 
-  testWidgets('상태를 모르면 음성 꺼짐 · 바꿀 수 없음, 스위치는 잠긴다', (tester) async {
+  // 2026-11-19 사용자: 음성이 다시 뜨는 동안은 이전 값 대신 '재가동 중'(캔버스 101 ③).
+  ModeStatus driveVoice(String voice) => ModeStatus(
+        mode: 'drive',
+        state: ModeState.running,
+        nav2: 'active',
+        detector: 'active',
+        voice: voice,
+        voiceChoice: VoiceChoice.local,
+      );
+
+  testWidgets('음성은 active 인데 상태를 아직 못 받았으면 재가동 중, 스위치는 잠긴다', (tester) async {
     final supervisor = await pump(tester, drive());
-    expect(find.text(vicaKeepWords('음성 꺼짐 · 바꿀 수 없음')), findsOneWidget);
+    expect(find.text(vicaKeepWords('재가동 중')), findsOneWidget);
     expect(beamSwitch(tester).onChanged, isNull);
 
     await tester.tap(_beamSwitch);
@@ -175,23 +185,24 @@ void main() {
     expect(supervisor.calls, isEmpty);
   });
 
-  testWidgets('음성 유닛이 active 가 아니면 남아 있는 켜짐 값이 있어도 모름으로 그린다', (tester) async {
-    final supervisor = await pump(
-      tester,
-      const ModeStatus(
-        mode: 'drive',
-        state: ModeState.running,
-        nav2: 'active',
-        detector: 'active',
-        voice: 'deactivating',
-        voiceChoice: VoiceChoice.local,
-      ),
-    );
-    supervisor.setWakeDoaTurnForTest(true);
-    await tester.pump();
-    expect(find.text(vicaKeepWords('음성 꺼짐 · 바꿀 수 없음')), findsOneWidget);
-    expect(beamSwitch(tester).onChanged, isNull);
-  });
+  for (final voice in ['deactivating', 'activating']) {
+    testWidgets('음성 유닛이 $voice 이면 남아 있는 켜짐 값 대신 재가동 중', (tester) async {
+      final supervisor = await pump(tester, driveVoice(voice));
+      supervisor.setWakeDoaTurnForTest(true);
+      await tester.pump();
+      expect(find.text(vicaKeepWords('재가동 중')), findsOneWidget);
+      expect(beamSwitch(tester).onChanged, isNull);
+    });
+  }
+
+  for (final voice in ['inactive', 'failed', 'none']) {
+    testWidgets('음성 유닛이 $voice 이면 음성 꺼짐 · 바꿀 수 없음', (tester) async {
+      await pump(tester, driveVoice(voice));
+      expect(find.text(vicaKeepWords('음성 꺼짐 · 바꿀 수 없음')), findsOneWidget);
+      expect(find.text(vicaKeepWords('재가동 중')), findsNothing);
+      expect(beamSwitch(tester).onChanged, isNull);
+    });
+  }
 
   testWidgets('음성을 외부 API 로 고르면 음성만 바꾸라고 보낸다', (tester) async {
     final supervisor = await pump(tester, drive());

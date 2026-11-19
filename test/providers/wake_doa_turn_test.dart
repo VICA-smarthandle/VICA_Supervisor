@@ -137,4 +137,21 @@ void main() {
       expect(provider.wakeDoaTurnOn, isFalse);
     });
   });
+
+  // 2026-11-19 사용자: 음성이 다시 뜨는 동안 이전 값이 남아 보이지 않게(카드는 '재가동 중').
+  test('음성 유닛이 active 가 아니게 되면 남은 값을 비우고, 새 노드가 낼 때까지 모름', () {
+    final provider = SupervisorProvider(rosChannelConnector: server.connect);
+    Map<String, Object?> mode(String voice) =>
+        {'mode': 'drive', 'state': 'running', 'nav2': 'active', 'detector': 'active', 'voice': voice};
+
+    provider.setWakeDoaTurnForTest(true);
+    provider.handleModeStatusForTest(mode('active'));
+    expect(provider.wakeDoaTurnOn, isTrue, reason: '음성이 떠 있으면 값을 그대로 둔다');
+
+    provider.handleModeStatusForTest(mode('deactivating'));
+    expect(provider.wakeDoaTurnOn, isNull);
+
+    provider.handleModeStatusForTest(mode('active'));
+    expect(provider.wakeDoaTurnOn, isNull, reason: 'active 로 돌아와도 새 노드가 낼 때까지 모름');
+  });
 }

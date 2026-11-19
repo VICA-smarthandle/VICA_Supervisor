@@ -812,6 +812,10 @@ class SupervisorProvider extends ChangeNotifier {
     }
     _modeStatus = ModeStatus.fromJson(decoded);
     _modeStatusAt = DateTime.now();
+    // 음성이 다시 뜨는 동안 이전 빔포밍 값을 들고 있지 않는다 — 새 노드가 낼 때까지 모름(11-19 사용자).
+    if (_modeStatus!.voice != 'active') {
+      _wakeDoaTurnOn = null;
+    }
     _ingestVoiceEvents(_modeStatus!);
     _settleMapRequest(_modeStatus!);
     _followDriveMap(_modeStatus!);
