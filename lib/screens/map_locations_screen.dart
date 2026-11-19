@@ -16,9 +16,13 @@ import '../widgets/drive_map_canvas.dart';
 import '../widgets/drive_map_change.dart';
 import '../widgets/manual_drive_card.dart';
 import '../widgets/map_canvas.dart';
+import '../widgets/map_fix_card.dart';
 import '../widgets/map_picker.dart';
 import '../widgets/map_work_layout.dart';
 import '../widgets/vica_ui.dart';
+
+// 새로고침(약 120 px) + 사이 + [원격 주행 | 수동 주행](92 + 8 + 92) 이 한 줄에 드는 폭.
+const double _driveRowMinWidth = 330;
 
 class MapLocationsScreen extends StatefulWidget {
   const MapLocationsScreen({super.key});
@@ -106,33 +110,69 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
             }
             supervisor.selectMap(settings, value);
           },
-          // 지도 설정 화면과 같은 버튼(2026-10-12 사용자 결정: '새로고침').
+          // 지도 설정 화면과 같은 버튼(2026-10-12 사용자 결정: '새로고침'). 이 화면에서는
+          // 아래 줄에서 주행 고르기와 나란히 둡니다.
           refreshIcon: Icons.refresh,
           refreshLabel: const Text('새로고침'),
+          showRefresh: false,
         ),
-        const SizedBox(height: 18),
-        // 보는 지도가 주행 지도와 다르면 '이 지도로 주행'(2026-11-17 목업 ③⑥).
-        DriveMapBanner(viewedMapId: supervisor.selectedMapId),
-        Center(
-          child: SegmentedButton<bool>(
-            segments: const [
-              ButtonSegment(value: false, label: Text('목적지 주행')),
-              ButtonSegment(value: true, label: Text('수동 주행')),
-            ],
-            selected: {_manual},
-            showSelectedIcon: false,
-            onSelectionChanged: (value) => setState(() {
-              _manual = value.first;
-              if (_manual) {
-                // 초기 위치 잡기를 하던 중이면 접습니다 — 지도 탭과 조종이 섞이지 않게.
-                _picking = false;
-                _picked = null;
-                supervisor.clearPoseCheck();
-              }
-            }),
-          ),
+        const SizedBox(height: 10),
+        // 2026-11-19 사용자: 앱 폭에서 새로고침과 주행 고르기가 두 줄로 나뉘었다 → 한 줄로.
+        // 새로고침 왼쪽, [원격 주행 | 수동 주행] 오른쪽. 켜고 끄는 모양은 지우기의
+        // [구역 표시 | 지도 이동](캔버스 96)과 같은 버튼. '목적지 주행' → '원격 주행'.
+        // 칸이 _driveRowMinWidth 보다 좁으면(넓은 화면의 오른쪽 카드 칸 등) 줄 전체를 그만큼
+        // 줄여 한 줄을 지킵니다.
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final width = !constraints.maxWidth.isFinite ||
+                    constraints.maxWidth < _driveRowMinWidth
+                ? _driveRowMinWidth
+                : constraints.maxWidth;
+            return FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                width: width,
+                child: Row(
+                  children: [
+                    MapRefreshButton(
+                      supervisor: supervisor,
+                      settings: settings,
+                      map: map,
+                      icon: Icons.refresh,
+                      label: const Text('새로고침'),
+                      inRow: true,
+                    ),
+                    const Spacer(),
+                    for (final (label, manual) in const [
+                      ('원격 주행', false),
+                      ('수동 주행', true),
+                    ]) ...[
+                      if (manual) const SizedBox(width: 8),
+                      MapFixChoiceButton(
+                        label: label,
+                        width: 92,
+                        selected: _manual == manual,
+                        onTap: () => setState(() {
+                          _manual = manual;
+                          if (_manual) {
+                            // 초기 위치 잡기를 하던 중이면 접습니다 — 지도 탭과 조종이 섞이지 않게.
+                            _picking = false;
+                            _picked = null;
+                            supervisor.clearPoseCheck();
+                          }
+                        }),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
         ),
         const SizedBox(height: 14),
+        // 보는 지도가 주행 지도와 다르면 '이 지도로 주행'(2026-11-17 목업 ③⑥).
+        DriveMapBanner(viewedMapId: supervisor.selectedMapId),
         if (map == null) ...[
           const NoMapCard(),
           // 수동 주행은 지도가 없어도 됩니다 — 누르는 동안 바퀴만 움직입니다.

@@ -35,6 +35,8 @@ const double _markerScale = kIsWeb ? 1.0 : 2 / 3;
 // 그대로, 그보다 작으면 비례해 줄여 폰 폭에서 1/2 이 되게 한다. 위의 '1/2 은 안 보여 안 쓴다'
 // (09-04)를 사용자 결정으로 바꾼 것이라, 2.5 px 아래로는 내리지 않는다. 화살표·눌리는 판은 그대로.
 const double _markerFullSizeScale = 1.2;
+// 도크 미리보기 그림(_DockOverlayPainter 등)의 테두리. 점 크기와 따로 고정입니다.
+const double _markerBorder = 1.0 * _markerScale;
 const double _markerMinDot = 2.5;
 
 /// 장소·홈·임시·선택 위치 점의 지름(px). [displayScale] 은 지도 1칸이 화면에서 차지하는 px.
@@ -500,7 +502,7 @@ class MapCanvas extends StatelessWidget {
                         offset: _scaledOffset(dockPoint!.dx, dockPoint!.dy, scale),
                         label: '도크',
                         color: Colors.deepPurple,
-                        size: _markerSize,
+                        size: mapMarkerDotSize(scale),
                       ),
                     if (homePoint != null)
                       _Marker(
