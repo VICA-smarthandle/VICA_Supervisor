@@ -177,16 +177,16 @@ void main() {
 
     expect(supervisor.of('scan_start').single.args, {'radius_m': 3.0});
     // 첫 진행이 오기 전에도 진행 화면으로 넘어가고 뒤로 가기가 사라집니다.
-    expect(find.text('스캔 준비 중'), findsOneWidget);
+    expect(find.text(vicaKeepWords('스캔 준비 중')), findsOneWidget);
     expect(find.text('중지'), findsOneWidget);
     expect(find.byType(BackButton), findsNothing);
 
     supervisor.state('step_back', {'remaining_s': 5, 'radius_m': 3.0});
     await tester.pump();
-    expect(find.text('범위 3 m'), findsOneWidget);
+    expect(find.text(vicaKeepWords('범위 3 m')), findsOneWidget);
     // 첫 진행을 기다리던 시계가 남지 않습니다.
     await tester.pump(const Duration(seconds: 6));
-    expect(find.text('스캔 준비 중'), findsOneWidget);
+    expect(find.text(vicaKeepWords('스캔 준비 중')), findsOneWidget);
   });
 
   testWidgets('자세가 안 맞으면 시작 대신 다시 확인이 보인다', (tester) async {
@@ -232,9 +232,9 @@ void main() {
     });
     await tester.pump();
 
-    expect(find.text('스캔 준비 중'), findsOneWidget);
+    expect(find.text(vicaKeepWords('스캔 준비 중')), findsOneWidget);
     expect(find.text('3'), findsOneWidget);
-    expect(find.text('초 뒤 스캔'), findsOneWidget);
+    expect(find.text(vicaKeepWords('초 뒤 스캔')), findsOneWidget);
     expect(find.text(vicaKeepWords('위치 다시 맞춤')), findsOneWidget);
     expect(
       find.text(vicaKeepWords('안 바뀐 벽에 맞춤 · 3 cm · 0.4° 옮김')),
@@ -247,7 +247,7 @@ void main() {
 
     supervisor.state('scanning', {'remaining_s': 4});
     await tester.pump();
-    expect(find.text('스캔 중'), findsOneWidget);
+    expect(find.text(vicaKeepWords('스캔 중')), findsOneWidget);
     expect(find.text('4'), findsOneWidget);
 
     await tester.tap(find.text('중지'));
@@ -273,7 +273,7 @@ void main() {
 
     expect(find.textContaining('41칸', findRichText: true), findsOneWidget);
     expect(find.textContaining('28칸', findRichText: true), findsOneWidget);
-    expect(find.text('위치 맞춤'), findsOneWidget);
+    expect(find.text(vicaKeepWords('위치 맞춤')), findsOneWidget);
     expect(find.text(vicaKeepWords('같은 스캔으로 잰 값')), findsOneWidget);
     expect(find.text('수정 전'), findsOneWidget);
     expect(find.text('62 %'), findsOneWidget);
@@ -335,7 +335,7 @@ void main() {
     });
     await tester.pumpAndSettle();
 
-    expect(find.text('여기서는 다시 스캔할 수 없습니다'), findsOneWidget);
+    expect(find.text(vicaKeepWords('여기서는 다시 스캔할 수 없습니다')), findsOneWidget);
     expect(
       find.text(
         vicaKeepWords(
@@ -361,7 +361,7 @@ void main() {
     await pumpScreen(tester);
     await tester.tap(find.text('스캔 시작'));
     await tester.pump();
-    expect(find.text('스캔 준비 중'), findsOneWidget);
+    expect(find.text(vicaKeepWords('스캔 준비 중')), findsOneWidget);
 
     await tester.pump(const Duration(seconds: 6));
 

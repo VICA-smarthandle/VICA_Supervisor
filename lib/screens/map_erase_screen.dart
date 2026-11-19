@@ -140,7 +140,7 @@ class _MapEraseScreenState extends State<MapEraseScreen> {
       context,
       icon: Icons.cleaning_services_outlined,
       iconColor: VicaColors.red,
-      title: '선택한 구역을 지울까요?',
+      title: vicaKeepWords('선택한 구역을 지울까요?'),
       body: '실제로 없는 장애물인지 다시 확인하세요.',
       rows: [
         VicaDialogRow(label: '구역', value: '${_rects.length}곳'),
@@ -216,7 +216,7 @@ class _MapEraseScreenState extends State<MapEraseScreen> {
                     children: [
                       Expanded(
                         child: Text(
-                          '고른 구역',
+                          vicaKeepWords('고른 구역'),
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                       ),

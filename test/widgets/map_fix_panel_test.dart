@@ -194,7 +194,7 @@ void main() {
 
     await tester.tap(find.text('되돌리기'));
     await tester.pumpAndSettle();
-    expect(find.text('마지막 수정을 되돌릴까요?'), findsOneWidget);
+    expect(find.text(vicaKeepWords('마지막 수정을 되돌릴까요?')), findsOneWidget);
     expect(supervisor.count('undo'), 0);
 
     await tester.tap(find.widgetWithText(FilledButton, '되돌리기'));

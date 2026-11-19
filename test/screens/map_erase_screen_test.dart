@@ -130,7 +130,7 @@ void main() {
 
     expect(find.text('지도 부분 지우기'), findsOneWidget);
     expect(find.text(vicaKeepWords('지울 곳을 드래그해서 표시하세요')), findsOneWidget);
-    expect(find.text('고른 구역'), findsOneWidget);
+    expect(find.text(vicaKeepWords('고른 구역')), findsOneWidget);
     expect(find.text('0곳'), findsOneWidget);
     expect(eraseButton(tester).onPressed, isNull);
     expect(supervisor.calls, isEmpty);
@@ -239,7 +239,7 @@ void main() {
 
     await tester.tap(find.widgetWithText(FilledButton, '지우기'));
     await tester.pumpAndSettle();
-    expect(find.text('선택한 구역을 지울까요?'), findsOneWidget);
+    expect(find.text(vicaKeepWords('선택한 구역을 지울까요?')), findsOneWidget);
     expect(find.text(vicaKeepWords('실제로 없는 장애물인지 다시 확인하세요.')), findsOneWidget);
     expect(find.text('2곳'), findsNWidgets(2)); // 목록 머리 + 확인 줄
     expect(find.text('8개'), findsOneWidget);

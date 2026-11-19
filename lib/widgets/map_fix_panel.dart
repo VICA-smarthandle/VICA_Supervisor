@@ -129,7 +129,7 @@ class _MapFixPanelState extends State<MapFixPanel> {
     final confirmed = await showVicaConfirm(
       context,
       icon: Icons.undo,
-      title: '마지막 수정을 되돌릴까요?',
+      title: vicaKeepWords('마지막 수정을 되돌릴까요?'),
       confirmLabel: '되돌리기',
       danger: true,
     );

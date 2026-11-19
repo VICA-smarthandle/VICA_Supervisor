@@ -146,7 +146,7 @@ class _MapRescanScreenState extends State<MapRescanScreen> {
       context,
       icon: Icons.error_outline,
       iconColor: VicaColors.red,
-      title: '여기서는 다시 스캔할 수 없습니다',
+      title: vicaKeepWords('여기서는 다시 스캔할 수 없습니다'),
       body: mapFixFailText(scan.reason, ambiguous: scan.ambiguous),
       rows: [
         if (scan.score > 0)
@@ -467,12 +467,12 @@ class _MapRescanScreenState extends State<MapRescanScreen> {
               children: [
                 Expanded(
                   child: Text(
-                    scanning ? '스캔 중' : '스캔 준비 중',
+                    vicaKeepWords(scanning ? '스캔 중' : '스캔 준비 중'),
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
                 Text(
-                  '범위 ${mapFixMetres(radius)}',
+                  vicaKeepWords('범위 ${mapFixMetres(radius)}'),
                   style: const TextStyle(fontSize: 13, color: VicaColors.muted),
                 ),
               ],
@@ -503,7 +503,7 @@ class _MapRescanScreenState extends State<MapRescanScreen> {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    scanning ? '초 남음' : '초 뒤 스캔',
+                    vicaKeepWords(scanning ? '초 남음' : '초 뒤 스캔'),
                     style: const TextStyle(
                       fontSize: 15,
                       color: VicaColors.muted,
@@ -596,7 +596,7 @@ class _MapRescanScreenState extends State<MapRescanScreen> {
               children: [
                 Expanded(
                   child: Text(
-                    '위치 맞춤',
+                    vicaKeepWords('위치 맞춤'),
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
