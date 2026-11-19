@@ -15,8 +15,21 @@ const Color kMapFixEraseColor = Color(0xFFA2463A);
 /// 새로 생긴 칸. 지도의 검은 벽과 구분되게 짙은 청록입니다.
 const Color kMapFixAddedColor = Color(0xFF1F4A46);
 
-/// 없어진 칸.
+/// 없어진 칸(테두리). 칸 안은 [kMapFixRemovedFill] — 80번 목업 범례와 같은 주황.
 const Color kMapFixRemovedColor = VicaColors.degraded;
+const Color kMapFixRemovedFill = Color(0xFFE9A66B);
+
+/// 미리보기 칸을 그리는 최소 크기(px). 확대하지 않은 폰 화면에서는 한 칸(5 cm)이 1 px 이 안 됩니다.
+/// 11-19 실기에서 2 px 로 그려 '미리보기가 안 떴다' — 캔버스 102 에서 6 px 로 정함.
+const double kMapFixCellMinSide = 6;
+
+/// 칸 사각형을 최소 [kMapFixCellMinSide] 로 키운 것. 확대해 그보다 크면 실제 크기 그대로입니다.
+Rect mapFixVisibleCell(Rect rect) => Rect.fromCenter(
+      center: rect.center,
+      width: rect.width < kMapFixCellMinSide ? kMapFixCellMinSide : rect.width,
+      height:
+          rect.height < kMapFixCellMinSide ? kMapFixCellMinSide : rect.height,
+    );
 
 /// 지울 사각형들과 끄는 중인 사각형.
 List<Widget> mapFixEraseOverlay(
@@ -267,27 +280,32 @@ class _CellsPainter extends CustomPainter {
   final List<Rect> added;
   final List<Rect> removed;
 
-  // 확대하지 않은 폰 화면에서는 한 칸(5 cm)이 1 px 이 안 됩니다. 이만큼은 키워 보이게 합니다.
-  static const double _minSide = 2;
-
-  static Rect _visible(Rect rect) => rect.shortestSide >= _minSide
-      ? rect
-      : Rect.fromCenter(
-          center: rect.center,
-          width: rect.width < _minSide ? _minSide : rect.width,
-          height: rect.height < _minSide ? _minSide : rect.height,
-        );
-
   @override
   void paint(Canvas canvas, Size size) {
-    // 없어진 칸을 먼저 깔고 새로 생긴 칸을 위에 그립니다.
-    final gone = Paint()..color = kMapFixRemovedColor.withValues(alpha: 0.55);
+    // 없어진 칸을 먼저 깔고 새로 생긴 칸을 위에 그립니다. 80번 목업과 같은 색 — 없어짐은 옅은 주황
+    // 칸에 주황 테두리, 새로 생김은 짙은 청록 칸에 흰 테두리(검은 벽에 붙어도 구분됩니다).
+    final goneFill = Paint()
+      ..color = kMapFixRemovedFill.withValues(alpha: 0.55);
+    final goneEdge = Paint()
+      ..color = kMapFixRemovedColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2;
     for (final rect in removed) {
-      canvas.drawRect(_visible(rect), gone);
+      final cell = mapFixVisibleCell(rect);
+      canvas
+        ..drawRect(cell, goneFill)
+        ..drawRect(cell, goneEdge);
     }
-    final fresh = Paint()..color = kMapFixAddedColor;
+    final freshFill = Paint()..color = kMapFixAddedColor;
+    final freshEdge = Paint()
+      ..color = const Color(0xFFFFFFFF)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
     for (final rect in added) {
-      canvas.drawRect(_visible(rect), fresh);
+      final cell = mapFixVisibleCell(rect);
+      canvas
+        ..drawRect(cell, freshFill)
+        ..drawRect(cell, freshEdge);
     }
   }
 

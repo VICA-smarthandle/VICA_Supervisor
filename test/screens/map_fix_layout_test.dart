@@ -233,6 +233,8 @@ void main() {
         'removed': 1888,
         'score_before': 100.0,
         'score_after': 100.0,
+        // 가장 긴 안내(앞뒤·좌우를 로봇 위치로 씀, 캔버스 103)까지 넣고 잰다
+        'ambiguous': ['forward', 'lateral'],
         'cells': [
           for (var i = 0; i < 200; i++) [i * 0.05, 1.0, i.isEven ? 1 : -1],
         ],

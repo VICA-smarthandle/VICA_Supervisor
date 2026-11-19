@@ -69,6 +69,17 @@ Offset? mapFixRadiusCentre({
     scanCentre ?? checkCentre ?? robot;
 
 /// 'forward' → '앞뒤', 'lateral' → '좌우', 'yaw' → '방향'. 모르는 값은 버립니다.
+/// 구분 안 된 축을 지금 로봇 위치(AMCL)로 쓰고 진행했을 때 미리보기에 띄우는 안내(캔버스 103,
+/// 11-19 사용자 문구). 축이 없으면 null — 방향은 노드가 늘 거부하므로 여기 오지 않습니다.
+String? mapFixHeldAxisText(List<String> ambiguous) {
+  final where = mapFixAmbiguousWords(ambiguous)..remove('방향');
+  if (where.isEmpty) {
+    return null;
+  }
+  return '${where.join('·')} 위치는 벽으로 맞추지 못해 지금 로봇 위치를 사용합니다.\n'
+      '문틀이나 벽 끝이 조금 어긋날 수 있습니다.';
+}
+
 List<String> mapFixAmbiguousWords(List<String> ambiguous) => [
       if (ambiguous.contains('forward')) '앞뒤',
       if (ambiguous.contains('lateral')) '좌우',
@@ -592,6 +603,7 @@ class _MapRescanScreenState extends State<MapRescanScreen> {
   // ---- 미리보기(목업 80) ----------------------------------------------------
 
   List<Widget> _previewBody(MapFixScanState scan) {
+    final held = mapFixHeldAxisText(scan.ambiguous);
     return [
       Row(
         children: [
@@ -612,6 +624,10 @@ class _MapRescanScreenState extends State<MapRescanScreen> {
           ),
         ],
       ),
+      if (held != null) ...[
+        const SizedBox(height: 12),
+        MapFixHint(held),
+      ],
       const SizedBox(height: 12),
       VicaCard(
         padding: const EdgeInsets.all(16),

@@ -323,6 +323,37 @@ void main() {
     expect(find.byType(BackButton), findsNothing);
   });
 
+  test('구분 안 된 축을 로봇 위치로 쓴 안내 — 81번 팝업과 같은 축 이름(11-19 사용자 문구)', () {
+    const tail = '\n문틀이나 벽 끝이 조금 어긋날 수 있습니다.';
+    expect(mapFixHeldAxisText(const ['forward']),
+        '앞뒤 위치는 벽으로 맞추지 못해 지금 로봇 위치를 사용합니다.$tail');
+    expect(mapFixHeldAxisText(const ['lateral']),
+        '좌우 위치는 벽으로 맞추지 못해 지금 로봇 위치를 사용합니다.$tail');
+    expect(mapFixHeldAxisText(const ['forward', 'lateral']),
+        '앞뒤·좌우 위치는 벽으로 맞추지 못해 지금 로봇 위치를 사용합니다.$tail');
+    expect(mapFixHeldAxisText(const []), isNull);
+  });
+
+  testWidgets('미리보기는 로봇 위치를 쓴 축이 있을 때만 안내를 띄운다', (tester) async {
+    final supervisor = await pumpScreen(tester);
+    final hint = mapFixHeldAxisText(const ['forward'])!
+        .split('\n')
+        .map(vicaKeepWords)
+        .join('\n');
+
+    supervisor.state('preview', {'added': 29, 'removed': 8});
+    await tester.pump();
+    expect(find.text(hint), findsNothing);
+
+    supervisor.state('preview', {
+      'added': 29,
+      'removed': 8,
+      'ambiguous': ['forward'],
+    });
+    await tester.pump();
+    expect(find.text(hint), findsOneWidget);
+  });
+
   testWidgets('적용을 누르면 scan_apply 를 보내고 결과를 들고 닫힌다', (tester) async {
     MapFixResult? closedWith;
     final supervisor = await pumpScreen(
