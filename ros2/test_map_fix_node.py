@@ -47,6 +47,21 @@ def test_fresh_status_is_kept_and_stale_status_is_dropped():
     assert node.fresh_status(None, age_sec=0.0) is None
 
 
+def test_state_is_published_on_change_and_then_only_as_a_heartbeat():
+    """미리보기 동안(최대 5분) 같은 상태를 0.5초마다 다시 보내지 않습니다 — 변경된 칸 목록이 실려 무겁습니다."""
+    preview = {"session": "s1", "phase": "preview", "cells": [[1.0, 2.0, 1]]}
+    assert node.should_publish(preview, None, since_sec=0.0)                    # 처음
+    assert not node.should_publish(dict(preview), preview, since_sec=0.5)      # 그대로
+    assert not node.should_publish(dict(preview), preview, since_sec=node.STATE_HEARTBEAT_SEC - 0.1)
+    assert node.should_publish(dict(preview), preview, since_sec=node.STATE_HEARTBEAT_SEC)   # 늦게 연 화면용
+    # 단계·남은 초가 바뀌면 기다리지 않고 바로 보냅니다.
+    assert node.should_publish({**preview, "phase": "done"}, preview, since_sec=0.5)
+    counting = {"session": "s1", "phase": "step_back", "remaining_s": 3}
+    assert node.should_publish({**counting, "remaining_s": 2}, counting, since_sec=0.5)
+    # 화면이 첫 진행을 기다리는 시간(앱 5초)보다 짧아야 합니다.
+    assert node.STATE_HEARTBEAT_SEC <= 2.0
+
+
 def test_fill_response_writes_json():
     response = SimpleNamespace()
     node.fill_response(response, (True, "no_nav2", "Nav2가 실행되면 적용됩니다.", {"applied": False, "black": 3}))

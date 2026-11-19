@@ -50,7 +50,8 @@ SCAN_WAIT_SEC = 2.0
 # 마지막 요청 뒤 이만큼 지나면 /robot_status 구독을 닫습니다.
 IDLE_CLOSE_SEC = 120.0
 HOUSEKEEPING_SEC = 5.0
-SESSION_TICK_SEC = 0.5   # 상태 토픽 2 Hz
+SESSION_TICK_SEC = 0.5   # 세션을 0.5초마다 한 걸음 진행합니다
+STATE_HEARTBEAT_SEC = 2.0   # 상태가 그대로일 때 토픽을 다시 내는 간격(늦게 연 화면용)
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +75,15 @@ def load_map_outcome(*, done: bool, error: Optional[BaseException], result_code:
     }
     detail = reasons.get(result_code, f"알 수 없는 실패({result_code}).")
     return False, "apply_failed", f"Nav2가 지도를 읽지 못했습니다. {detail}"
+
+
+def should_publish(state: dict, last: Optional[dict], since_sec: float) -> bool:
+    """진행 상태를 지금 토픽에 낼지 정합니다.
+
+    바뀌었으면 바로 내고, 그대로면 STATE_HEARTBEAT_SEC 마다 한 번만 냅니다. 미리보기는 최대
+    5분이고 상태에 변경된 칸 목록(최대 2000칸)이 실려, 0.5초마다 다시 내면 와이파이에 무겁습니다.
+    """
+    return last is None or state != last or since_sec >= STATE_HEARTBEAT_SEC
 
 
 def fresh_status(status: Optional[dict], age_sec: float) -> Optional[dict]:
@@ -151,6 +161,8 @@ class MapFixNode(Node):
         self._scan_msg = None
         self._scan_event = threading.Event()
         self._session_timer = None
+        self._last_state: Optional[dict] = None   # 마지막으로 토픽에 낸 진행 상태
+        self._last_state_at = 0.0
 
         self.core = mfc.MapFixCore(
             self.maps_root,
@@ -349,8 +361,12 @@ class MapFixNode(Node):
         with self._core_lock:
             state = self.core.tick()
             finished = self.core.session is None
-        if state is not None:
+        now = time.monotonic()
+        if state is not None and should_publish(state, self._last_state, now - self._last_state_at):
             self.state_publisher.publish(String(data=json.dumps(state, ensure_ascii=False)))
+            self._last_state, self._last_state_at = state, now
+        if finished:
+            self._last_state = None   # 다음 세션의 첫 상태는 바로 냅니다
         if finished and self._session_timer is not None:
             self._session_timer.cancel()
             self.destroy_timer(self._session_timer)
