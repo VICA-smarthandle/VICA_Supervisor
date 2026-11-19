@@ -174,14 +174,16 @@ class MapFixHistoryEntry {
   }
 
   /// '11-18 15:42'. 시각을 못 읽으면 받은 글자 그대로입니다.
+  ///
+  /// 로봇이 적은 벽시계 시각을 그대로 씁니다. 노드는 '2026-11-19T15:37:14+09:00' 처럼 시간대를
+  /// 붙여 보내는데, DateTime 으로 읽으면 UTC 로 바뀌어 '06:37' 이 됩니다(11-19 격리 실측).
   String get when {
-    final time = DateTime.tryParse(at);
-    if (time == null) {
+    final match =
+        RegExp(r'^\d{4}-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})').firstMatch(at);
+    if (match == null) {
       return at;
     }
-    String two(int value) => value.toString().padLeft(2, '0');
-    return '${two(time.month)}-${two(time.day)} '
-        '${two(time.hour)}:${two(time.minute)}';
+    return '${match[1]}-${match[2]} ${match[3]}:${match[4]}';
   }
 }
 

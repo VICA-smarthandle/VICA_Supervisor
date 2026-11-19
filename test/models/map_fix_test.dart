@@ -87,6 +87,24 @@ void main() {
     expect(status.history[1].detail, '11-18 15:31 · 검은 칸 19개 · 회색 칸 3개');
   });
 
+  test('기록 시각은 로봇이 적은 시각 그대로다(시간대가 붙어 와도)', () {
+    // 노드는 '2026-11-19T15:37:14+09:00' 처럼 시간대를 붙여 보냅니다(11-19 격리 실측). UTC 로
+    // 바꾸면 '06:37' 이 됩니다.
+    const entry = MapFixHistoryEntry(
+      at: '2026-11-19T15:37:14+09:00',
+      kind: 'erase',
+      black: 3,
+      gray: 0,
+      rectCount: 1,
+    );
+    expect(entry.when, '11-19 15:37');
+    expect(entry.detail, '11-19 15:37 · 검은 칸 3개 · 회색 칸 0개');
+    expect(
+      const MapFixHistoryEntry(at: 'nonsense', kind: 'scan').when,
+      'nonsense',
+    );
+  });
+
   test('잠기지 않았는데 부분 스캔만 안 되면 주행 지도가 아니다', () {
     expect(
       MapFixStatus.fromResult({'lock': '', 'can_scan': false}).isDriveMap,
