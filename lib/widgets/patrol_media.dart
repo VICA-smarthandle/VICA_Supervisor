@@ -225,7 +225,7 @@ Future<void> showPatrolClip(
   PatrolClipOpener? opener,
 }) {
   final baseUrl = context.read<SettingsProvider>().settings.mapHttpBaseUrl;
-  return showDialog<void>(
+  return showVicaDialog<void>(
     context: context,
     builder: (_) => PatrolClipDialog(
       record: record,
@@ -242,7 +242,7 @@ Future<void> showPatrolPhoto(
   required String photo,
 }) {
   final baseUrl = context.read<SettingsProvider>().settings.mapHttpBaseUrl;
-  return showDialog<void>(
+  return showVicaDialog<void>(
     context: context,
     builder: (_) => _MediaFrame(
       title: title,
@@ -437,7 +437,7 @@ class _PatrolClipDialogState extends State<PatrolClipDialog> {
               child: SizedBox(
                 width: 60,
                 height: 60,
-                child: FilledButton(
+                child: PressScale(child: FilledButton(
                   onPressed: player == null
                       ? null
                       : () => unawaited(
@@ -455,7 +455,7 @@ class _PatrolClipDialogState extends State<PatrolClipDialog> {
                     size: 28,
                     color: Colors.white,
                   ),
-                ),
+                )),
               ),
             ),
             const SizedBox(width: 20),
@@ -508,7 +508,7 @@ class _MediaFrame extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  IconButton(
+                  PressScale(child: IconButton(
                     onPressed: () => Navigator.of(context).pop(),
                     tooltip: '닫기',
                     style: IconButton.styleFrom(
@@ -517,7 +517,7 @@ class _MediaFrame extends StatelessWidget {
                     ),
                     icon:
                         const Icon(Icons.close, size: 18, color: Colors.white),
-                  ),
+                  )),
                 ],
               ),
               const SizedBox(height: 12),
@@ -580,7 +580,7 @@ class _ClipFailureViewState extends State<_ClipFailureView> {
                 style: style.copyWith(fontSize: 12),
               ),
               const SizedBox(height: 8),
-              OutlinedButton.icon(
+              PressScale(child: OutlinedButton.icon(
                 onPressed: () => unawaited(_copy()),
                 icon: Icon(_copied ? Icons.check : Icons.copy, size: 16),
                 label: Text(_copied ? '복사했습니다' : '주소 복사'),
@@ -588,7 +588,7 @@ class _ClipFailureViewState extends State<_ClipFailureView> {
                   foregroundColor: PatrolColors.videoLabel,
                   side: const BorderSide(color: PatrolColors.videoLabel),
                 ),
-              ),
+              )),
             ],
           ],
         ),
@@ -647,7 +647,7 @@ class _RoundButton extends StatelessWidget {
       child: SizedBox(
         width: 48,
         height: 48,
-        child: TextButton(
+        child: PressScale(child: TextButton(
           onPressed: onPressed,
           style: TextButton.styleFrom(
             backgroundColor: Colors.white.withValues(alpha: 0.12),
@@ -661,7 +661,7 @@ class _RoundButton extends StatelessWidget {
             label,
             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
           ),
-        ),
+        )),
       ),
     );
   }

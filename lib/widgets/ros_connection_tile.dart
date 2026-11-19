@@ -74,14 +74,14 @@ class VicaRosConnectionButton extends StatelessWidget {
     final connected =
         supervisor.connectionState == RosConnectionState.connected;
 
-    return OutlinedButton.icon(
+    return PressScale(child: OutlinedButton.icon(
       onPressed: connected
           ? supervisor.disconnect
           : () => supervisor.connect(settings),
       icon: Icon(connected ? Icons.link_off : Icons.link),
       // 2026-11-17 사용자: 버튼은 누르면 하는 일(상태 글자와 다르게).
       label: Text(connected ? '연결 끊기' : '연결하기'),
-    );
+    ));
   }
 }
 

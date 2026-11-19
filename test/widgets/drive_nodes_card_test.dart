@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vica_supervisor/models/mode_status.dart';
 import 'package:vica_supervisor/providers/app_mode_provider.dart';
+import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/widgets/drive_nodes_card.dart';
 import 'package:vica_supervisor/widgets/vica_ui.dart';
@@ -22,6 +23,12 @@ class _FakeSupervisor extends SupervisorProvider {
   @override
   Future<(bool, String)> setVoice(VoiceChoice choice) async {
     calls.add('voice_${choice.wire}');
+    return reply;
+  }
+
+  @override
+  Future<(bool, String)> driveStop() async {
+    calls.add('drive_stop');
     return reply;
   }
 }
@@ -52,6 +59,7 @@ void main() {
         providers: [
           ChangeNotifierProvider<SupervisorProvider>.value(value: supervisor),
           ChangeNotifierProvider(create: (_) => AppModeProvider()),
+          ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ],
         child: const MaterialApp(home: Scaffold(body: SingleChildScrollView(child: DriveNodesCard()))),
       ),
@@ -126,5 +134,12 @@ void main() {
     await tester.pump();
 
     expect(find.textContaining(vicaKeepWords('외부 API 연결 실패 → 로컬 API 로 전환')), findsOneWidget);
+  });
+
+  // 2026-11-18: '주행 끄기'는 위쪽 막대로 옮겼습니다(drive_stop_button_test.dart).
+  testWidgets('카드에는 주행 끄기 버튼이 없다', (tester) async {
+    await pump(tester, drive());
+    expect(find.text('주행 끄기'), findsNothing);
+    expect(find.text('주행 설정'), findsOneWidget);
   });
 }

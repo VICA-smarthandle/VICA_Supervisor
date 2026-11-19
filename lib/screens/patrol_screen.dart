@@ -218,13 +218,13 @@ class _PatrolScreenState extends State<PatrolScreen> {
                 ),
               ],
               const SizedBox(height: 8),
-              OutlinedButton(
+              PressScale(child: OutlinedButton(
                 onPressed: route == null || _busy
                     ? null
                     : () => setState(() => _editing = true),
                 style: patrolSmallButtonStyle(),
                 child: const Text('경로 편집', style: patrolSmallButtonText),
-              ),
+              )),
             ],
           ),
         ),
@@ -256,17 +256,17 @@ class _PatrolScreenState extends State<PatrolScreen> {
           ],
         ),
       ),
-      FilledButton.icon(
+      PressScale(child: FilledButton.icon(
         onPressed: !connected || _busy
             ? null
             : () => _start(supervisor, settings, route),
         style: _bigButtonStyle,
         icon: const Icon(Icons.shield_outlined, size: 20),
         label: const Text('경비 시작', style: _bigButtonText),
-      ),
+      )),
       if (widget.onOpenRecords != null) ...[
         const SizedBox(height: 6),
-        InkWell(
+        PressScale(child: InkWell(
           onTap: widget.onOpenRecords,
           borderRadius: BorderRadius.circular(8),
           child: Padding(
@@ -291,7 +291,7 @@ class _PatrolScreenState extends State<PatrolScreen> {
               ],
             ),
           ),
-        ),
+        )),
         // 기록을 못 받았으면 건수 자리에 이유를 적습니다(2026-11-14 실기: 주소가 달라 기록이 안 보였습니다).
         if (supervisor.patrolRecordsFailed)
           Padding(
@@ -368,7 +368,7 @@ class _PatrolScreenState extends State<PatrolScreen> {
       VicaButtonRow(
         foldWidth: 240,
         children: [
-          OutlinedButton.icon(
+          PressScale(child: OutlinedButton.icon(
             onPressed: _busy
                 ? null
                 : () => _send(() => supervisor.pausePatrol(settings)),
@@ -377,13 +377,13 @@ class _PatrolScreenState extends State<PatrolScreen> {
             ),
             icon: const Icon(Icons.pause, size: 18),
             label: const Text('일시정지'),
-          ),
-          OutlinedButton.icon(
+          )),
+          PressScale(child: OutlinedButton.icon(
             onPressed: _busy ? null : () => _confirmStop(supervisor, settings),
             style: patrolDangerOutlineStyle(),
             icon: const Icon(Icons.cancel_outlined, size: 18),
             label: const Text('경비 종료'),
-          ),
+          )),
         ],
       ),
     ];
@@ -438,19 +438,19 @@ class _PatrolScreenState extends State<PatrolScreen> {
       ],
       if (alarm != null && palette != null)
         ..._media(settings, alarm, palette, record, recording),
-      FilledButton.icon(
+      PressScale(child: FilledButton.icon(
         onPressed:
             _busy ? null : () => _send(() => supervisor.resumePatrol(settings)),
         style: _bigButtonStyle,
         icon: const Icon(Icons.play_arrow, size: 22),
         label: const Text('순찰 재개', style: _bigButtonText),
-      ),
+      )),
       const SizedBox(height: 10),
-      OutlinedButton(
+      PressScale(child: OutlinedButton(
         onPressed: _busy ? null : () => _confirmStop(supervisor, settings),
         style: patrolDangerOutlineStyle(),
         child: const Text('경비 종료'),
-      ),
+      )),
     ];
   }
 
@@ -490,7 +490,7 @@ class _PatrolScreenState extends State<PatrolScreen> {
           child: Semantics(
             label: alarm.kind.shortTitle,
             button: true,
-            child: InkWell(
+            child: PressScale(child: InkWell(
               key: const ValueKey('patrol_photo'),
               onTap: () =>
                   showPatrolPhoto(context, title: title, photo: alarm.photo),
@@ -515,7 +515,7 @@ class _PatrolScreenState extends State<PatrolScreen> {
                   ),
                 ),
               ),
-            ),
+            )),
           ),
         ),
         ...notice,
@@ -554,7 +554,7 @@ class _PatrolScreenState extends State<PatrolScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              OutlinedButton(
+              PressScale(child: OutlinedButton(
                 onPressed: () => showPatrolClip(
                   context,
                   record,
@@ -562,7 +562,7 @@ class _PatrolScreenState extends State<PatrolScreen> {
                 ),
                 style: patrolSmallButtonStyle(),
                 child: const Text('영상 보기', style: patrolSmallButtonText),
-              ),
+              )),
             ],
           ),
         ),
@@ -860,7 +860,7 @@ class _WatchRow extends StatelessWidget {
       container: true,
       toggled: on,
       enabled: change != null,
-      child: InkWell(
+      child: PressScale(child: InkWell(
         onTap: change == null ? null : () => change(!on),
         borderRadius: BorderRadius.circular(8),
         child: Opacity(
@@ -891,7 +891,7 @@ class _WatchRow extends StatelessWidget {
             ),
           ),
         ),
-      ),
+      )),
     );
   }
 }

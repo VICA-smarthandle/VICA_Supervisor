@@ -3,6 +3,7 @@
 // 사용자 11-16 요청 두 가지:
 //   - 사람 감지(⑮ detector)만 잠시 끄는 켜기/끄기 — 주행을 다시 켜면 켜진 상태로 돌아갑니다.
 //   - 음성을 로컬(LOCAL, 로봇 안 midm2-mini) / 외부 API(클라우드 LLM) 중 고르기.
+// '주행 끄기'는 2026-11-18 위쪽 막대로 옮겼습니다(drive_stop_button.dart).
 // 둘 다 젯슨 모드 노드의 서비스로 갑니다. 지금 상태는 /vica/mode_status 만 보고 그립니다.
 // 모드 노드가 없거나 주행이 꺼져 있으면 아무것도 그리지 않습니다.
 import 'package:flutter/material.dart';
@@ -62,30 +63,38 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
         children: [
           Row(
             children: [
-              const Expanded(
-                // 2026-11-17 사용자: '주행 노드' → '주행 설정'.
-                child: Text(
-                  '주행 설정',
-                  style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: VicaColors.text),
-                ),
-              ),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: VicaColors.accentTint,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  submode.title,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: VicaColors.primaryDark,
-                  ),
+              Expanded(
+                // 좁은 폭·큰 글자에서는 하위 모드 칩이 제목 아래로 내려갑니다.
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    // 2026-11-17 사용자: '주행 노드' → '주행 설정'.
+                    const Text(
+                      '주행 설정',
+                      style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: VicaColors.text),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: VicaColors.accentTint,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        submode.title,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: VicaColors.primaryDark,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],

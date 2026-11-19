@@ -99,7 +99,7 @@ class _LogsScreenState extends State<LogsScreen> {
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
             ),
-            IconButton.outlined(
+            PressScale(child: IconButton.outlined(
               // 경비 기록은 로봇에 있는 기록입니다 — 영상·사진까지 지워지므로 먼저 묻습니다.
               onPressed: patrol
                   ? () => unawaited(_confirmClearPatrol(supervisor))
@@ -108,7 +108,7 @@ class _LogsScreenState extends State<LogsScreen> {
               tooltip: patrol
                   ? '경비 기록 삭제'
                   : (_filter == LogFilter.all ? '전체 삭제' : '필터 로그 삭제'),
-            ),
+            )),
           ],
         ),
         const SizedBox(height: 16),
@@ -172,10 +172,10 @@ class _LogsScreenState extends State<LogsScreen> {
                       ),
                     ),
                   ),
-                  TextButton(
+                  PressScale(child: TextButton(
                     onPressed: () => setState(() => _hour = null),
                     child: const Text('모든 시간'),
-                  ),
+                  )),
                 ],
               ),
             ),

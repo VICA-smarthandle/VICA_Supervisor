@@ -234,7 +234,7 @@ class DriveMapRow extends StatelessWidget {
         map = candidate;
       }
     }
-    return Material(
+    return PressScale(child: Material(
       color: VicaColors.surfaceSunken,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
@@ -299,7 +299,7 @@ class DriveMapRow extends StatelessWidget {
           ),
         ),
       ),
-    );
+    ));
   }
 }
 
@@ -358,7 +358,7 @@ Future<String?> showDriveMapPicker(BuildContext context, {required String curren
                       ),
                     ),
                   const SizedBox(height: 12),
-                  FilledButton(
+                  PressScale(child: FilledButton(
                     onPressed: picked.isEmpty || picked == currentMapId
                         ? null
                         : () => Navigator.of(sheetContext).pop(picked),
@@ -366,7 +366,7 @@ Future<String?> showDriveMapPicker(BuildContext context, {required String curren
                       picked == currentMapId ? '지도를 고르세요' : '${driveMapName(supervisor, picked)}로 정하기',
                       overflow: TextOverflow.ellipsis,
                     ),
-                  ),
+                  )),
                 ],
               ),
             ),
@@ -395,7 +395,7 @@ class _PickerTile extends StatelessWidget {
     // 목적지가 없는 지도는 고를 수는 있지만 안내 요청을 모두 거절합니다(미션). 미리 알립니다.
     final noDestination = map.destinationCount == 0;
     final readiness = noDestination ? '목적지 0 · 안내 불가' : driveMapReadiness(map);
-    return Material(
+    return PressScale(child: Material(
       color: noDestination ? const Color(0xFFFBF3E6) : (selected ? VicaColors.surfaceSunken : VicaColors.card),
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
@@ -455,7 +455,7 @@ class _PickerTile extends StatelessWidget {
           ),
         ),
       ),
-    );
+    ));
   }
 }
 
@@ -525,14 +525,14 @@ class DriveMapBanner extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          OutlinedButton(
+          PressScale(child: OutlinedButton(
             style: OutlinedButton.styleFrom(
               foregroundColor: ink,
               side: BorderSide(color: blocked.isEmpty ? VicaColors.warning : VicaColors.border),
             ),
             onPressed: blocked.isEmpty ? () => changeDriveMap(context, viewed) : null,
             child: const Text('이 지도로 주행'),
-          ),
+          )),
           if (blocked.isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(
@@ -597,21 +597,21 @@ class DriveMapMismatchCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: OutlinedButton(
+                child: PressScale(child: OutlinedButton(
                   // 파일만 실행 중인 지도로 되돌립니다(다시 띄울 유닛이 없어 확인 창 없이).
                   onPressed: () => _revert(context, running),
                   child: const Text('되돌리기', overflow: TextOverflow.ellipsis),
-                ),
+                )),
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: FilledButton(
+                child: PressScale(child: FilledButton(
                   onPressed: status.mapChangeBlock.isEmpty ? () => _apply(context, current) : null,
                   child: Text(
                     '${driveMapName(supervisor, current)} 적용',
                     overflow: TextOverflow.ellipsis,
                   ),
-                ),
+                )),
               ),
             ],
           ),

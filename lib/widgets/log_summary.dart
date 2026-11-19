@@ -209,7 +209,7 @@ class _CountButton extends StatelessWidget {
       selected: selected,
       label: '$label $count건',
       excludeSemantics: true,
-      child: InkWell(
+      child: PressScale(child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: Container(
@@ -253,7 +253,7 @@ class _CountButton extends StatelessWidget {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 }
@@ -301,7 +301,7 @@ class _HourBars extends StatelessWidget {
               selected: selected == h,
               label: '$h시 ${totals[h]}건',
               excludeSemantics: true,
-              child: InkWell(
+              child: PressScale(child: InkWell(
                 onTap: () => onTap(h),
                 borderRadius: BorderRadius.circular(8),
                 child: Padding(
@@ -362,7 +362,7 @@ class _HourBars extends StatelessWidget {
                     ],
                   ),
                 ),
-              ),
+              )),
             ),
           ),
       ],

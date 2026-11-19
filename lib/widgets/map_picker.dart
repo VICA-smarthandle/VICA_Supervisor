@@ -85,7 +85,7 @@ class MapPickerRow extends StatelessWidget {
                 .toList(),
             onChanged: onChanged,
           ),
-          action: OutlinedButton.icon(
+          action: PressScale(child: OutlinedButton.icon(
             onPressed: current == null
                 ? null
                 // 장소·홈·금지구역·레일을 함께 받습니다. 종전에는 장소만 받아 이름과
@@ -94,7 +94,7 @@ class MapPickerRow extends StatelessWidget {
                 : () => supervisor.refreshMapData(settings, current.mapId),
             icon: Icon(refreshIcon, size: 18),
             label: refreshLabel,
-          ),
+          )),
         ),
         CurrentMapNotice(supervisor: supervisor, map: current),
       ],

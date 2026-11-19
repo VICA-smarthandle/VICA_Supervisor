@@ -6,6 +6,10 @@ import '../core/layout_breakpoints.dart';
 import '../core/log_filter.dart';
 import '../models/robot_status.dart';
 import '../models/supervisor_log.dart';
+import 'vica_motion.dart';
+
+// 클릭·화면 전환 효과(2026-11-18). vica_ui 를 쓰는 화면이 따로 import 하지 않아도 됩니다.
+export 'vica_motion.dart';
 
 /// 모서리 둥글기. 화면마다 제각기 숫자를 적으면 같은 카드가 화면마다 다르게
 /// 보인다. Figma 의 라운딩 토큰과 같은 값이다.
@@ -385,7 +389,7 @@ class VicaCancelButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return OutlinedButton(
+    return PressScale(child: OutlinedButton(
       onPressed: onPressed,
       style: OutlinedButton.styleFrom(
         foregroundColor: VicaColors.primary,
@@ -395,7 +399,7 @@ class VicaCancelButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12),
       ),
       child: Text(label, textAlign: TextAlign.center),
-    );
+    ));
   }
 }
 
@@ -420,7 +424,7 @@ Future<bool> showVicaConfirm(
   IconData? confirmIcon,
   bool danger = false,
 }) async {
-  final confirmed = await showDialog<bool>(
+  final confirmed = await showVicaDialog<bool>(
     context: context,
     builder: (dialogContext) {
       void pop(bool value) => Navigator.of(dialogContext).pop(value);
@@ -437,18 +441,18 @@ Future<bool> showVicaConfirm(
         actions: [
           VicaCancelButton(onPressed: () => pop(false), label: cancelLabel),
           if (confirmIcon == null)
-            FilledButton(
+            PressScale(child: FilledButton(
               onPressed: () => pop(true),
               style: style,
               child: Text(confirmLabel),
-            )
+            ))
           else
-            FilledButton.icon(
+            PressScale(child: FilledButton.icon(
               onPressed: () => pop(true),
               style: style,
               icon: Icon(confirmIcon, size: 18),
               label: Text(confirmLabel),
-            ),
+            )),
         ],
       );
     },
@@ -470,7 +474,7 @@ Future<void> showVicaNotice(
   String okLabel = '확인',
   IconData? okIcon,
 }) {
-  return showDialog<void>(
+  return showVicaDialog<void>(
     context: context,
     builder: (dialogContext) {
       void close() => Navigator.of(dialogContext).pop();
@@ -483,13 +487,13 @@ Future<void> showVicaNotice(
         rows: rows,
         actions: [
           if (okIcon == null)
-            FilledButton(onPressed: close, child: Text(okLabel))
+            PressScale(child: FilledButton(onPressed: close, child: Text(okLabel)))
           else
-            FilledButton.icon(
+            PressScale(child: FilledButton.icon(
               onPressed: close,
               icon: Icon(okIcon, size: 18),
               label: Text(okLabel),
-            ),
+            )),
         ],
       );
     },
@@ -652,7 +656,7 @@ class VicaExpandPanel extends StatelessWidget {
           // Material 로 한 번 감쌉니다. InkWell 의 물결은 '가장 가까운 Material'
           // 위에 그려지는데, 그것이 이 칸 뒤의 Scaffold 면 물결이 흰 배경에
           // 가려 보이지 않습니다. 눌러도 아무 반응이 없는 것처럼 보입니다.
-          Material(
+          PressScale(child: Material(
             color: Colors.transparent,
             borderRadius: BorderRadius.circular(kVicaCardRadius),
             child: InkWell(
@@ -707,7 +711,7 @@ class VicaExpandPanel extends StatelessWidget {
                 ),
               ),
             ),
-          ),
+          )),
           if (expanded) ...[
             const Divider(height: 1, color: VicaColors.border),
             Padding(
@@ -882,6 +886,7 @@ class VicaCount {
     required this.label,
     required this.value,
     this.color = VicaColors.text,
+    this.accent,
   });
 
   final String label;
@@ -889,12 +894,16 @@ class VicaCount {
 
   /// 숫자 색. 상태를 색으로 알려야 하는 칸(오류)만 바꿉니다.
   final Color color;
+
+  /// 칸 바탕(아주 옅게)과 라벨 앞 점의 색. 없으면 바탕 없이 그립니다(2026-11-18 사용자).
+  final Color? accent;
 }
 
-/// 대시보드 위쪽의 숫자 줄. 카드 하나 안에 칸을 나란히 두고 칸 사이를 세로선으로 나눕니다.
+/// 대시보드 위쪽의 숫자 줄. 카드 하나 안에 칸을 나란히 둡니다.
 ///
 /// 2026-11-17 제목·문구 간결화(사용자 승인): 지표 카드 넷(옛 VicaMetricCard — 틴트 배경·
 /// 아이콘·배지·단위)을 카드 하나 안의 칸 넷으로 바꿨습니다. 폭과 상관없이 언제나 한 줄입니다.
+/// 2026-11-18 사용자: 칸마다 은은한 바탕색([VicaCount.accent] 7 %)을 깔고 세로선 대신 틈으로 나눕니다.
 class VicaCountStrip extends StatelessWidget {
   const VicaCountStrip({super.key, required this.items});
 
@@ -903,19 +912,14 @@ class VicaCountStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return VicaCard(
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      // 세로선이 칸 높이를 따라가게 합니다. 칸이 넷뿐이라 한 번 더 재는 값이 작습니다.
+      padding: const EdgeInsets.all(8),
+      // 칸 높이를 가장 높은 칸에 맞춥니다. 칸이 넷뿐이라 한 번 더 재는 값이 작습니다.
       child: IntrinsicHeight(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             for (var i = 0; i < items.length; i++) ...[
-              if (i > 0)
-                const VerticalDivider(
-                  width: 1,
-                  thickness: 1,
-                  color: VicaColors.border,
-                ),
+              if (i > 0) const SizedBox(width: 8),
               Expanded(child: _CountCell(item: items[i])),
             ],
           ],
@@ -932,8 +936,13 @@ class _CountCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+    final accent = item.accent;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+      decoration: BoxDecoration(
+        color: accent?.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(10),
+      ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -954,15 +963,33 @@ class _CountCell extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 2),
-          Text(
-            item.label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 12,
-              height: 1.25,
-              color: VicaColors.muted,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (accent != null) ...[
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: accent,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 5),
+              ],
+              Flexible(
+                child: Text(
+                  item.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.25,
+                    color: VicaColors.muted,
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

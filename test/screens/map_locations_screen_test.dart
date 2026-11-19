@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vica_supervisor/core/app_settings.dart';
 import 'package:vica_supervisor/models/mode_status.dart';
 import 'package:vica_supervisor/models/stack_status.dart';
+import 'package:vica_supervisor/providers/app_mode_provider.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/screens/map_locations_screen.dart';
@@ -122,6 +123,7 @@ void main() {
         providers: [
           ChangeNotifierProvider<SupervisorProvider>.value(value: supervisor),
           ChangeNotifierProvider(create: (_) => SettingsProvider()),
+          ChangeNotifierProvider(create: (_) => AppModeProvider()),
         ],
         child: const MaterialApp(
           home: Scaffold(body: MapLocationsScreen()),
@@ -432,5 +434,45 @@ void main() {
     );
     // 홈·금지구역 조회가 응답 없이 끝나기를 기다립니다.
     await tester.pump(const Duration(seconds: 15));
+  });
+
+  // 2026-11-18: '주행 끄기'는 위쪽 막대로 옮겼습니다. 원격 주행 맨 위 줄은 뺐습니다.
+  testWidgets('주행 중이어도 원격 주행 화면 안에는 주행 끄기가 없다', (tester) async {
+    final supervisor = await pump(tester);
+    supervisor.setModeStatusForTest(
+      const ModeStatus(mode: 'drive', state: ModeState.running, nav2: 'active'),
+    );
+    await tester.pump();
+    expect(find.text('주행 끄기'), findsNothing);
+  });
+
+  // 수동 주행(2026-11-18): 로봇이 할 일이 없을 때만 열린다. 경비 구간·찾기·대화 중은 current_goal 이
+  // 비어 있어도 막아야 한다(검토 지적 — Nav2 와 같은 /cmd_vel_req 에 섞인다).
+  group('수동 주행 막기', () {
+    Future<void> openManual(WidgetTester tester) async {
+      await tester.tap(find.text('수동 주행'));
+      await tester.pump();
+    }
+
+    testWidgets('쉬는 중이면 열린다', (tester) async {
+      await pump(tester);
+      await openManual(tester);
+      expect(find.text('현재 주행 중입니다.\n주행이 완료된 후 사용해주세요.'), findsNothing);
+      expect(find.text('속도'), findsOneWidget);
+    });
+
+    for (final dialog in ['patrolling', 'patrol_dwell', 'seeking', 'confirming', 'asking_next', 'returning']) {
+      testWidgets('$dialog 이면 막는다', (tester) async {
+        await pump(tester, dialog: dialog);
+        await openManual(tester);
+        expect(find.text('현재 주행 중입니다.\n주행이 완료된 후 사용해주세요.'), findsOneWidget);
+      });
+    }
+
+    testWidgets('목적지 주행 중이면 막는다', (tester) async {
+      await pump(tester, goal: '로비');
+      await openManual(tester);
+      expect(find.text('현재 주행 중입니다.\n주행이 완료된 후 사용해주세요.'), findsOneWidget);
+    });
   });
 }

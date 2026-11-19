@@ -24,6 +24,8 @@ import 'providers/ui_preferences_provider.dart';
 import 'ros/ros_bridge_client.dart';
 import 'widgets/confirm_logout.dart';
 import 'widgets/delivery_notice_dialog.dart';
+import 'widgets/drive_stop_button.dart';
+import 'widgets/duplicate_run_banner.dart';
 import 'widgets/goal_alert_dialog.dart';
 import 'widgets/help_alert_dialog.dart';
 import 'widgets/patrol_alarm_dialog.dart';
@@ -75,6 +77,19 @@ ThemeData vicaTheme() {
       surface: VicaColors.background,
     ),
     useMaterial3: true,
+    // 클릭 효과 ② 살짝 눌림(2026-11-18 사용자) — 물결은 끄고 PressScale 이 줄였다 돌립니다.
+    splashFactory: NoSplash.splashFactory,
+    // 화면 전환 ② 옆으로 밀기(2026-11-18 사용자) — 모든 플랫폼 같게.
+    pageTransitionsTheme: const PageTransitionsTheme(
+      builders: {
+        TargetPlatform.android: VicaSlidePageTransitionsBuilder(),
+        TargetPlatform.iOS: VicaSlidePageTransitionsBuilder(),
+        TargetPlatform.linux: VicaSlidePageTransitionsBuilder(),
+        TargetPlatform.macOS: VicaSlidePageTransitionsBuilder(),
+        TargetPlatform.windows: VicaSlidePageTransitionsBuilder(),
+        TargetPlatform.fuchsia: VicaSlidePageTransitionsBuilder(),
+      },
+    ),
     appBarTheme: const AppBarTheme(
       backgroundColor: VicaColors.card,
       foregroundColor: VicaColors.text,
@@ -395,7 +410,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
           return;
         }
         supervisor.consumeGoalAlert();
-        showDialog<void>(
+        showVicaDialog<void>(
           context: context,
           builder: (_) => GoalAlertDialog(
             event: alert,
@@ -440,7 +455,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
         if (!mounted) {
           return;
         }
-        showDialog<void>(
+        showVicaDialog<void>(
           context: context,
           barrierDismissible: false,
           builder: (_) => HelpAlertDialog(helpId: helpId),
@@ -469,7 +484,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
         if (!mounted) {
           return;
         }
-        showDialog<void>(
+        showVicaDialog<void>(
           context: context,
           barrierDismissible: false,
           builder: (_) => PatrolAlarmDialog(alarmId: alarmId),
@@ -496,7 +511,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
           return;
         }
         supervisor.consumeDeliveryNotice();
-        showDialog<void>(
+        showVicaDialog<void>(
           context: context,
           builder: (_) => DeliveryNoticeDialog(notice: deliveryNotice),
         );
@@ -513,7 +528,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
           return;
         }
         supervisor.consumeRouteAlert();
-        showDialog<void>(
+        showVicaDialog<void>(
           context: context,
           builder: (_) => RouteApplyFailedDialog(reason: routeAlert),
         );
@@ -575,13 +590,22 @@ class _SupervisorShellState extends State<SupervisorShell> {
                                     settings: settings,
                                     supervisor: supervisor,
                                   ),
-                                  Expanded(child: _screens[index]),
+                                  // 어느 탭이든 위쪽에(2026-11-17 목업 ② 띠).
+                                  const DuplicateRunBanner(),
+                                  Expanded(
+                child: VicaScreenSwitcher(index: index, child: _screens[index])),
                                 ],
                               ),
                             ),
                           ],
                         )
-                      : _screens[index],
+                      : Column(
+                          children: [
+                            const DuplicateRunBanner(),
+                            Expanded(
+                child: VicaScreenSwitcher(index: index, child: _screens[index])),
+                          ],
+                        ),
                 ),
                 bottomNavigationBar:
                     useSidebar ? null : _buildBottomNavigation(index),
@@ -619,17 +643,14 @@ class _SupervisorShellState extends State<SupervisorShell> {
           ),
           const SizedBox(width: 6),
         ],
-        IconButton(
-          onPressed: () => _changeMode(context),
-          icon: const Icon(Icons.swap_horiz),
-          tooltip: '모드 바꾸기',
-        ),
+        // 주행 중이면 '모드 ▾' 메뉴에 '주행 끄기'가 함께 있습니다(2026-11-18 목업 '폰 C').
+        PhoneModeButton(onChangeMode: () => _changeMode(context)),
         // 설정은 '더보기' 안에도 있지만, 주소를 고칠 일이 잦아 한 번에 갑니다.
-        IconButton(
+        PressScale(child: IconButton(
           onPressed: () => setState(() => _index = _settingsIndex),
           icon: const Icon(Icons.settings_outlined),
           tooltip: '설정',
-        ),
+        )),
         const SizedBox(width: 2),
         _EmergencyStopButton(
           compact: true,
@@ -713,7 +734,12 @@ class _SupervisorShellState extends State<SupervisorShell> {
           ),
         ),
         const SizedBox(width: 12),
-        OutlinedButton.icon(
+        // 주행 중에만 — 비상정지와 붙지 않게 모드 바꾸기 왼쪽(2026-11-18 목업 '넓은 화면').
+        if (supervisor.modeStatus?.driveOn ?? false) ...[
+          const DriveStopButton(),
+          const SizedBox(width: 12),
+        ],
+        PressScale(child: OutlinedButton.icon(
           onPressed: () => _changeMode(context),
           style: OutlinedButton.styleFrom(
             minimumSize: const Size(0, 42),
@@ -721,7 +747,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
           ),
           icon: const Icon(Icons.swap_horiz, size: 18),
           label: const Text('모드 바꾸기'),
-        ),
+        )),
         const SizedBox(width: 12),
         _EmergencyStopButton(
           compact: false,
@@ -792,7 +818,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
     required Color onDark,
   }) {
     final foreground = selected ? VicaColors.primaryDark : onDark;
-    final destination = Material(
+    final destination = PressScale(child: Material(
       color: selected ? VicaColors.accentTint : Colors.transparent,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
@@ -830,7 +856,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
           ),
         ),
       ),
-    );
+    ));
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -841,13 +867,13 @@ class _SupervisorShellState extends State<SupervisorShell> {
   }
 
   Widget _buildSidebarHeader(bool expanded, Color onDark) {
-    final toggleButton = IconButton(
+    final toggleButton = PressScale(child: IconButton(
       onPressed: () => context.read<UiPreferencesProvider>().toggleSidebar(),
       icon: Icon(expanded ? Icons.menu_open : Icons.menu, size: 20),
       color: onDark,
       tooltip: expanded ? '사이드 메뉴 접기' : '사이드 메뉴 펼치기',
       visualDensity: VisualDensity.compact,
-    );
+    ));
     const logo = _BrandMark(size: 40);
 
     if (expanded) {
@@ -920,7 +946,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
         ),
       ),
     );
-    final logoutButton = IconButton(
+    final logoutButton = PressScale(child: IconButton(
       onPressed: () => confirmLogout(context),
       icon: const Icon(Icons.logout, size: 18),
       color: onDark,
@@ -931,7 +957,7 @@ class _SupervisorShellState extends State<SupervisorShell> {
         minimumSize: const Size(36, 36),
         padding: EdgeInsets.zero,
       ),
-    );
+    ));
 
     if (!expanded) {
       return Padding(
@@ -1223,7 +1249,7 @@ class _EmergencyStopButton extends StatelessWidget {
         child: SizedBox(
           width: 32,
           height: 32,
-          child: FilledButton(
+          child: PressScale(child: FilledButton(
             onPressed: enabled ? onPressed : null,
             style: FilledButton.styleFrom(
               backgroundColor: VicaColors.red,
@@ -1238,11 +1264,11 @@ class _EmergencyStopButton extends StatelessWidget {
               size: 17,
               semanticLabel: '비상정지',
             ),
-          ),
+          )),
         ),
       );
     }
-    return FilledButton.icon(
+    return PressScale(child: FilledButton.icon(
       onPressed: enabled ? onPressed : null,
       style: FilledButton.styleFrom(
         backgroundColor: VicaColors.red,
@@ -1253,7 +1279,7 @@ class _EmergencyStopButton extends StatelessWidget {
       ),
       icon: const Icon(Icons.warning_amber_rounded, size: 18),
       label: const Text('비상정지'),
-    );
+    ));
   }
 }
 
@@ -1330,7 +1356,7 @@ class _MoreTile extends StatelessWidget {
         border: Border.all(color: VicaColors.border),
         borderRadius: BorderRadius.circular(kVicaCardRadius),
       ),
-      child: Material(
+      child: PressScale(child: Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(kVicaCardRadius),
         child: InkWell(
@@ -1370,7 +1396,7 @@ class _MoreTile extends StatelessWidget {
             ),
           ),
         ),
-      ),
+      )),
     );
   }
 }
@@ -1507,7 +1533,7 @@ class _EmergencyStopOverlay extends StatelessWidget {
                         // 버튼 자리에 두어 화면이 굳은 것이 아님을 알립니다.
                         SizedBox(
                           width: double.infinity,
-                          child: OutlinedButton.icon(
+                          child: PressScale(child: OutlinedButton.icon(
                             onPressed: null,
                             icon: const SizedBox(
                               width: 16,
@@ -1515,14 +1541,14 @@ class _EmergencyStopOverlay extends StatelessWidget {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             ),
                             label: const Text('응답 대기 중'),
-                          ),
+                          )),
                         )
                       else
                         Column(
                           children: [
                             SizedBox(
                               width: double.infinity,
-                              child: FilledButton.icon(
+                              child: PressScale(child: FilledButton.icon(
                                 onPressed: () => _handleAction(state),
                                 style: FilledButton.styleFrom(
                                   backgroundColor: accent,
@@ -1532,19 +1558,19 @@ class _EmergencyStopOverlay extends StatelessWidget {
                                   size: 18,
                                 ),
                                 label: Text(_actionLabel(state)),
-                              ),
+                              )),
                             ),
                             if (state ==
                                 EmergencyStopState.activationFailed) ...[
                               const SizedBox(height: 10),
                               SizedBox(
                                 width: double.infinity,
-                                child: OutlinedButton.icon(
+                                child: PressScale(child: OutlinedButton.icon(
                                   onPressed:
                                       supervisor.dismissEmergencyStopFailure,
                                   icon: const Icon(Icons.close, size: 18),
                                   label: const Text('취소하고 돌아가기'),
-                                ),
+                                )),
                               ),
                             ],
                           ],

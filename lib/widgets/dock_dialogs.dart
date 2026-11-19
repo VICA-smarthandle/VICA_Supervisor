@@ -7,6 +7,7 @@
 //
 // 새 음성 멘트는 없습니다 — 저장 실패는 이 팝업으로만 알립니다(11-19 사용자).
 // 문구와 줄 나눔은 목업 그대로입니다. 틀은 앱의 다른 팝업과 같은 [VicaDialog] 입니다.
+// 이 트리의 다른 팝업처럼 showVicaDialog 로 열고 버튼은 PressScale 로 감쌉니다(2026-11-18 클릭 효과).
 import 'package:flutter/material.dart';
 
 import '../models/dock_state.dart';
@@ -40,7 +41,7 @@ Future<DockSaveFailChoice> showDockNotFoundDialog(
   BuildContext context, {
   String? savedDockHint,
 }) async {
-  final choice = await showDialog<DockSaveFailChoice>(
+  final choice = await showVicaDialog<DockSaveFailChoice>(
     context: context,
     builder: (dialogContext) {
       void pop(DockSaveFailChoice value) => Navigator.of(dialogContext).pop(value);
@@ -90,7 +91,7 @@ Future<DockSaveFailChoice> showDockNotFoundDialog(
               right: _filledButton('다시 찾기', () => pop(DockSaveFailChoice.retry)),
             ),
             const SizedBox(height: 4),
-            TextButton(
+            PressScale(child: TextButton(
               onPressed: () => pop(DockSaveFailChoice.mapPick),
               style: TextButton.styleFrom(
                 foregroundColor: VicaColors.primaryDark,
@@ -102,7 +103,7 @@ Future<DockSaveFailChoice> showDockNotFoundDialog(
                 ),
               ),
               child: const Text('지도에서 지정'),
-            ),
+            )),
           ],
         ),
       );
@@ -117,7 +118,7 @@ Future<DockSaveFailChoice> showDockUnstableDialog(
   required DockRegisterResult result,
 }) async {
   final dist = result.distM;
-  final choice = await showDialog<DockSaveFailChoice>(
+  final choice = await showVicaDialog<DockSaveFailChoice>(
     context: context,
     builder: (dialogContext) {
       void pop(DockSaveFailChoice value) => Navigator.of(dialogContext).pop(value);
@@ -182,7 +183,7 @@ Future<DockSaveFailChoice> showDockUnstableDialog(
 
 /// 목업 88 위 — 초기 위치를 잡아 주세요.
 Future<DockSaveFailChoice> showDockNoPoseDialog(BuildContext context) async {
-  final choice = await showDialog<DockSaveFailChoice>(
+  final choice = await showVicaDialog<DockSaveFailChoice>(
     context: context,
     builder: (dialogContext) {
       void pop(DockSaveFailChoice value) => Navigator.of(dialogContext).pop(value);
@@ -221,21 +222,21 @@ Future<void> showDockDriveOffDialog(BuildContext context, {bool saving = false})
   );
 }
 
-Widget _plainButton(String label, VoidCallback onPressed) => OutlinedButton(
+Widget _plainButton(String label, VoidCallback onPressed) => PressScale(child: OutlinedButton(
       onPressed: onPressed,
       style: OutlinedButton.styleFrom(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       ),
       child: Text(vicaKeepWords(label), textAlign: TextAlign.center),
-    );
+    ));
 
-Widget _filledButton(String label, VoidCallback onPressed) => FilledButton(
+Widget _filledButton(String label, VoidCallback onPressed) => PressScale(child: FilledButton(
       onPressed: onPressed,
       style: FilledButton.styleFrom(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       ),
       child: Text(vicaKeepWords(label), textAlign: TextAlign.center),
-    );
+    ));
 
 /// 두 버튼을 반씩 놓고 높이를 맞춥니다 — 한쪽 글자가 두 줄이어도('초기 위치 / 잡으러 가기') 나란합니다.
 /// 도킹 실패 팝업의 '확인 · 도크 위치 다시 잡기'(목업 92)도 이 줄을 씁니다.

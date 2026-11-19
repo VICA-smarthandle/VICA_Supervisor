@@ -12,17 +12,21 @@
 // 카드가 주행 묶음을 실제로 켭니다. 카드를 누르면 하위 모드 시트(안내·배송 / 경비, 목업
 // '안 2')가 뜨고, 고르면 켜고 '주행 준비' 화면으로 갑니다. 주행이 켜진 채 지도 카드를 누르면
 // 주행을 끌지 묻습니다. 모드 노드가 없으면(칸으로 띄우는 지금 방식) 예전처럼 화면만 바꿉니다.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/app_mode.dart';
 import '../core/layout_breakpoints.dart';
+import '../core/mode_contract.dart';
 import '../models/mode_status.dart';
 import '../models/stack_status.dart';
 import '../providers/app_mode_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/supervisor_provider.dart';
 import 'drive_bringup_screen.dart';
+import 'robot_shutdown_screen.dart';
 import 'settings_screen.dart';
 import '../ros/ros_bridge_client.dart';
 import '../widgets/confirm_logout.dart';
@@ -53,6 +57,8 @@ class ModeSelectScreen extends StatefulWidget {
 }
 
 class _ModeSelectScreenState extends State<ModeSelectScreen> {
+  Timer? _poll;
+
   @override
   void initState() {
     super.initState();
@@ -63,6 +69,24 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
       }
       context.read<SupervisorProvider>().refreshStackStatus();
     });
+    // 열려 있는 동안 5 s 마다 다시 조회합니다(2026-11-18). 한 번만 조회하면, 주행을 막 끈 직후 노드
+    // 목록에 남아 있던 Nav2(강제 종료된 노드는 20 s 남음, FastDDS 수명 측정)가 새로고침 전까지 굳었습니다.
+    _poll = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!mounted) {
+        return;
+      }
+      final supervisor = context.read<SupervisorProvider>();
+      if (supervisor.connectionState == RosConnectionState.connected &&
+          !supervisor.stackStatusLoading) {
+        supervisor.refreshStackStatus();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
   }
 
   @override
@@ -106,25 +130,25 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
                 ),
               ),
             ),
-          IconButton(
+          PressScale(child: IconButton(
             onPressed: supervisor.stackStatusLoading
                 ? null
                 : () => supervisor.refreshStackStatus(),
             icon: const Icon(Icons.refresh),
             tooltip: '로봇 상태 다시 확인',
-          ),
-          IconButton(
+          )),
+          PressScale(child: IconButton(
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
             ),
             icon: const Icon(Icons.settings_outlined),
             tooltip: '설정',
-          ),
-          IconButton(
+          )),
+          PressScale(child: IconButton(
             onPressed: () => confirmLogout(context),
             icon: const Icon(Icons.logout),
             tooltip: '로그아웃',
-          ),
+          )),
           const SizedBox(width: 8),
         ],
       ),
@@ -193,6 +217,29 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
                 style: const TextStyle(color: VicaColors.muted, fontSize: 12),
               ),
             ],
+            // 로봇 끄기(2026-11-18 사용자 결정, 목업 '로봇 끄기 A'): 모드 카드와 떨어진 맨 아래 한 줄.
+            // 연결이 없으면 보낼 곳이 없어 막습니다.
+            const SizedBox(height: 28),
+            const Divider(height: 1),
+            const SizedBox(height: 14),
+            PressScale(child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: VicaColors.red,
+                side: const BorderSide(color: VicaColors.red, width: 1.5),
+                minimumSize: const Size.fromHeight(48),
+                shape: const StadiumBorder(),
+                textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+              ),
+              onPressed: connected ? () => confirmAndShutdownRobot(context) : null,
+              icon: const Icon(Icons.power_settings_new, size: 20),
+              label: const Text('로봇 끄기'),
+            )),
+            const SizedBox(height: 6),
+            const Text(
+              '전원을 내리기 전에 누르세요',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: VicaColors.muted),
+            ),
           ],
         ),
       ),
@@ -297,8 +344,14 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
           ),
       };
     }
-    if (status != null && status.nav2Running) {
-      return null;
+    // 칸·터미널에서 띄운 Nav2. 모드 노드가 pane_nodes 를 보내면 그것으로, 아니면 노드 목록으로 봅니다
+    // (2026-11-18 B안 — 노드 목록은 강제 종료된 노드를 20 s 남겨 카드가 30 s 늦게 바뀌었습니다).
+    if (_nav2Outside(status, mode)) {
+      return const _CardState(
+        color: VicaColors.primary,
+        label: '주행 노드 실행 중',
+        enabled: true,
+      );
     }
     return const _CardState(
       color: VicaColors.muted,
@@ -306,6 +359,10 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
       enabled: true,
     );
   }
+
+  /// 유닛 밖(칸·터미널)에서 뜬 Nav2 가 있는가. 모드 노드가 알려 주면(pane_nodes) 그것을, 아니면 노드 목록을 봅니다.
+  static bool _nav2Outside(StackStatus? status, ModeStatus? mode) =>
+      mode?.paneNav2 ?? (status?.nav2Running ?? false);
 
   _CardState _mappingState(StackStatus? status, ModeStatus? mode) {
     if (status != null && status.duplicated) {
@@ -347,7 +404,7 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
         hint: '동일 노드가 동시에 실행되고 있습니다.',
       );
     }
-    if (status.nav2Running) {
+    if (_nav2Outside(status, mode)) {
       return const _CardState(
         color: VicaColors.red,
         label: 'Nav2 실행 중',
@@ -396,16 +453,21 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
         return;
       }
     }
-    final paneNav2 =
-        !(mode?.driveOn ?? false) && (supervisor.stackStatus?.nav2Running ?? false);
-    // 모드 노드가 없거나(칸으로 띄우는 방식) Nav2 를 칸에서 띄웠으면 화면만 바꿉니다.
-    if (mode == null || paneNav2 || mode.state == ModeState.running) {
+    // 모드 노드가 없으면(칸으로 띄우는 방식) 화면만 바꿉니다. 이미 주행 중이어도 그렇습니다.
+    if (mode == null || mode.state == ModeState.running) {
       modes.enterDrive(submode);
       return;
     }
     if (!mode.driveOn) {
       final (ok, message) = await supervisor.driveStart();
       if (!context.mounted) {
+        return;
+      }
+      // 칸(터미널)에서 띄운 Nav2 면 모드 노드가 프로세스로 확인해 거절합니다 — 그때는 예전처럼 화면만
+      // 바꿉니다. 노드 목록(/rosapi/nodes)으로는 정하지 않습니다: 강제 종료된 노드가 20 s 남아, 주행을
+      // 막 끈 뒤 'Nav2 가 떠 있다'고 잘못 말합니다(2026-11-18 측정).
+      if (!ok && message.startsWith(kPaneDriveRefusal)) {
+        modes.enterDrive(submode);
         return;
       }
       if (!ok) {
@@ -526,10 +588,10 @@ Future<(DriveSubmode, VoiceChoice?)?> showDriveSubmodeSheet(
                   ),
                   const SizedBox(height: 10),
                 ],
-                TextButton(
+                PressScale(child: TextButton(
                   onPressed: () => Navigator.of(sheetContext).pop(),
                   child: const Text('닫기'),
-                ),
+                )),
               ],
             ),
           ),
@@ -609,7 +671,7 @@ class _SubmodeButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
+    return PressScale(child: Material(
       color: VicaColors.card,
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
@@ -658,7 +720,7 @@ class _SubmodeButton extends StatelessWidget {
           ),
         ),
       ),
-    );
+    ));
   }
 }
 
@@ -725,7 +787,7 @@ class _ModeCard extends StatelessWidget {
     final enabled = state.enabled;
     return Opacity(
       opacity: enabled ? 1 : 0.55,
-      child: Material(
+      child: PressScale(child: Material(
         color: VicaColors.card,
         // 본문 카드(12)보다 크게 두어 '더 큰 면'으로 읽히게 합니다.
         borderRadius: BorderRadius.circular(16),
@@ -808,7 +870,7 @@ class _ModeCard extends StatelessWidget {
             ),
           ),
         ),
-      ),
+      )),
     );
   }
 }

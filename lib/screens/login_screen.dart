@@ -94,7 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           decoration: InputDecoration(
                             labelText: '비밀번호',
                             prefixIcon: const Icon(Icons.lock_outline),
-                            suffixIcon: IconButton(
+                            suffixIcon: PressScale(child: IconButton(
                               onPressed: () => setState(
                                 () => _obscurePassword = !_obscurePassword,
                               ),
@@ -105,7 +105,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               tooltip:
                                   _obscurePassword ? '비밀번호 표시' : '비밀번호 숨기기',
-                            ),
+                            )),
                           ),
                           validator: (value) => value == null || value.isEmpty
                               ? '비밀번호를 입력하세요.'
@@ -124,7 +124,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ],
                         const SizedBox(height: 22),
-                        FilledButton.icon(
+                        PressScale(child: FilledButton.icon(
                           onPressed: _submitting ? null : _submit,
                           icon: _submitting
                               ? const SizedBox.square(
@@ -136,7 +136,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 )
                               : const Icon(Icons.login),
                           label: Text(_submitting ? '로그인 중' : '로그인'),
-                        ),
+                        )),
                       ],
                     ),
                   ),

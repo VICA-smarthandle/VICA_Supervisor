@@ -38,16 +38,29 @@ class DashboardScreen extends StatelessWidget {
         .where((robot) => robot.status != 'moving' && !robot.hasError)
         .length;
     final robot = supervisor.primaryRobot ?? _waitingRobot();
-    // 2026-11-17 제목·문구 간결화(사용자 승인): 지표 카드 넷 → 카드 하나 안의 칸 넷. 색은
-    // 오류 칸 숫자만 씁니다(0 초록·1 이상 빨강).
+    // 2026-11-17 제목·문구 간결화(사용자 승인): 지표 카드 넷 → 카드 하나 안의 칸 넷. 숫자 색은
+    // 오류 칸만 씁니다(0 초록·1 이상 빨강). 2026-11-18 사용자: 칸마다 은은한 바탕색·점을 넣는다.
     final counts = [
-      VicaCount(label: '로봇', value: robots.length.toString()),
-      VicaCount(label: '운행', value: moving.toString()),
-      VicaCount(label: '대기', value: waiting.toString()),
+      VicaCount(
+        label: '로봇',
+        value: robots.length.toString(),
+        accent: VicaColors.primary,
+      ),
+      VicaCount(
+        label: '운행',
+        value: moving.toString(),
+        accent: VicaColors.green,
+      ),
+      VicaCount(
+        label: '대기',
+        value: waiting.toString(),
+        accent: VicaColors.warning,
+      ),
       VicaCount(
         label: '오류',
         value: errors.toString(),
         color: errors == 0 ? VicaColors.green : VicaColors.red,
+        accent: errors == 0 ? VicaColors.textTertiary : VicaColors.red,
       ),
     ];
 
@@ -70,15 +83,9 @@ class DashboardScreen extends StatelessWidget {
               connected ? () => supervisor.requestMapList(settings) : null,
         ),
         const SizedBox(height: 18),
-        Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              maxWidth: VicaBreakpoints.metricGridMaxWidth,
-            ),
-            child: VicaCountStrip(items: counts),
-          ),
-        ),
+        // 다른 카드와 같은 폭으로 둡니다. 1040px 상한 때문에 넓은 웹 창에서 이 줄만 안쪽으로
+        // 들어가 보였습니다(2026-11-18 사용자).
+        VicaCountStrip(items: counts),
         const VicaSectionTitle('로봇'),
         VicaRobotCard(robot: robot),
         const VicaSectionTitle('알림'),
@@ -123,13 +130,13 @@ class _ConnectionButtons extends StatelessWidget {
     // 연결은 앱 전체에 하나뿐이라 버튼도 공통 위젯을 씁니다. 모드 선택 화면과
     // 매핑 준비 확인이 같은 것을 봅니다.
     const rosButton = VicaRosConnectionButton();
-    final mapButton = OutlinedButton.icon(
+    final mapButton = PressScale(child: OutlinedButton.icon(
       onPressed: onRequestMaps,
       icon: Icon(
         hasMaps ? Icons.check_circle : Icons.radio_button_unchecked,
       ),
       label: Text(hasMaps ? '지도 연결됨' : '지도 미연결'),
-    );
+    ));
 
     return LayoutBuilder(
       builder: (context, constraints) {

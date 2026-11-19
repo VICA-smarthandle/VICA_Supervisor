@@ -9,6 +9,9 @@
 //                      처음 도킹에 성공하면 로봇이 라이다로 잰 값으로 한 번 고쳐 저장합니다.
 // 지도에서 지정하는 동안([DockPickStage])에는 이 카드가 그 안내만 보입니다 — 지도 누름은 화면
 // (save_location_screen.dart)이 받습니다.
+//
+// 이 트리는 테마가 물결 효과를 꺼 두어(2026-11-18 클릭 효과) 버튼을 홈 위치 칸처럼 PressScale 로
+// 감쌉니다 — 감싸지 않으면 눌러도 눌림 표시가 없습니다.
 import 'package:flutter/material.dart';
 
 import '../models/dock_state.dart';
@@ -110,20 +113,20 @@ class DockPositionCard extends StatelessWidget {
       _Method(
         title: '도크 직접 인식',
         body: '정확히 세울 필요 없습니다. 도크를 보고만 있으면 라이다로 찾아 자동으로 맞춥니다.',
-        button: FilledButton(
+        button: PressScale(child: FilledButton(
           onPressed: _off ? null : onSave,
           child: Text(busy ? '도크 찾는 중…' : '도크 인식해서 저장'),
-        ),
+        )),
       ),
       const SizedBox(height: 12),
       _Method(
         title: '지도에서 도크 지정',
         body: '지도에서 도크와 도크 앞쪽을 차례로 누르면 도크 앞 1 m 지점을 자동으로 잡습니다.',
-        button: OutlinedButton(
+        button: PressScale(child: OutlinedButton(
           onPressed: _off ? null : onStartMapPick,
           style: OutlinedButton.styleFrom(foregroundColor: VicaColors.primaryDark),
           child: const Text('지도에서 지정'),
-        ),
+        )),
       ),
     ];
   }
@@ -155,11 +158,11 @@ class DockPositionCard extends StatelessWidget {
         _Box(icon: Icons.lock_outline, text: vicaKeepWords(blockedReason)),
         const SizedBox(height: 12),
       ],
-      FilledButton.icon(
+      PressScale(child: FilledButton.icon(
         onPressed: _off || !canSendRobot ? null : onTryDock,
         icon: const Icon(Icons.power),
         label: Text(saved.visitedOk ? '도킹해 보기(다시 확인)' : '도킹해 보기'),
-      ),
+      )),
       const SizedBox(height: 10),
       // 한 줄에 반씩(목업 85). 좁으면 글자가 띄어쓰기에서 두 줄로 접히고 두 버튼 높이를 맞춥니다.
       _Pair(
@@ -173,11 +176,11 @@ class DockPositionCard extends StatelessWidget {
         ),
       ),
       const SizedBox(height: 10),
-      OutlinedButton.icon(
+      PressScale(child: OutlinedButton.icon(
         onPressed: _off ? null : onDelete,
         icon: const Icon(Icons.delete_outline, size: 18),
         label: const Text('도크 위치 지우기'),
-      ),
+      )),
     ];
   }
 
@@ -187,17 +190,17 @@ class DockPositionCard extends StatelessWidget {
 
   Widget _pickBody(BuildContext context) {
     final preview = pickStage == DockPickStage.preview;
-    final again = OutlinedButton(
+    final again = PressScale(child: OutlinedButton(
       onPressed: busy ? null : onPickAgain,
       style: OutlinedButton.styleFrom(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       ),
       child: Text(vicaKeepWords('다시 지정'), textAlign: TextAlign.center),
-    );
-    final cancel = OutlinedButton(
+    ));
+    final cancel = PressScale(child: OutlinedButton(
       onPressed: busy ? null : onPickCancel,
       child: const Text('취소'),
-    );
+    ));
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -231,13 +234,13 @@ class DockPositionCard extends StatelessWidget {
           DockPickStage.front => _Pair(left: again, right: cancel, gap: 10),
           _ => _Pair(
               left: again,
-              right: FilledButton(
+              right: PressScale(child: FilledButton(
                 onPressed: _off ? null : onPickSave,
                 style: FilledButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 ),
                 child: Text(vicaKeepWords('이 자리로 저장'), textAlign: TextAlign.center),
-              ),
+              )),
               gap: 10,
             ),
         },
@@ -313,7 +316,7 @@ class _HalfButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return OutlinedButton(
+    return PressScale(child: OutlinedButton(
       onPressed: onPressed,
       style: OutlinedButton.styleFrom(
         foregroundColor: VicaColors.primaryDark,
@@ -321,7 +324,7 @@ class _HalfButton extends StatelessWidget {
         textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
       ),
       child: Text(vicaKeepWords(label), textAlign: TextAlign.center),
-    );
+    ));
   }
 }
 

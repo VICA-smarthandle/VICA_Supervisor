@@ -74,11 +74,11 @@ class _GoalAlertDialogState extends State<GoalAlertDialog> {
                 const _DockRedoBox(),
                 const SizedBox(height: 20),
                 DockChoiceRow(
-                  left: OutlinedButton(
+                  left: PressScale(child: OutlinedButton(
                     onPressed: () => Navigator.of(context).pop(),
                     child: const Text('확인'),
-                  ),
-                  right: FilledButton(
+                  )),
+                  right: PressScale(child: FilledButton(
                     onPressed: () {
                       Navigator.of(context).pop();
                       widget.onRedoDock?.call();
@@ -90,7 +90,7 @@ class _GoalAlertDialogState extends State<GoalAlertDialog> {
                       vicaKeepWords('도크 위치 다시 잡기'),
                       textAlign: TextAlign.center,
                     ),
-                  ),
+                  )),
                 ),
               ],
             )
@@ -104,10 +104,10 @@ class _GoalAlertDialogState extends State<GoalAlertDialog> {
       ],
       actions: [
         if (!redoDock)
-          FilledButton(
+          PressScale(child: FilledButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('확인'),
-          ),
+          )),
       ],
     );
   }

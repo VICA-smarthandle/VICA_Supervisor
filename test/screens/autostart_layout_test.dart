@@ -18,6 +18,8 @@ import 'package:vica_supervisor/screens/drive_bringup_screen.dart';
 import 'package:vica_supervisor/screens/mode_select_screen.dart';
 import 'package:vica_supervisor/widgets/drive_map_change.dart';
 import 'package:vica_supervisor/widgets/drive_nodes_card.dart';
+import 'package:vica_supervisor/widgets/drive_stop_button.dart';
+import 'package:vica_supervisor/widgets/duplicate_run_banner.dart';
 import 'package:vica_supervisor/widgets/voice_alert_snack.dart';
 
 const _widths = <double>[320, 360, 390, 600, 900];
@@ -114,11 +116,15 @@ void main() {
           // 첫 상태는 연결 직후로 보아 알림을 기록만 합니다. 그래도 카드의 마지막 알림 줄은 채워집니다.
           supervisor.handleModeStatusForTest(status);
         }
-        await tester.pumpWidget(_app(screen(), supervisor, scale));
-        await tester.pump();
-        await tester.pump();
-        await after?.call(tester);
-        FlutterError.onError = previous;
+        // 중간에 실패해도 오류 가로채기를 되돌립니다. 안 되돌리면 시험 틀이 멈춥니다(2026-11-18).
+        try {
+          await tester.pumpWidget(_app(screen(), supervisor, scale));
+          await tester.pump();
+          await tester.pump();
+          await after?.call(tester);
+        } finally {
+          FlutterError.onError = previous;
+        }
         expect(errors, isEmpty, reason: '$name 이(가) 폭 $width, 글자 배율 $scale 에서 넘쳤습니다.');
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pump(const Duration(seconds: 1));
@@ -162,6 +168,23 @@ void main() {
   testWidgets('주행 노드 카드 — 감지기 꺼짐·긴 음성 알림', (tester) async {
     await check(tester, '주행 노드 카드', _status(detector: 'inactive'),
         () => const Scaffold(body: SingleChildScrollView(child: Padding(padding: EdgeInsets.all(16), child: DriveNodesCard()))));
+  });
+
+  // 2026-11-18 위쪽 막대로 옮김: 폰은 '모드 ▾' 메뉴, 넓은 화면은 글자 버튼.
+  testWidgets('주행 끄기 — 넓은 화면 버튼·끄는 진행 화면', (tester) async {
+    // 폰 '모드 ▾' 메뉴는 실제 셸 막대로 drive_stop_button_test.dart 에서 봅니다.
+    await check(tester, '넓은 화면 주행 끄기', _status(),
+        () => const Scaffold(body: Center(child: DriveStopButton())));
+    await check(tester, '주행 끄는 중', _status(state: 'stopping', nav2: 'active'),
+        () => const DriveBringupScreen(stopOnly: true));
+  });
+
+  testWidgets('중복 실행 띠', (tester) async {
+    await check(
+        tester,
+        '중복 실행 띠',
+        {..._status(), 'duplicated': ['ekf_node', 'vica_mission_ma', 'turn_guide_node', 'vica_llm_node', 'rplidar_node']},
+        () => const Scaffold(body: DuplicateRunBanner()));
   });
 
   Widget scroll(Widget child) =>

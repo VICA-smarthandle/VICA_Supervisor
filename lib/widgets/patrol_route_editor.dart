@@ -75,19 +75,19 @@ class _PatrolRouteEditorState extends State<PatrolRouteEditor> {
       children: [
         Row(
           children: [
-            IconButton(
+            PressScale(child: IconButton(
               onPressed: _saving ? null : widget.onClose,
               icon: const Icon(Icons.chevron_left, size: 26),
               color: VicaColors.text,
               tooltip: '뒤로',
-            ),
+            )),
             Expanded(
               child: Text(
                 '순찰 경로 편집',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
             ),
-            OutlinedButton.icon(
+            PressScale(child: OutlinedButton.icon(
               onPressed: widget.saved.isEmpty || _saving
                   ? null
                   : () => _confirmDelete(supervisor),
@@ -104,7 +104,7 @@ class _PatrolRouteEditorState extends State<PatrolRouteEditor> {
               ),
               icon: const Icon(Icons.delete_outline, size: 16),
               label: const Text('경로 삭제', style: patrolSmallButtonText),
-            ),
+            )),
           ],
         ),
         const SizedBox(height: 10),
@@ -183,14 +183,14 @@ class _PatrolRouteEditorState extends State<PatrolRouteEditor> {
         VicaButtonRow(
           foldWidth: 240,
           children: [
-            FilledButton(
+            PressScale(child: FilledButton(
               onPressed: dirty && !_saving ? () => _save(supervisor) : null,
               child: const Text('저장'),
-            ),
-            OutlinedButton(
+            )),
+            PressScale(child: OutlinedButton(
               onPressed: _saving ? null : widget.onClose,
               child: const Text('취소'),
-            ),
+            )),
           ],
         ),
       ],
@@ -286,12 +286,12 @@ class _PatrolRouteEditorState extends State<PatrolRouteEditor> {
                 fontSize: 11,
               ),
             ),
-          IconButton(
+          PressScale(child: IconButton(
             onPressed: _saving ? null : () => _toggle(id, name),
             icon: const Icon(Icons.close, size: 18),
             color: PatrolColors.intruderInk,
             tooltip: '$name 빼기',
-          ),
+          )),
         ],
       ),
     );
