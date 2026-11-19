@@ -23,10 +23,14 @@ free_thresh 0.25 라 Nav2 는 205 도 빈칸으로 읽습니다(1 - 205/255 = 0.
 
 from __future__ import annotations
 
+import json
 import math
+import os
+import shutil
 import struct
 import zlib
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -334,3 +338,120 @@ def cells_to_pixels(cells: np.ndarray, height: int) -> np.ndarray:
     flipped = np.array(cells, dtype=np.int64).reshape(-1, 2).copy()
     flipped[:, 0] = height - 1 - flipped[:, 0]
     return flipped
+
+
+# ---------------------------------------------------------------------------
+# 백업 · 기록 · 되돌리기
+# ---------------------------------------------------------------------------
+#
+# 수정할 때마다 고치기 전 pgm·png 를 maps/.fix_backup/<map_id>/<시각>_<종류>/ 에 둡니다.
+# 점 폴더라 앱 지도 목록(maps/*.png)에는 안 뜹니다(maps/.original 과 같은 관례).
+#
+# entry.json 을 **맨 마지막에** 씁니다. 그 파일이 있어야 온전한 백업으로 칩니다 —
+# 복사 도중 전원이 나가 남은 반쪽 폴더는 기록에도 되돌리기에도 쓰지 않습니다.
+
+BACKUP_DIRNAME = ".fix_backup"
+KEEP_BACKUPS = 10
+ENTRY_NAME = "entry.json"
+ENTRY_KEYS = ("at", "kind", "radius_m", "added", "removed", "black", "gray", "rects", "pose")
+_STAMP_LENGTH = len("20261119_101500")
+
+
+def backup_root(maps_root: Path, map_id: str) -> Path:
+    try:
+        return maps_root / BACKUP_DIRNAME / km.validate_map_id(map_id)
+    except km.KeepoutError as error:
+        raise MapFixError(error.reason, error.message) from None
+
+
+def _order(folder: Path) -> tuple[str, int]:
+    """폴더 이름의 시각과 같은 초 안의 순번. 수정 시각(mtime)은 복사하면 바뀌어 믿지 않습니다."""
+    name = folder.name
+    tail = name.rsplit("_", 1)[-1]
+    return name[:_STAMP_LENGTH], int(tail) if tail.isdigit() else 1
+
+
+def _complete_backups(maps_root: Path, map_id: str) -> list[Path]:
+    """온전한 백업 폴더들, 오래된 것부터."""
+    root = backup_root(maps_root, map_id)
+    if not root.is_dir():
+        return []
+    folders = [path for path in root.iterdir() if path.is_dir() and (path / ENTRY_NAME).is_file()]
+    return sorted(folders, key=_order)
+
+
+def _read_entry(folder: Path) -> dict:
+    try:
+        entry = json.loads((folder / ENTRY_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        entry = {}
+    if not isinstance(entry, dict):
+        entry = {}
+    return {key: entry.get(key) for key in ENTRY_KEYS}
+
+
+def save_backup(maps_root: Path, map_id: str, kind: str, entry: dict, now: datetime) -> Path:
+    """지금의 pgm·png 를 백업하고 그 폴더를 돌려줍니다. 끝나면 KEEP_BACKUPS 개만 남깁니다."""
+    paths = map_paths(maps_root, map_id)
+    root = backup_root(maps_root, map_id)
+    stamp = now.strftime("%Y%m%d_%H%M%S")
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        same_second = [path for path in root.iterdir() if path.name.startswith(stamp)]
+        suffix = f"_{len(same_second) + 1}" if same_second else ""
+        folder = root / f"{stamp}_{kind}{suffix}"
+        folder.mkdir()
+        for path in paths.values():
+            if path.is_file():
+                shutil.copy2(path, folder / path.name)
+        record = {key: entry.get(key) for key in ENTRY_KEYS}
+        record["at"] = now.isoformat(timespec="seconds")
+        record["kind"] = kind
+        temp = folder / (ENTRY_NAME + ".tmp")
+        temp.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+        os.replace(str(temp), str(folder / ENTRY_NAME))
+        for old in _complete_backups(maps_root, map_id)[:-KEEP_BACKUPS]:
+            shutil.rmtree(old, ignore_errors=True)
+    except OSError as error:
+        raise MapFixError("io_error", f"백업을 만들지 못했습니다: {error}") from error
+    return folder
+
+
+def list_history(maps_root: Path, map_id: str, limit: int = 3) -> list[dict]:
+    """최근 수정 기록, 새것부터."""
+    newest_first = reversed(_complete_backups(maps_root, map_id))
+    return [_read_entry(folder) for folder in list(newest_first)[:limit]]
+
+
+def restore_backup(maps_root: Path, map_id: str, backup: Path) -> None:
+    """백업 폴더의 pgm·png 를 지금 자리에 원자적으로 되살립니다."""
+    paths = map_paths(maps_root, map_id)
+    try:
+        pgm = (backup / paths["pgm"].name).read_bytes()
+    except OSError:
+        raise MapFixError("io_error", "백업에 지도 그림이 없어 되돌리지 못했습니다.") from None
+    targets = [(paths["pgm"], pgm)]
+    png_backup = backup / paths["png"].name
+    if png_backup.is_file():
+        targets.append((paths["png"], png_backup.read_bytes()))
+    try:
+        km.write_all_atomic(targets)
+    except km.KeepoutError as error:
+        raise MapFixError(error.reason, error.message) from None
+
+
+def undo_last(maps_root: Path, map_id: str) -> dict:
+    """가장 최근 수정을 되돌리고 그 기록을 돌려줍니다. 되돌린 백업은 지웁니다."""
+    backups = _complete_backups(maps_root, map_id)
+    if not backups:
+        raise MapFixError("nothing_to_undo", "되돌릴 수정이 없습니다.")
+    latest = backups[-1]
+    entry = _read_entry(latest)
+    restore_backup(maps_root, map_id, latest)
+    drop_backup(latest)
+    return entry
+
+
+def drop_backup(backup: Path) -> None:
+    """백업 폴더 하나를 지웁니다 — 수정이 실패해 필요 없어졌거나 되돌리기를 마쳤을 때."""
+    shutil.rmtree(backup, ignore_errors=True)

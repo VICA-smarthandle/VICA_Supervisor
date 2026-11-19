@@ -12,6 +12,7 @@ import os
 import struct
 import sys
 import zlib
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -239,3 +240,121 @@ def test_bad_map_files_are_rejected_not_crashed(tmp_path):
     (root / f"{MAP}.yaml").unlink()
     assert reason_of(lambda: store.load_map_image(root, MAP)) == "no_map"
     assert reason_of(lambda: store.load_map_image(root, "../etc")) == "bad_map_id"
+
+
+# ---------------------------------------------------------------------------
+# 백업 · 기록 · 되돌리기
+# ---------------------------------------------------------------------------
+
+KST = timezone(timedelta(hours=9))
+
+
+def at(second: int) -> datetime:
+    return datetime(2026, 11, 19, 10, 15, second, tzinfo=KST)
+
+
+def with_png(tmp_path: Path) -> Path:
+    """검은 칸 하나가 있고 png 까지 갖춘 가짜 지도."""
+    root = make_map(tmp_path)
+    put(root, {(3, 5): store.OCCUPIED})
+    store.write_map_pixels(root, MAP, store.load_map_image(root, MAP).pixels)
+    return root
+
+
+def files(root: Path) -> dict[str, bytes]:
+    return {name: (root / name).read_bytes() for name in (f"{MAP}.pgm", f"{MAP}.png")}
+
+
+def erase_once(root: Path, second: int) -> Path:
+    backup = store.save_backup(root, MAP, "erase", {"black": 1, "gray": 0, "rects": [RECT]}, at(second))
+    pixels, _ = store.apply_erase(store.load_map_image(root, MAP), [RECT])
+    store.write_map_pixels(root, MAP, pixels)
+    return backup
+
+
+def test_backup_then_undo_restores_bytes_exactly(tmp_path):
+    root = with_png(tmp_path)
+    before = files(root)
+    backup = erase_once(root, 0)
+    assert files(root) != before
+
+    entry = store.undo_last(root, MAP)
+
+    assert files(root) == before
+    assert (entry["kind"], entry["black"], entry["rects"]) == ("erase", 1, [RECT])
+    assert not backup.exists()
+
+
+def test_history_is_newest_first_and_limited(tmp_path):
+    root = with_png(tmp_path)
+    for second in range(4):
+        store.save_backup(root, MAP, "scan", {"radius_m": 2.0, "added": second, "removed": 0}, at(second))
+
+    history = store.list_history(root, MAP, limit=3)
+
+    assert [entry["added"] for entry in history] == [3, 2, 1]
+    assert history[0]["at"] == "2026-11-19T10:15:03+09:00"
+    # 없는 값은 None 으로 채웁니다.
+    assert history[0] == {
+        "at": "2026-11-19T10:15:03+09:00", "kind": "scan", "radius_m": 2.0, "added": 3,
+        "removed": 0, "black": None, "gray": None, "rects": None, "pose": None,
+    }
+
+
+def test_only_ten_backups_are_kept(tmp_path):
+    root = with_png(tmp_path)
+    for second in range(12):
+        store.save_backup(root, MAP, "erase", {"black": second}, at(second))
+
+    names = sorted(path.name for path in store.backup_root(root, MAP).iterdir())
+
+    assert len(names) == store.KEEP_BACKUPS == 10
+    assert names[0] == "20261119_101502_erase"  # 가장 오래된 둘(00·01)이 지워졌습니다
+
+
+def test_same_second_gets_a_suffix(tmp_path):
+    root = with_png(tmp_path)
+    first = store.save_backup(root, MAP, "erase", {"black": 1}, at(0))
+    second = store.save_backup(root, MAP, "erase", {"black": 2}, at(0))
+
+    assert (first.name, second.name) == ("20261119_101500_erase", "20261119_101500_erase_2")
+    assert [entry["black"] for entry in store.list_history(root, MAP)] == [2, 1]
+
+
+def test_nothing_to_undo(tmp_path):
+    root = with_png(tmp_path)
+    assert reason_of(lambda: store.undo_last(root, MAP)) == "nothing_to_undo"
+
+
+def test_half_written_backup_is_ignored(tmp_path):  # Review Focus 2
+    root = with_png(tmp_path)
+    before = files(root)
+    erase_once(root, 0)
+    half = store.backup_root(root, MAP) / "20261119_101559_erase"  # 더 새것이지만 entry.json 이 없습니다
+    half.mkdir()
+    (half / f"{MAP}.pgm").write_bytes(b"broken")
+
+    assert len(store.list_history(root, MAP)) == 1
+    store.undo_last(root, MAP)
+    assert files(root) == before
+
+
+def test_restore_leaves_original_when_backup_is_broken(tmp_path):
+    root = with_png(tmp_path)
+    backup = erase_once(root, 0)
+    (backup / f"{MAP}.pgm").unlink()
+    current = files(root)
+
+    assert reason_of(lambda: store.undo_last(root, MAP)) == "io_error"
+    assert files(root) == current
+    assert backup.exists()
+
+
+def test_drop_backup_removes_only_that_folder(tmp_path):
+    root = with_png(tmp_path)
+    keep = store.save_backup(root, MAP, "erase", {}, at(0))
+    drop = store.save_backup(root, MAP, "erase", {}, at(1))
+
+    store.drop_backup(drop)
+
+    assert keep.exists() and not drop.exists()
