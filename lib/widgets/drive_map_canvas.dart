@@ -67,6 +67,7 @@ class DriveMapCanvas extends StatelessWidget {
         // 아래 둘이 "주행 화면이면 늘 보이는 것"입니다. 화면이 잊을 수 없게
         // 여기서 채웁니다.
         homePoint: supervisor.homePointFor(map.mapId),
+        dockPoint: supervisor.dockPointFor(map.mapId),
         keepoutZones: supervisor.keepoutZonesFor(map.mapId),
         // 레일도 주행 화면이면 늘 보입니다(2026-09-30 사용자 결정).
         routeGraph: supervisor.routeGraphFor(map.mapId),

@@ -171,11 +171,11 @@ class HomePositionCard extends StatelessWidget {
 
     return [
       _SavedHomeSummary(home: saved),
-      if (!saved.visitedOk) ...[
+      // 한 번도 안 가 봤으면 가 보라는 말, 가 봤지만 마지막 복귀가 막혔으면 로봇이 보낸
+      // '홈에 접근할 수 없습니다.'(2026-11-19 사용자).
+      if (saved.warning('아직 가 보지 않음 · 아래 홈으로 주행').isNotEmpty) ...[
         const SizedBox(height: 12),
-        const _WarnBox(
-          text: '아직 가 보지 않음 · 아래 홈으로 주행',
-        ),
+        _WarnBox(text: saved.warning('아직 가 보지 않음 · 아래 홈으로 주행')),
       ],
       const SizedBox(height: 14),
       if (!canSendRobot && blockedReason.isNotEmpty) ...[

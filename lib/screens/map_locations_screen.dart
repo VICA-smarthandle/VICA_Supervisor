@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/home_position.dart' show kHomeUnvisitedText;
 import '../models/location_point.dart';
 import '../models/mission_activity.dart';
 import '../models/mode_status.dart';
@@ -42,14 +43,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
   bool _manual = false;
 
   /// 수동 주행을 열어 두는 미션 상태(mission_logic.State). 그 밖은 모두 막습니다.
-  static const _manualIdleStates = {
-    '',
-    'idle',
-    'none',
-    'arrived',
-    'failed',
-    'estopped'
-  };
+  static const _manualIdleStates = {'', 'idle', 'none', 'arrived', 'failed', 'estopped'};
 
   @override
   Widget build(BuildContext context) {
@@ -98,7 +92,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
       manualBlocked = null;
     }
 
-    // 넓은 화면은 지도 왼쪽 + 카드 오른쪽, 세로 태블릿은 지도 위 고정(map_work_layout.dart).
+    // 넓은 화면은 지도 왼쪽 + 카드 오른쪽, 세로 태블릿·폰 세로는 지도 위 고정(map_work_layout.dart).
     // 본문 제목은 뺐습니다 — 제목줄과 같은 말입니다(2026-11-17 제목·문구 간결화, 사용자 승인).
     return MapWorkLayout(
       children: [
@@ -126,11 +120,12 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
         // 2026-11-19 사용자: 앱 폭에서 새로고침과 주행 고르기가 두 줄로 나뉘었다 → 한 줄로.
         // 새로고침 왼쪽, [원격 주행 | 수동 주행] 오른쪽. 켜고 끄는 모양은 지우기의
         // [구역 표시 | 지도 이동](캔버스 96)과 같은 버튼. '목적지 주행' → '원격 주행'.
+        // 칸이 _driveRowMinWidth 보다 좁으면(넓은 화면의 오른쪽 카드 칸 등) 줄 전체를 그만큼
+        // 줄여 한 줄을 지킵니다.
         LayoutBuilder(
           builder: (context, constraints) {
-            // 칸이 _driveRowMinWidth 보다 좁으면(넓은 화면의 오른쪽 카드 칸 등) 줄 전체를 그만큼
-            // 줄여 한 줄을 지킵니다. 넉넉하면 그대로 — 새로고침은 왼쪽, 주행 고르기는 오른쪽 끝.
-            final width = constraints.maxWidth < _driveRowMinWidth
+            final width = !constraints.maxWidth.isFinite ||
+                    constraints.maxWidth < _driveRowMinWidth
                 ? _driveRowMinWidth
                 : constraints.maxWidth;
             return FittedBox(
@@ -146,6 +141,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                       map: map,
                       icon: Icons.refresh,
                       label: const Text('새로고침'),
+                      inRow: true,
                     ),
                     const Spacer(),
                     for (final (label, manual) in const [
@@ -256,154 +252,137 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
           // 수동 주행 중에는 목적지 목록을 접습니다(2026-11-18 사용자).
           if (!_manual) const SizedBox(height: 20),
           if (!_manual)
-            VicaCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          '저장 장소 목록',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ),
-                      PressScale(
-                          child: OutlinedButton(
-                        onPressed: null,
-                        // 개수 배지라 내용 폭만 씁니다. 테마의 최소 폭(무한대)을
-                        // 그대로 두면 Row 안에서 "무한 폭" 배치 오류가 납니다.
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(0, 36),
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                        ),
-                        child: Text('${locations.length}개'),
-                      )),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 10,
-                    children: locations.map((location) {
-                      final selected =
-                          supervisor.selectedLocationId == location.locationId;
-                      return ChoiceChip(
-                        selected: selected,
-                        avatar: Icon(
-                          selected ? Icons.check_circle : Icons.location_on,
-                          color: selected
-                              ? VicaColors.text
-                              : VicaColors.primaryDark,
-                          size: 18,
-                        ),
-                        label: Text(location.name),
-                        onSelected: (_) =>
-                            supervisor.selectLocation(location.locationId),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 14),
-                  if (activity != null) ...[
-                    Text(
-                      activity.lines
-                          .map((line) =>
-                              vicaKeepWords(vicaBreakAtSentences(line)))
-                          .join('\n'),
-                      style: const TextStyle(
-                        color: VicaColors.muted,
-                        fontSize: 13,
+          VicaCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '저장 장소 목록',
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ),
-                    const SizedBox(height: 10),
-                  ] else if (driving || paused) ...[
-                    Text(
-                      vicaKeepWords(vicaBreakAtSentences(
-                        paused
-                            ? '$drivingGoal(으)로 가던 중 일시정지했습니다. 다시 출발하거나 취소할 수 있습니다.'
-                            : '$drivingGoal(으)로 주행 중입니다.',
-                      )),
-                      style: const TextStyle(
-                        color: VicaColors.muted,
-                        fontSize: 13,
+                    PressScale(child: OutlinedButton(
+                      onPressed: null,
+                      // 개수 배지라 내용 폭만 씁니다. 테마의 최소 폭(무한대)을
+                      // 그대로 두면 Row 안에서 "무한 폭" 배치 오류가 납니다.
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 36),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                  ],
-                  PressScale(
-                      child: FilledButton.icon(
-                    // 요청 가능 여부(권한·접근성·E-stop·Nav2)는 Mission Manager가 판정합니다.
-                    // 앱은 장소 선택 여부와 진행 중인 주행만 보고 버튼 상태를 정합니다.
-                    onPressed: selected == null || busy
-                        ? null
-                        : () => _requestDrive(context, supervisor, selected),
-                    icon: Icon(activity != null
-                        ? _activityIcon(activity.kind)
-                        : driving
-                            ? Icons.directions_run
-                            : Icons.navigation),
-                    label: Text(activity?.lockedRequestLabel ??
-                        (driving ? '주행 중' : '선택 장소로 주행 요청')),
-                  )),
-                  if (activity != null && activity.cancellable) ...[
-                    const SizedBox(height: 10),
-                    PressScale(
-                        child: OutlinedButton.icon(
-                      onPressed: () => _confirmActivityCancel(
-                        context,
-                        supervisor,
-                        activity,
-                      ),
-                      icon: const Icon(Icons.cancel_outlined),
-                      label: Text(activity.cancelLabel),
+                      child: Text('${locations.length}개'),
                     )),
-                  ] else if (activity == null && (driving || paused)) ...[
-                    const SizedBox(height: 10),
-                    // 물류 배송과 같은 버튼 한 벌(2026-09-03 통일).
-                    DriveControlBar(
-                      supervisor: supervisor,
-                      paused: paused,
-                      cancelLabel: '주행 취소',
-                      cancelTitle: '주행 취소',
-                      cancelBody: '진행 중인 주행을 취소합니다. 목적지는 지워지며 다시 요청해야 합니다.',
-                      keepLabel: '계속 주행',
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 10,
+                  children: locations.map((location) {
+                    final selected =
+                        supervisor.selectedLocationId == location.locationId;
+                    return ChoiceChip(
+                      selected: selected,
+                      avatar: Icon(
+                        selected ? Icons.check_circle : Icons.location_on,
+                        color:
+                            selected ? VicaColors.text : VicaColors.primaryDark,
+                        size: 18,
+                      ),
+                      label: Text(location.name),
+                      onSelected: (_) =>
+                          supervisor.selectLocation(location.locationId),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 14),
+                if (activity != null && activity.lines.isNotEmpty) ...[
+                  Text(
+                    activity.lines
+                        .map((line) => vicaKeepWords(vicaBreakAtSentences(line)))
+                        .join('\n'),
+                    style: const TextStyle(
+                      color: VicaColors.muted,
+                      fontSize: 13,
                     ),
-                  ],
-                  // 홈 복귀는 **관리자 전용**입니다. 사용자(음성)에게는 이 문이
-                  // 아예 없습니다 — 홈은 목적지 목록에 없어서 지목할 대상 자체가
-                  // 없습니다. 안내 주행 중에는 잠급니다. 사용자가 핸들을 잡고
-                  // 따라 걷는 중에 방향을 틀면 어디로 끌려가는지 모릅니다.
-                  if (supervisor.homeBelongsTo(map.mapId) &&
-                      supervisor.home != null) ...[
-                    const SizedBox(height: 10),
-                    const Divider(height: 20),
-                    PressScale(
-                        child: OutlinedButton.icon(
-                      onPressed: busy
-                          ? null
-                          : () => _confirmReturnHome(context, supervisor),
-                      icon: const Icon(Icons.home_outlined),
-                      label: Text(
-                        activity?.homeLockedLabel ??
-                            (driving || paused
-                                ? '주행 중에는 홈으로 부를 수 없습니다'
-                                : '홈으로 복귀'),
-                      ),
+                  ),
+                  const SizedBox(height: 10),
+                ] else if (activity == null && (driving || paused)) ...[
+                  Text(
+                    vicaKeepWords(vicaBreakAtSentences(
+                      paused
+                          ? '$drivingGoal(으)로 가던 중 일시정지했습니다. 다시 출발하거나 취소할 수 있습니다.'
+                          : '$drivingGoal(으)로 주행 중입니다.',
                     )),
-                    if (!supervisor.home!.visitedOk) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        vicaKeepWords(vicaBreakAtSentences(
-                          '홈에 아직 가 본 적이 없습니다. 지도 설정 화면에서 확인해주세요.',
-                        )),
-                        style: const TextStyle(
-                            color: VicaColors.muted, fontSize: 12),
-                      ),
-                    ],
-                  ],
+                    style: const TextStyle(
+                      color: VicaColors.muted,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                ] else if (activity == null && supervisor.isDocked) ...[
+                  // 도크에 들어가 있음(목업 66). 손잡이 LED 는 연두 숨쉬기입니다.
+                  Text(
+                    '${vicaKeepWords('도크에 들어가 있습니다.')}\n'
+                    '${vicaKeepWords('장소를 고르면 도크에서 먼저 나온 뒤 출발합니다.')}',
+                    style: const TextStyle(
+                      color: VicaColors.muted,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                 ],
-              ),
+                PressScale(child: FilledButton.icon(
+                  // 요청 가능 여부(권한·접근성·E-stop·Nav2)는 Mission Manager가 판정합니다.
+                  // 앱은 장소 선택 여부와 진행 중인 주행만 보고 버튼 상태를 정합니다.
+                  onPressed: selected == null || busy
+                      ? null
+                      : () => _requestDrive(context, supervisor, selected),
+                  icon: Icon(activity != null
+                      ? _activityIcon(activity.kind)
+                      : driving
+                          ? Icons.directions_run
+                          : Icons.navigation),
+                  label: Text(activity?.lockedRequestLabel ??
+                      (driving ? '주행 중' : '선택 장소로 주행 요청')),
+                )),
+                if (activity != null && activity.cancellable) ...[
+                  const SizedBox(height: 10),
+                  PressScale(child: OutlinedButton.icon(
+                    onPressed: () => _confirmActivityCancel(
+                      context,
+                      supervisor,
+                      activity,
+                    ),
+                    icon: const Icon(Icons.cancel_outlined),
+                    label: Text(activity.cancelLabel),
+                  )),
+                ] else if (activity == null && (driving || paused)) ...[
+                  const SizedBox(height: 10),
+                  // 물류 배송과 같은 버튼 한 벌(2026-09-03 통일).
+                  DriveControlBar(
+                    supervisor: supervisor,
+                    paused: paused,
+                    cancelLabel: '주행 취소',
+                    cancelTitle: '주행 취소',
+                    cancelBody: '진행 중인 주행을 취소합니다. 목적지는 지워지며 다시 요청해야 합니다.',
+                    keepLabel: '계속 주행',
+                  ),
+                ],
+                // 홈 복귀는 **관리자 전용**입니다. 사용자(음성)에게는 이 문이
+                // 아예 없습니다 — 홈은 목적지 목록에 없어서 지목할 대상 자체가
+                // 없습니다. 안내 주행 중에는 잠급니다. 사용자가 핸들을 잡고
+                // 따라 걷는 중에 방향을 틀면 어디로 끌려가는지 모릅니다.
+                // 도킹(2026-11-18, 목업 62·66): '홈으로 복귀' 옆에 '도킹 시작'(도크에 있으면
+                // '도크에서 나오기'). 도킹·나오는 중에는 둘 다 숨깁니다(목업 63·64·68).
+                if (activity == null || !activity.isDock)
+                  ..._homeDockButtons(
+                      context, supervisor, map.mapId, activity, driving, paused, busy),
+              ],
             ),
+          ),
         ],
       ],
     );
@@ -554,8 +533,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
             style: const TextStyle(color: VicaColors.muted, fontSize: 13),
           ),
           const SizedBox(height: 12),
-          PressScale(
-              child: OutlinedButton.icon(
+          PressScale(child: OutlinedButton.icon(
             onPressed:
                 blocked.isEmpty ? () => _enterPosePicking(supervisor) : null,
             icon: const Icon(Icons.add_location_alt_outlined),
@@ -570,7 +548,190 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
         MissionActivityKind.wait => Icons.hourglass_empty,
         MissionActivityKind.approach => Icons.person_outline,
         MissionActivityKind.firstGuide => Icons.record_voice_over_outlined,
+        // 도킹 아이콘은 A안 플러그(11-18 사용자 선택, 목업 74)
+        MissionActivityKind.dock => Icons.power,
+        MissionActivityKind.undock => Icons.power_off,
       };
+
+  /// 아래 홈·도킹 버튼. 둘 다 누를 수 있으면 한 줄에 반씩, 잠겼으면 잠긴 글자가 길어 한 줄씩.
+  /// 나오다 멈춘 상태면 홈 한 줄 + [도킹 시작][도크에서 나오기] 반씩.
+  static List<Widget> _homeDockButtons(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    String mapId,
+    MissionActivity? activity,
+    bool driving,
+    bool paused,
+    bool busy,
+  ) {
+    final hasHome = supervisor.homeBelongsTo(mapId) && supervisor.home != null;
+    final docked = supervisor.isDocked;
+    final hasSpot = supervisor.dockSpotFor(mapId) != null;
+    // 나오다 멈췄거나 도크 가까이 서 있음(2026-11-19 사용자): '도킹 시작' 옆에 '도크에서 나오기'를
+    // 함께 놓아 남은 나오기를 이어서 할 수 있게 합니다. 다른 일로 잠긴 동안에는 내지 않습니다.
+    final resume = !docked && !busy && supervisor.canResumeUndock;
+    // 나오다 멈춘 상태(중지·비상정지)면 '도킹 시작'은 숨기고 '도크에서 나오기 다시시작'만 둡니다(2026-11-19 사용자).
+    // 도크 가까이 서 있기만 한 경우(도킹을 중지한 자리 등)는 [도킹 시작][도크에서 나오기] 둘 다 둡니다.
+    final undockPaused = resume && supervisor.undockPaused;
+    final showDock = (docked || hasSpot) && !undockPaused;
+    if (!hasHome && !showDock && !resume) {
+      return const [];
+    }
+    final lockedText = activity?.lockedRequestLabel ?? (driving || paused ? '주행 중' : '');
+    // 누름 효과(PressScale)는 수동 주행 브랜치(db4e140)의 버튼 규칙 — 홈 버튼에 있던 것을 도킹 버튼에도 입힌다.
+    final Widget? homeButton = hasHome
+        ? PressScale(child: OutlinedButton.icon(
+            onPressed: busy ? null : () => _confirmReturnHome(context, supervisor),
+            icon: const Icon(Icons.home_outlined),
+            label: Text(
+              activity?.homeLockedLabel ??
+                  (driving || paused ? '주행 중에는 홈으로 부를 수 없습니다' : '홈으로 복귀'),
+            ),
+          ))
+        : null;
+    Widget? dockButton;
+    if (showDock) {
+      dockButton = PressScale(child: docked
+          ? OutlinedButton.icon(
+              onPressed: busy ? null : () => _confirmUndock(context, supervisor),
+              icon: const Icon(Icons.power_off),
+              label: const Text('도크에서 나오기'),
+            )
+          : OutlinedButton.icon(
+              onPressed: busy ? null : () => _confirmDockStart(context, supervisor),
+              icon: const Icon(Icons.power),
+              label: Text(busy ? '$lockedText에는 도킹을 시작할 수 없습니다' : '도킹 시작'),
+            ));
+    }
+    final Widget? resumeButton = resume
+        ? PressScale(child: OutlinedButton.icon(
+            onPressed: () => _confirmUndockResume(context, supervisor),
+            icon: const Icon(Icons.power_off),
+            label: Text(undockPaused ? '도크에서 나오기 다시시작' : '도크에서 나오기'),
+          ))
+        : null;
+    return [
+      const SizedBox(height: 10),
+      const Divider(height: 20),
+      if (resumeButton != null && dockButton != null) ...[
+        // 도크 가까이 서 있음(도킹을 중지한 자리 등): 홈은 한 줄, 그 아래 [도킹 시작][도크에서 나오기] 를 반씩
+        if (homeButton != null) ...[homeButton, const SizedBox(height: 10)],
+        Row(
+          children: [
+            Expanded(child: dockButton),
+            const SizedBox(width: 10),
+            Expanded(child: resumeButton),
+          ],
+        ),
+      ] else if (resumeButton != null && undockPaused) ...[
+        // 나오다 멈춤: 홈 한 줄, 그 아래 '도크에서 나오기 다시시작' 한 줄(글자가 길어 반씩 놓지 않는다)
+        if (homeButton != null) ...[homeButton, const SizedBox(height: 10)],
+        resumeButton,
+      ] else if (resumeButton != null) ...[
+        // 도크 위치가 없으면 '도킹 시작'이 없습니다 — 홈 옆에 나오기만.
+        if (homeButton != null)
+          Row(
+            children: [
+              Expanded(child: homeButton),
+              const SizedBox(width: 10),
+              Expanded(child: resumeButton),
+            ],
+          )
+        else
+          resumeButton,
+      ] else if (!busy && homeButton != null && dockButton != null)
+        Row(
+          children: [
+            Expanded(child: homeButton),
+            const SizedBox(width: 10),
+            Expanded(child: dockButton),
+          ],
+        )
+      else ...[
+        if (homeButton != null) homeButton,
+        if (homeButton != null && dockButton != null) const SizedBox(height: 10),
+        if (dockButton != null) dockButton,
+      ],
+      // 한 번도 가 본 적이 없으면 확인하라는 말, 가 봤지만 마지막 복귀가 막혔으면
+      // 로봇이 보낸 '홈에 접근할 수 없습니다.'(2026-11-19 사용자).
+      if (hasHome && supervisor.home!.warning(kHomeUnvisitedText).isNotEmpty) ...[
+        const SizedBox(height: 6),
+        Text(
+          vicaKeepWords(vicaBreakAtSentences(
+            supervisor.home!.warning(kHomeUnvisitedText),
+          )),
+          style: const TextStyle(color: VicaColors.muted, fontSize: 12),
+        ),
+      ],
+    ];
+  }
+
+  /// '도킹 시작' 확인(목업 73).
+  static Future<void> _confirmDockStart(
+    BuildContext context,
+    SupervisorProvider supervisor,
+  ) async {
+    final settings = context.read<SettingsProvider>().settings;
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.power,
+      title: '도킹 시작',
+      body: '로봇이 도크 앞으로 이동한 뒤 도크에 들어갑니다.',
+      confirmLabel: '시작',
+    );
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+    final message = await supervisor.startDocking(settings);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  /// '도크에서 나오기' 확인(목업 67, 문구는 11-18 사용자 지정).
+  static Future<void> _confirmUndock(
+    BuildContext context,
+    SupervisorProvider supervisor,
+  ) async {
+    final settings = context.read<SettingsProvider>().settings;
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.power_off,
+      title: '도크에서 나오기',
+      body: '로봇이 초음파를 켜고 약 70cm 후진 후 제자리 회전합니다. 회전 후 주행 모드로 전환됩니다.',
+      confirmLabel: '나오기',
+    );
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+    final message = await supervisor.undock(settings);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  /// 나오다 멈춘 자리에서 '도크에서 나오기'(2026-11-19 사용자) — 남은 동작만 이어서 합니다.
+  /// 도크 안에서 누를 때의 확인창(위, 사용자 지정 문구)과는 본문만 다릅니다.
+  static Future<void> _confirmUndockResume(
+    BuildContext context,
+    SupervisorProvider supervisor,
+  ) async {
+    final settings = context.read<SettingsProvider>().settings;
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.power_off,
+      title: supervisor.undockPaused ? '도크에서 나오기 다시시작' : '도크에서 나오기',
+      body: '멈춘 자리에서 남은 나오기 동작을 이어서 합니다.',
+      confirmLabel: '나오기',
+    );
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+    final message = await supervisor.undock(settings);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
 
   /// '대기 취소'·'접근 취소' 확인(목업 44·45). 주행 취소 확인창과 같은 틀입니다.
   static Future<void> _confirmActivityCancel(
@@ -585,7 +746,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
       title: activity.cancelTitle,
       body: activity.cancelBody,
       cancelLabel: activity.keepLabel,
-      confirmLabel: '취소하기',
+      confirmLabel: activity.confirmLabel,
       danger: true,
     );
     if (!confirmed || !context.mounted) {
@@ -600,9 +761,11 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     }
     await sendRobotCommand(
       context,
-      activity.kind == MissionActivityKind.approach
-          ? supervisor.cancelApproach
-          : supervisor.cancelWait,
+      activity.isDock
+          ? supervisor.cancelDocking
+          : activity.kind == MissionActivityKind.approach
+              ? supervisor.cancelApproach
+              : supervisor.cancelWait,
     );
   }
 

@@ -113,11 +113,15 @@ class _MappingShellState extends State<MappingShell> {
             const DuplicateRunBanner(),
             Expanded(
               // 넓은 화면에서 ② 작성 중이면 미리보기 지도를 단계 칸 밖으로 꺼내 왼쪽(세로
-              // 태블릿은 위)에 고정합니다. 단계·조작판·버튼은 그대로입니다(map_work_layout.dart).
+              // 태블릿·폰 세로는 위)에 고정합니다. 단계·조작판·버튼은 그대로입니다(map_work_layout.dart).
               child: LayoutBuilder(
                 builder: (context, constraints) {
+                  // 키보드 높이를 같이 넘겨야 MapWorkLayout 과 같은 배치로 판정합니다.
                   final liftPreview = step == 1 &&
-                      MapWorkLayout.arrangementFor(constraints) !=
+                      MapWorkLayout.arrangementFor(
+                            constraints,
+                            keyboard: MapWorkLayout.keyboardInset(context),
+                          ) !=
                           MapWorkArrangement.stacked;
                   return MapWorkLayout(
                     title: '새 지도 그리기',

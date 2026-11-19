@@ -323,13 +323,22 @@ class _SupervisorShellState extends State<SupervisorShell> {
   /// 떠나면 비워, 다음에 메뉴로 들어가면 지금처럼 '전체'로 엽니다.
   LogFilter? _logsJumpFilter;
 
+  /// 도킹 실패 팝업의 '도크 위치 다시 잡기'(2026-11-19, 목업 92)로 지도 설정에 들어갈 때 도크 위치
+  /// 칸을 펼치라는 요청 번호. 지도 설정을 떠나면 0 으로 돌려, 다음에 메뉴로 들어가면 지금처럼
+  /// 접힌 채로 엽니다.
+  int _dockPanelRequest = 0;
+
   // 대시보드 배너가 진단 화면으로 보내려면 콜백이 필요해 const 리스트를 게터로 바꿨습니다.
   List<Widget> get _screens => [
         DashboardScreen(
           onOpenDiagnostics: () =>
               setState(() => _index = _systemDiagnosticsIndex),
         ),
-        const SaveLocationScreen(),
+        SaveLocationScreen(
+          // '초기 위치 잡으러 가기'(목업 88) — 초기 위치는 원격 주행 탭에서 잡습니다.
+          onOpenDrive: () => setState(() => _index = _driveIndex),
+          dockPanelRequest: _dockPanelRequest,
+        ),
         const MapLocationsScreen(),
         const DeliveryScreen(),
         PatrolScreen(
@@ -359,6 +368,8 @@ class _SupervisorShellState extends State<SupervisorShell> {
   static int get _settingsIndex => _titles.indexOf('설정');
   static int get _moreIndex => _titles.indexOf('더보기');
   static int get _logsIndex => _titles.indexOf('알림 및 로그');
+  static int get _mapSettingsIndex => _titles.indexOf('지도 설정');
+  static int get _driveIndex => _titles.indexOf('원격 주행');
 
   /// 하단 탭에 직접 올라가는 화면 수. 이 뒤의 화면은 '더보기' 탭이 대표합니다.
   /// 2026-11-14 경비 탭이 들어가 4 → 5 (목업 PatrolHome 의 아래 탭 6칸).
@@ -401,7 +412,19 @@ class _SupervisorShellState extends State<SupervisorShell> {
         supervisor.consumeGoalAlert();
         showVicaDialog<void>(
           context: context,
-          builder: (_) => GoalAlertDialog(event: alert),
+          builder: (_) => GoalAlertDialog(
+            event: alert,
+            // '도크 위치 다시 잡기'(목업 92) — 지도 설정의 도크 위치 칸으로 갑니다.
+            onRedoDock: () {
+              if (!mounted) {
+                return;
+              }
+              setState(() {
+                _dockPanelRequest += 1;
+                _index = _mapSettingsIndex;
+              });
+            },
+          ),
         );
       });
     }
@@ -532,6 +555,9 @@ class _SupervisorShellState extends State<SupervisorShell> {
         final index = useSidebar && _index == _moreIndex ? 0 : _index;
         if (index != _logsIndex) {
           _logsJumpFilter = null;
+        }
+        if (index != _mapSettingsIndex) {
+          _dockPanelRequest = 0;
         }
 
         return PopScope(

@@ -35,6 +35,8 @@ const double _markerScale = kIsWeb ? 1.0 : 2 / 3;
 // 그대로, 그보다 작으면 비례해 줄여 폰 폭에서 1/2 이 되게 한다. 위의 '1/2 은 안 보여 안 쓴다'
 // (09-04)를 사용자 결정으로 바꾼 것이라, 2.5 px 아래로는 내리지 않는다. 화살표·눌리는 판은 그대로.
 const double _markerFullSizeScale = 1.2;
+// 도크 미리보기 그림(_DockOverlayPainter 등)의 테두리. 점 크기와 따로 고정입니다.
+const double _markerBorder = 1.0 * _markerScale;
 const double _markerMinDot = 2.5;
 
 /// 장소·홈·임시·선택 위치 점의 지름(px). [displayScale] 은 지도 1칸이 화면에서 차지하는 px.
@@ -119,6 +121,23 @@ class MapPoseArrow {
   final Color color;
 }
 
+/// 도크를 지도에서 지정하는 중의 표시(2026-11-19, 목업 90·90′). 좌표는 ROS 지도 기준입니다.
+///
+/// 저장된 도크 점([MapCanvas.dockPoint])과 따로 둡니다 — 아직 저장하지 않은 자리이고,
+/// 미리보기에서는 세 가지(도크·도크 앞 1 m·두 번째로 누른 자리)가 함께 보여야 합니다.
+class MapDockPick {
+  const MapDockPick({required this.dock, this.staging, this.second});
+
+  /// 먼저 누른 도크 구조물. 보라색 점과 '도크' 이름표로 그립니다.
+  final Offset dock;
+
+  /// 도크 앞 1 m(준비 위치). 두 점을 다 누른 미리보기에서만 있습니다.
+  final Offset? staging;
+
+  /// 두 번째로 누른 자리(도크 앞쪽). 회색 × 로 그립니다.
+  final Offset? second;
+}
+
 class MapCanvas extends StatelessWidget {
   const MapCanvas({
     super.key,
@@ -131,6 +150,8 @@ class MapCanvas extends StatelessWidget {
     this.pickedLocation,
     this.poseArrow,
     this.homePoint,
+    this.dockPoint,
+    this.dockPick,
     this.scanHits = const [],
     this.onTapMap,
     this.onSelectLocation,
@@ -178,6 +199,12 @@ class MapCanvas extends StatelessWidget {
   /// 편이 낫고, 사용자가 볼 화면이 아니라 가릴 이유가 없습니다(2026-09-02
   /// 사용자 결정). 크기와 모양은 저장 장소와 같고 색만 다릅니다.
   final Offset? homePoint;
+
+  /// 저장된 도크 위치(도킹했을 때 로봇 자리, ROS 좌표, 2026-11-18). 홈과 따로입니다.
+  final Offset? dockPoint;
+
+  /// 도크를 지도에서 지정하는 중의 표시. 지정하는 중이 아니면 null 입니다.
+  final MapDockPick? dockPick;
 
   /// 초기 위치를 확인한 뒤 그 자세에서 본 라이다 점입니다(ROS 좌표).
   ///
@@ -469,6 +496,14 @@ class MapCanvas extends StatelessWidget {
                     // 않았습니다 — 작은 점에서는 명도 차이만으로 안 갈립니다.
                     // 아래 '선택 위치'도 주황 계열이지만 그쪽은 속 빈 원이고
                     // 찍는 동안만 잠깐 보입니다.
+                    // 도크(2026-11-18) — 홈과 따로 그립니다. 보라는 홈 주황·장소 파랑과 명도가 다릅니다.
+                    if (dockPoint != null)
+                      _Marker(
+                        offset: _scaledOffset(dockPoint!.dx, dockPoint!.dy, scale),
+                        label: '도크',
+                        color: Colors.deepPurple,
+                        size: mapMarkerDotSize(scale),
+                      ),
                     if (homePoint != null)
                       _Marker(
                         offset: _scaledOffset(
@@ -480,6 +515,9 @@ class MapCanvas extends StatelessWidget {
                         color: Colors.orange,
                         size: mapMarkerDotSize(scale),
                       ),
+                    // 도크를 지도에서 지정하는 중(2026-11-19, 목업 90·90′). 누름을 가로채지
+                    // 않습니다 — 두 번째 누름이 먼저 누른 도크 바로 옆일 수 있습니다.
+                    if (dockPick != null) ..._dockPickLayers(dockPick!, scale),
                     // 다른 지도의 임시 저장 장소는 그리지 않습니다. 그 좌표는 이
                     // 지도 그림 위의 자리가 아닙니다.
                     if (draftLocation != null &&
@@ -533,6 +571,60 @@ class MapCanvas extends StatelessWidget {
         );
       },
     );
+  }
+
+  /// 지도에서 지정하는 중의 표시 — 선·점·× 한 겹과 이름표들.
+  ///
+  /// 세 점은 한 줄 위에 있어 이름표가 겹치기 쉽습니다. '도크'는 준비 위치 반대쪽(벽 쪽)에,
+  /// '도크 앞 1 m'와 '두 번째로 누른 자리'는 그 줄의 서로 다른 옆에 놓습니다.
+  List<Widget> _dockPickLayers(MapDockPick pick, double scale) {
+    final dock = _scaledOffset(pick.dock.dx, pick.dock.dy, scale);
+    final staging = pick.staging == null
+        ? null
+        : _scaledOffset(pick.staging!.dx, pick.staging!.dy, scale);
+    final second = pick.second == null
+        ? null
+        : _scaledOffset(pick.second!.dx, pick.second!.dy, scale);
+    var away = const Offset(0, -1); // 도크만 눌렀을 때는 점 위
+    var side = const Offset(0, 1);
+    final toward = staging ?? second;
+    if (toward != null && (dock - toward).distance > 0.5) {
+      away = (dock - toward) / (dock - toward).distance;
+      side = Offset(-away.dy, away.dx);
+      // 화면 아래쪽(줄이 세로면 오른쪽) 옆을 '도크 앞 1 m' 자리로 고릅니다.
+      if (side.dy < 0 || (side.dy.abs() < 1e-6 && side.dx < 0)) {
+        side = -side;
+      }
+    }
+    return [
+      Positioned.fill(
+        child: IgnorePointer(
+          child: CustomPaint(
+            painter: _DockPickPainter(
+              dock: dock,
+              staging: staging,
+              second: second,
+            ),
+          ),
+        ),
+      ),
+      _MapTag(at: dock, toward: away, label: '도크', color: Colors.deepPurple),
+      if (staging != null)
+        _MapTag(
+          at: staging,
+          toward: side,
+          label: '도크 앞 1 m',
+          color: VicaColors.primaryDark,
+        ),
+      if (second != null)
+        _MapTag(
+          at: second,
+          toward: -side,
+          label: '두 번째로 누른 자리',
+          color: VicaColors.muted,
+          bold: false,
+        ),
+    ];
   }
 
   // 지도 이미지가 화면 안에 들어오도록 초기 표시 크기를 계산합니다.
@@ -714,6 +806,137 @@ class _Marker extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 지도 위 점 옆에 붙이는 작은 이름표(흰 바탕). [toward] 쪽으로 점에서 조금 띄워 놓습니다.
+class _MapTag extends StatelessWidget {
+  const _MapTag({
+    required this.at,
+    required this.toward,
+    required this.label,
+    required this.color,
+    this.bold = true,
+  });
+
+  /// 지도 그림 위의 점 자리(px)
+  final Offset at;
+
+  /// 이름표를 놓을 쪽(화면 좌표의 단위 벡터)
+  final Offset toward;
+  final String label;
+  final Color color;
+  final bool bold;
+
+  @override
+  Widget build(BuildContext context) {
+    const gap = 8.0 * _markerScale;
+    final anchor = at + toward * gap;
+    // 이름표에서 점에 가장 가까운 변(또는 모서리)이 anchor 에 오게 합니다. 8방으로 나눕니다.
+    double shift(double v) => v > 0.38 ? 0 : (v < -0.38 ? -1 : -0.5);
+    return Positioned(
+      left: anchor.dx,
+      top: anchor.dy,
+      child: IgnorePointer(
+        child: FractionalTranslation(
+          translation: Offset(shift(toward.dx), shift(toward.dy)),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.9),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              label,
+              maxLines: 1,
+              softWrap: false,
+              style: TextStyle(
+                color: color,
+                fontSize: 10,
+                fontWeight: bold ? FontWeight.w700 : FontWeight.w400,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 지도에서 지정하는 중의 선·점·×(목업 90′). 자리는 지도 그림 위의 px 입니다.
+class _DockPickPainter extends CustomPainter {
+  const _DockPickPainter({required this.dock, this.staging, this.second});
+
+  final Offset dock;
+  final Offset? staging;
+  final Offset? second;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const dot = 3.5 * _markerScale;
+    final staging = this.staging;
+    final second = this.second;
+    if (staging != null) {
+      // 도크 → 도크 앞 1 m (초록 점선)
+      _dashed(
+        canvas,
+        dock,
+        staging,
+        Paint()
+          ..color = VicaColors.primary
+          ..strokeWidth = 1.5 * _markerScale,
+        dash: 3 * _markerScale,
+      );
+      if (second != null) {
+        // 도크 앞 1 m → 두 번째로 누른 자리 (회색 점선)
+        _dashed(
+          canvas,
+          staging,
+          second,
+          Paint()
+            ..color = const Color(0xFF8A877F)
+            ..strokeWidth = 1.0 * _markerScale,
+          dash: 2 * _markerScale,
+        );
+      }
+    }
+    if (second != null) {
+      const arm = 3.0 * _markerScale;
+      final cross = Paint()
+        ..color = const Color(0xFF8A877F)
+        ..strokeWidth = 1.5 * _markerScale
+        ..strokeCap = StrokeCap.round;
+      canvas.drawLine(second + const Offset(-arm, -arm), second + const Offset(arm, arm), cross);
+      canvas.drawLine(second + const Offset(arm, -arm), second + const Offset(-arm, arm), cross);
+    }
+    final rim = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = _markerBorder;
+    if (staging != null) {
+      canvas.drawCircle(staging, dot, Paint()..color = VicaColors.primary);
+      canvas.drawCircle(staging, dot, rim);
+    }
+    canvas.drawCircle(dock, dot, Paint()..color = Colors.deepPurple);
+    canvas.drawCircle(dock, dot, rim);
+  }
+
+  void _dashed(Canvas canvas, Offset from, Offset to, Paint paint, {required double dash}) {
+    final total = (to - from).distance;
+    if (total < 0.5) {
+      return;
+    }
+    final step = (to - from) / total;
+    for (var d = 0.0; d < total; d += dash * 2) {
+      final end = d + dash < total ? d + dash : total;
+      canvas.drawLine(from + step * d, from + step * end, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DockPickPainter oldDelegate) =>
+      oldDelegate.dock != dock ||
+      oldDelegate.staging != staging ||
+      oldDelegate.second != second;
 }
 
 class _RobotMarker extends StatelessWidget {

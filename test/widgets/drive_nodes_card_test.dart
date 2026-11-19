@@ -31,7 +31,17 @@ class _FakeSupervisor extends SupervisorProvider {
     calls.add('drive_stop');
     return reply;
   }
+
+  @override
+  Future<(bool, String)> setWakeDoaTurn(bool on) async {
+    calls.add(on ? 'beam_on' : 'beam_off');
+    return reply;
+  }
 }
+
+// 2026-11-19: 스위치가 둘(카메라 감지·빔포밍 회전)이라 키로 찾습니다.
+final _detectorSwitch = find.byKey(const ValueKey('drive_nodes_detector_switch'));
+final _beamSwitch = find.byKey(const ValueKey('drive_nodes_wake_doa_turn_switch'));
 
 ModeStatus drive({String detector = 'active', VoiceChoice voice = VoiceChoice.local}) => ModeStatus(
       mode: 'drive',
@@ -80,7 +90,7 @@ void main() {
     // 2026-11-17 간결화(사용자 승인): 감지기 'active' 는 '켜짐' 한 단어. 음성 줄도 '켜짐'이라 둘입니다.
     expect(find.text(vicaKeepWords('켜짐')), findsNWidgets(2));
 
-    await tester.tap(find.byType(Switch));
+    await tester.tap(_detectorSwitch);
     await tester.pump();
     expect(supervisor.calls, ['detector_off']);
   });
@@ -93,10 +103,106 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(find.byType(Switch));
+    await tester.tap(_detectorSwitch);
     await tester.pump();
     expect(supervisor.calls, ['detector_on']);
   });
+
+  // ---- 빔포밍 회전(2026-11-19 사용자, 캔버스 101번 보드) ----
+
+  Switch beamSwitch(WidgetTester tester) => tester.widget<Switch>(_beamSwitch);
+
+  testWidgets('빔포밍 켜짐: 켜진 스위치, 나침반 아이콘, 경고 칸 없음', (tester) async {
+    final supervisor = await pump(tester, drive());
+    supervisor.setWakeDoaTurnForTest(true);
+    await tester.pump();
+    expect(find.text('빔포밍 회전'), findsOneWidget);
+    // 감지기·빔포밍·음성 세 줄이 '켜짐'.
+    expect(find.text(vicaKeepWords('켜짐')), findsNWidgets(3));
+    expect(beamSwitch(tester).value, isTrue);
+    expect(beamSwitch(tester).onChanged, isNotNull);
+    expect(find.byIcon(Icons.explore_outlined), findsOneWidget);
+    expect(find.text(vicaKeepWords('회전 꺼짐')), findsNothing);
+  });
+
+  testWidgets('빔포밍 꺼짐: 잠시 꺼짐과 경고 칸, 사선 나침반', (tester) async {
+    final supervisor = await pump(tester, drive());
+    supervisor.setWakeDoaTurnForTest(false);
+    await tester.pump();
+    expect(find.text(vicaKeepWords('잠시 꺼짐')), findsOneWidget);
+    expect(find.text(vicaKeepWords('회전 꺼짐')), findsOneWidget);
+    expect(beamSwitch(tester).value, isFalse);
+    expect(find.byIcon(Icons.explore_off_outlined), findsOneWidget);
+
+    await tester.tap(_beamSwitch);
+    await tester.pump();
+    expect(supervisor.calls, ['beam_on']);
+  });
+
+  testWidgets('끄면 beam_off 를 보내고 노드 문구를 띄우지만, 표시는 상태 토픽이 올 때까지 그대로', (tester) async {
+    final supervisor = await pump(tester, drive());
+    supervisor
+      ..setWakeDoaTurnForTest(true)
+      ..reply = (true, '빔포밍 회전을 껐습니다');
+    await tester.pump();
+
+    await tester.tap(_beamSwitch);
+    await tester.pumpAndSettle();
+    expect(supervisor.calls, ['beam_off']);
+    expect(find.text('빔포밍 회전을 껐습니다'), findsOneWidget);
+    expect(beamSwitch(tester).value, isTrue);
+  });
+
+  testWidgets('빔포밍 거절이면 이유를 띄운다', (tester) async {
+    final supervisor = await pump(tester, drive());
+    supervisor
+      ..setWakeDoaTurnForTest(true)
+      ..reply = (false, '빔포밍 회전을 바꾸지 못했습니다.');
+    await tester.pump();
+
+    await tester.tap(_beamSwitch);
+    await tester.pumpAndSettle();
+    expect(find.text('안 됐습니다: 빔포밍 회전을 바꾸지 못했습니다.'), findsOneWidget);
+  });
+
+  // 2026-11-19 사용자: 음성이 다시 뜨는 동안은 이전 값 대신 '재가동 중'(캔버스 101 ③).
+  ModeStatus driveVoice(String voice) => ModeStatus(
+        mode: 'drive',
+        state: ModeState.running,
+        nav2: 'active',
+        detector: 'active',
+        voice: voice,
+        voiceChoice: VoiceChoice.local,
+      );
+
+  testWidgets('음성은 active 인데 상태를 아직 못 받았으면 재가동 중, 스위치는 잠긴다', (tester) async {
+    final supervisor = await pump(tester, drive());
+    expect(find.text(vicaKeepWords('재가동 중')), findsOneWidget);
+    expect(beamSwitch(tester).onChanged, isNull);
+
+    await tester.tap(_beamSwitch);
+    await tester.pump();
+    expect(supervisor.calls, isEmpty);
+  });
+
+  for (final voice in ['deactivating', 'activating']) {
+    testWidgets('음성 유닛이 $voice 이면 남아 있는 켜짐 값 대신 재가동 중', (tester) async {
+      final supervisor = await pump(tester, driveVoice(voice));
+      supervisor.setWakeDoaTurnForTest(true);
+      await tester.pump();
+      expect(find.text(vicaKeepWords('재가동 중')), findsOneWidget);
+      expect(beamSwitch(tester).onChanged, isNull);
+    });
+  }
+
+  for (final voice in ['inactive', 'failed', 'none']) {
+    testWidgets('음성 유닛이 $voice 이면 음성 꺼짐 · 바꿀 수 없음', (tester) async {
+      await pump(tester, driveVoice(voice));
+      expect(find.text(vicaKeepWords('음성 꺼짐 · 바꿀 수 없음')), findsOneWidget);
+      expect(find.text(vicaKeepWords('재가동 중')), findsNothing);
+      expect(beamSwitch(tester).onChanged, isNull);
+    });
+  }
 
   testWidgets('음성을 외부 API 로 고르면 음성만 바꾸라고 보낸다', (tester) async {
     final supervisor = await pump(tester, drive());

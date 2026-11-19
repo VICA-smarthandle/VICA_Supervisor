@@ -22,6 +22,7 @@ import '../models/robot_event.dart';
 import '../models/robot_health.dart';
 import '../models/map_preview.dart';
 import '../models/pose_check_result.dart';
+import '../models/dock_state.dart';
 import '../models/mapping_status.dart';
 import '../models/mode_status.dart';
 import '../models/patrol.dart';
@@ -482,6 +483,8 @@ class SupervisorProvider extends ChangeNotifier {
     _frontUltrasonicOn = null;
     _frontRange.fillRange(0, 2, null);
     _frontRangeAt.fillRange(0, 2, null);
+    // 빔포밍 회전도 다시 붙으면 음성 노드가 남긴 값으로 채워집니다(2026-11-19).
+    _wakeDoaTurnOn = null;
     if (_robotsById.isEmpty) {
       return;
     }
@@ -599,6 +602,12 @@ class SupervisorProvider extends ChangeNotifier {
         type: 'std_msgs/Bool',
         handler: _handleFrontUltrasonicState,
       )
+      // 빔포밍 회전(2026-11-19 사용자: 대시보드 주행 설정). 음성 호출 노드가 낸다.
+      ..subscribe(
+        topic: wakeDoaTurnStateTopic,
+        type: 'std_msgs/Bool',
+        handler: _handleWakeDoaTurnState,
+      )
       ..subscribe(
         topic: frontUltrasonicTopics[0],
         type: 'sensor_msgs/Range',
@@ -608,6 +617,11 @@ class SupervisorProvider extends ChangeNotifier {
         topic: frontUltrasonicTopics[1],
         type: 'sensor_msgs/Range',
         handler: (message) => _handleFrontRange(1, message),
+      )
+      // 도킹 노드(2026-11-18). 바뀔 때만 오고 마지막 값이 보관됩니다. 없으면 도킹 버튼이 안 뜹니다.
+      ..subscribe(
+        topic: kDockStateTopic,
+        handler: _handleDockState,
       );
   }
 
@@ -723,6 +737,66 @@ class SupervisorProvider extends ChangeNotifier {
     }
   }
 
+  // ---- 빔포밍 회전 켜기·끄기 (2026-11-19 사용자, 캔버스 101번 보드) ----------------------
+  //
+  // 켜면 대기 중 '비카야'가 온 방향으로 로봇이 돈다(음성 VICA_WAKE_DOA_TURN). 음성을 다시 띄우면
+  // .env 값으로 돌아갑니다. 표시는 노드가 남긴 상태 토픽만 따릅니다 — 응답만 보고 미리 바꾸지 않습니다.
+
+  /// 음성 호출 노드가 지금 상태를 남기는 토픽(std_msgs/Bool, TRANSIENT_LOCAL).
+  static const wakeDoaTurnStateTopic = '/vica/wake_doa_turn/enabled';
+
+  /// 켜기·끄기 서비스(std_srvs/SetBool). 응답 문구('빔포밍 회전을 켰습니다' 등)를 그대로 띄웁니다.
+  static const wakeDoaTurnService = '/vica/wake_doa_turn/enable';
+
+  bool? _wakeDoaTurnOn;
+
+  /// null = 모름(음성이 안 떠 있거나 아직 상태가 안 옴).
+  bool? get wakeDoaTurnOn => _wakeDoaTurnOn;
+
+  void _handleWakeDoaTurnState(Map<String, Object?> message) {
+    final data = message['data'];
+    if (data is bool && data != _wakeDoaTurnOn) {
+      _wakeDoaTurnOn = data;
+      notifyListeners();
+    }
+  }
+
+  /// 빔포밍 회전을 켜거나 끕니다. (받아들였는가, 보일 문구)
+  Future<(bool, String)> setWakeDoaTurn(bool on) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return (false, 'ROS Bridge에 연결되지 않았습니다.');
+    }
+    const fallback = '빔포밍 회전을 바꾸지 못했습니다.';
+    try {
+      final response = await client.callService(
+        service: wakeDoaTurnService,
+        type: 'std_srvs/srv/SetBool',
+        args: {'data': on},
+      );
+      if (!response.success) {
+        final message = response.message.isEmpty ? fallback : response.message;
+        _addLog(LogFilter.connection, message);
+        return (false, message);
+      }
+      if (response.message.isEmpty) {
+        return (true, on ? '빔포밍 회전을 켰습니다' : '빔포밍 회전을 껐습니다');
+      }
+      return (true, response.message);
+    } catch (error) {
+      final message = '빔포밍 회전을 바꾸지 못했습니다: $error';
+      _addLog(LogFilter.connection, message);
+      return (false, message);
+    }
+  }
+
+  /// 음성 노드 없이 화면 규칙만 검증하기 위한 주입 지점입니다.
+  @visibleForTesting
+  void setWakeDoaTurnForTest(bool? on) {
+    _wakeDoaTurnOn = on;
+    notifyListeners();
+  }
+
   // ---- 모드 노드 (주행 묶음 켜기·끄기, 2026-11-16) ---------------------------------
 
   ModeStatus? _modeStatus;
@@ -747,6 +821,10 @@ class SupervisorProvider extends ChangeNotifier {
     }
     _modeStatus = ModeStatus.fromJson(decoded);
     _modeStatusAt = DateTime.now();
+    // 음성이 다시 뜨는 동안 이전 빔포밍 값을 들고 있지 않는다 — 새 노드가 낼 때까지 모름(11-19 사용자).
+    if (_modeStatus!.voice != 'active') {
+      _wakeDoaTurnOn = null;
+    }
     _ingestVoiceEvents(_modeStatus!);
     _settleMapRequest(_modeStatus!);
     _followDriveMap(_modeStatus!);
@@ -1125,6 +1203,7 @@ class SupervisorProvider extends ChangeNotifier {
       requestLocationList(settings, mapId);
     }
     unawaited(refreshHome(settings, mapId));
+    unawaited(refreshDockSpot(settings, mapId));
     unawaited(requestKeepoutList(settings, mapId));
     unawaited(loadRouteGraph(settings, mapId));
     // 지난번에 지도 그림(벽 지도)을 못 받았으면 다시 받게 합니다. 실패 기록이 남아
@@ -1493,6 +1572,262 @@ class SupervisorProvider extends ChangeNotifier {
     );
     return reply.message;
   }
+
+  // ---- 도킹 (2026-11-18, 목업 62~74) ----------------------------------------
+  //
+  // 홈과 도크는 따로입니다(11-18 사용자). 도크 위치 저장·조회·지우기는 도킹 노드에 직접,
+  // 도킹 시작·나오기·중지는 미션을 거칩니다(주행은 미션이 단일 권한자).
+
+  DockNodeState? _dockState;
+
+  /// 도킹 노드가 돌려준 도크. **노드의 지도(주행 지도) 것**이라 조회를 요청한 지도 것이 아닐 수 있습니다.
+  DockSpot? _dockSpot;
+
+  /// 조회를 요청한(그때 보고 있던) 지도
+  String _dockSpotMapId = '';
+
+  /// 마지막 조회 응답의 map_id — 도킹 노드의 지도. 도크가 없으면 응답에 없어 빈 문자열입니다.
+  String _dockNodeMapId = '';
+  bool _dockBusy = false;
+
+  DockNodeState? get dockState => _dockState;
+  bool get dockBusy => _dockBusy;
+
+  /// [mapId] 지도에 저장된 도크 위치. 없거나 다른 지도면 null.
+  ///
+  /// 도킹 노드는 조회에 지도 id 를 받지 않고 자기 지도(주행 지도)의 도크만 돌려줍니다. 응답의 map_id 가
+  /// [mapId] 와 다르면 이 지도에는 도크가 없는 것입니다 — 다른 지도의 좌표를 이 지도에 그리지 않습니다
+  /// (2026-11-19 검토).
+  DockSpot? dockSpotFor(String? mapId) {
+    if (mapId == null || _dockSpotMapId != mapId) {
+      return null;
+    }
+    final spot = _dockSpot;
+    if (spot != null && spot.mapId.isNotEmpty && spot.mapId != mapId) {
+      return null;
+    }
+    return spot;
+  }
+
+  /// [mapId] 지도를 보고 있지만 도킹 노드는 다른 지도(주행 지도)에 붙어 있는가.
+  ///
+  /// 인식 저장·지도에서 지정·지우기·도킹해 보기가 전부 주행 지도에 가므로, 이때는 도크 위치 칸의
+  /// 버튼을 잠급니다. 안내는 같은 상황에서 뜨는 주행 지도 띠(DriveMapBanner)가 합니다.
+  /// 조회 응답의 map_id 로 보고, 모드 노드가 알려 준 주행 지도로도 봅니다 — 도크가 아직 없으면
+  /// 응답에 map_id 가 없습니다.
+  bool dockOnOtherMap(String? mapId) {
+    if (mapId == null || mapId.isEmpty) {
+      return false;
+    }
+    final status = modeStatus;
+    if (status != null &&
+        status.driveOn &&
+        status.driveMapId.isNotEmpty &&
+        status.driveMapId != mapId) {
+      return true;
+    }
+    return _dockSpotMapId == mapId &&
+        _dockNodeMapId.isNotEmpty &&
+        _dockNodeMapId != mapId;
+  }
+
+  /// 지도에 그릴 도크 점(도킹했을 때 로봇 자리).
+  Offset? dockPointFor(String? mapId) {
+    final spot = dockSpotFor(mapId);
+    return spot == null ? null : Offset(spot.dockedX, spot.dockedY);
+  }
+
+  /// 로봇이 도크에 들어가 있는가 — 미션 dialog_state 가 정본, 없으면 도킹 노드 값.
+  bool get isDocked {
+    final dialog = primaryRobot?.dialogState.trim() ?? '';
+    if (dialog.isNotEmpty) {
+      return dialog == kDialogDocked;
+    }
+    return _dockState?.docked ?? false;
+  }
+
+  /// 도크 안은 아니지만 '도크에서 나오기'를 이어서 할 수 있는가(2026-11-19) — 나오다 멈췄거나
+  /// 도크 가까이(85 cm 안)에 서 있을 때. 미션이 다른 일(주행·도킹 중 등)을 하고 있으면 화면이 따로 막습니다.
+  bool get canResumeUndock => !isDocked && (_dockState?.canResumeUndock ?? false);
+
+  /// 나오다 멈춘 상태인가(2026-11-19) — '도킹 시작'을 숨기고 '도크에서 나오기 다시시작'만 보입니다.
+  bool get undockPaused => !isDocked && (_dockState?.undockPaused ?? false);
+
+  void _handleDockState(Map<String, Object?> message) {
+    final st = DockNodeState.fromMessage(message);
+    if (st == null) {
+      return;
+    }
+    final prev = _dockState;
+    _dockState = st;
+    // 도킹이 끝나면 도크 위치가 바뀌어 있을 수 있습니다(2026-11-19) — 다시 읽습니다.
+    //   성공  '가 본 자리'가 되고, 처음 성공이면 로봇이 라이다로 잰 값으로 고쳐 저장합니다.
+    //   실패  도크가 범위 밖(out_of_range)이면 로봇이 도크 위치를 고쳐 저장합니다.
+    // 직전 결과가 '나오기 성공'이어도 읽어야 합니다(종전에는 직전 결과가 성공이 아닐 때만 읽어, 도크에서
+    // 나온 뒤 다시 지정한 자리의 첫 도킹을 놓쳤습니다). 같은 사유로 연달아 실패하면 last 는 그대로라
+    // '도킹 중'이 끝난 것으로도 봅니다.
+    final dockEnded = st.lastAction == 'dock' &&
+        (st.lastResult == 'success' || st.lastResult == 'failed');
+    final isNew = prev != null &&
+        (prev.lastAction != st.lastAction ||
+            prev.lastResult != st.lastResult ||
+            prev.lastReason != st.lastReason ||
+            (prev.state == 'docking' && st.state != 'docking'));
+    if (dockEnded && isNew && _dockSpotMapId.isNotEmpty) {
+      final settings = _lastSettings;
+      if (settings != null) {
+        unawaited(refreshDockSpot(settings, _dockSpotMapId));
+      }
+    }
+    notifyListeners();
+  }
+
+  Future<(bool, String)> _callTrigger(String service, {Duration? timeout}) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return (false, 'not_connected');
+    }
+    try {
+      final r = await client.callService(
+        service: service,
+        type: 'std_srvs/srv/Trigger',
+        timeout: timeout ?? RosBridgeClient.defaultServiceTimeout,
+      );
+      return (r.success, r.message);
+    } on TimeoutException catch (error) {
+      // 서비스는 있는데 답이 늦은 것입니다 — '주행이 꺼져 있습니다'(call_failed)와 가릅니다(2026-11-19).
+      _addLog(LogFilter.coordinateTransfer, '$service 호출 실패: $error');
+      return (false, 'timeout');
+    } catch (error) {
+      // rosbridge 는 서비스가 없으면(주행 꺼짐) result:false 로 답하고, 그것이 여기로 옵니다.
+      // 호출 도중 웹소켓이 끊긴 것도 여기로 옵니다 — 그것은 주행 꺼짐이 아니라 연결 없음입니다.
+      _addLog(LogFilter.coordinateTransfer, '$service 호출 실패: $error');
+      return (false, _dockCallFailure);
+    }
+  }
+
+  /// 도크 서비스 호출이 실패한 지금의 사유 — 연결이 살아 있으면 서비스 없음(call_failed),
+  /// 끊겼으면 not_connected.
+  String get _dockCallFailure =>
+      _connectionState == RosConnectionState.connected ? 'call_failed' : 'not_connected';
+
+  /// 젯슨에서 도크 위치를 읽습니다. 없으면 null 이며 오류가 아닙니다.
+  Future<void> refreshDockSpot(AppSettings settings, String mapId) async {
+    final (ok, message) = await _callTrigger(kDockGetService);
+    if (message == 'not_connected' || message == 'call_failed' || message == 'timeout') {
+      return;   // 조회 실패와 '없음'은 다르다 — 이전 값을 둔다(홈과 같은 규칙)
+    }
+    _dockSpotMapId = mapId;
+    _dockSpot = ok ? DockSpot.fromTriggerMessage(message) : null;
+    // 요청한 지도와 다르면 그 지도의 도크가 아닙니다([dockSpotFor]·[dockOnOtherMap] 이 가립니다).
+    _dockNodeMapId = DockSpot.mapIdOfTriggerMessage(message);
+    notifyListeners();
+  }
+
+  /// '도크 인식해서 저장'(목업 84·85). 로봇이 도크를 보고만 있으면 됩니다 — 라이다로 도크를 찾아
+  /// 도크 앞 1 m 지점을 준비 위치로 잡습니다. 실패 사유는 [DockRegisterResult.reason] 입니다.
+  Future<DockRegisterResult> registerDock(AppSettings settings, String mapId) async {
+    _dockBusy = true;
+    notifyListeners();
+    try {
+      final (ok, message) = await _callTrigger(
+        kDockRegisterService, timeout: const Duration(seconds: 8));
+      final result = DockRegisterResult.fromTrigger(ok, message);
+      if (result.ok) {
+        _addLog(LogFilter.coordinateTransfer, '도크 위치 저장: ${result.savedText}');
+        await refreshDockSpot(settings, mapId);
+      }
+      return result;
+    } finally {
+      _dockBusy = false;
+      notifyListeners();
+    }
+  }
+
+  /// 지도에서 지정한 도크를 저장합니다(/vica/dock/set, 2026-11-19 목업 89~91).
+  ///
+  /// [x]·[y] 는 지도에서 누른 도크, [yawDeg] 는 로봇이 도크를 바라보는 방향(도)입니다. 준비 위치
+  /// (도크 앞 1 m)는 로봇이 계산합니다. 타입은 홈 저장과 같은 SaveHome 이고 응답 message 는
+  /// 조회(/vica/dock/get)와 같은 JSON, 거절이면 사유 문자열(busy · map_mismatch · write_failed)입니다.
+  /// 실패 사유에는 call_failed(서비스 없음 = 주행 꺼짐) · not_connected · timeout 도 있습니다.
+  Future<({bool ok, String reason})> setDockFromMap(
+    AppSettings settings, {
+    required String mapId,
+    required double x,
+    required double y,
+    required double yawDeg,
+  }) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return (ok: false, reason: 'not_connected');
+    }
+    _dockBusy = true;
+    notifyListeners();
+    try {
+      final response = await client.callService(
+        service: kDockSetService,
+        type: 'vica_interfaces/srv/SaveHome',
+        args: {
+          'map_id': mapId,
+          'x': x,
+          'y': y,
+          'yaw': yawDeg,
+          'source': kDockSourceMapPick,
+          'score': 0.0,
+          'label': '',
+        },
+      );
+      if (!response.accepted) {
+        final reason = response.message.isEmpty ? 'rejected' : response.message;
+        _addLog(LogFilter.coordinateTransfer, '도크 위치 저장(지도에서 지정) 거절: $reason');
+        return (ok: false, reason: reason);
+      }
+      await refreshDockSpot(settings, mapId);
+      return (ok: true, reason: '');
+    } on TimeoutException catch (error) {
+      _addLog(LogFilter.coordinateTransfer, '$kDockSetService 호출 실패: $error');
+      return (ok: false, reason: 'timeout');
+    } catch (error) {
+      _addLog(LogFilter.coordinateTransfer, '$kDockSetService 호출 실패: $error');
+      return (ok: false, reason: _dockCallFailure);
+    } finally {
+      _dockBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<String> deleteDock(AppSettings settings, String mapId) async {
+    final (ok, message) = await _callTrigger(kDockDeleteService);
+    await refreshDockSpot(settings, mapId);
+    return ok ? '도크 위치를 지웠습니다.' : '도크 위치를 지우지 못했습니다($message).';
+  }
+
+  Future<String> startDocking(AppSettings settings) =>
+      _sendMissionCommand(kMissionDockStartService, '도킹을 시작합니다.');
+
+  Future<String> undock(AppSettings settings) =>
+      _sendMissionCommand(kMissionDockUndockService, '도크에서 나옵니다.');
+
+  Future<String> cancelDocking(AppSettings settings) =>
+      _sendMissionCommand(kMissionDockCancelService, '멈췄습니다.');
+
+  @visibleForTesting
+  void setDockSpotForTest(String mapId, DockSpot? spot) {
+    _dockSpotMapId = mapId;
+    _dockSpot = spot;
+    _dockNodeMapId = spot?.mapId ?? '';
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  void setHomeForTest(String mapId, HomePosition? home) {
+    _homeMapId = mapId;
+    _home = home;
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  void handleDockStateForTest(Map<String, Object?> message) => _handleDockState(message);
 
   // ---- 홈 위치 ------------------------------------------------------------
   //
@@ -3200,7 +3535,13 @@ class SupervisorProvider extends ChangeNotifier {
   }
 
   void _handleGoalEvent(Map<String, Object?> message) {
-    final event = GoalEvent.fromJson(message, id: _uuid.v4());
+    var event = GoalEvent.fromJson(message, id: _uuid.v4());
+    // 도킹 실패가 온 **그때** 도크 위치가 '지도에서 지정 · 아직 확인 안 됨'이면 표시해 둡니다 —
+    // 팝업이 '도크 위치 다시 잡기'를 안내합니다(2026-11-19, 목업 92).
+    if (event.kind == GoalEventKind.dockFailed &&
+        (_dockSpot?.mapPickUnverified ?? false)) {
+      event = event.asDockFirstTry();
+    }
 
     // 음성·다른 기기로 주행·홈 복귀·경비가 시작되면 수동 조종을 그 자리에서 멈춥니다(2026-11-18 검토).
     // 화면의 막기는 /robot_status(0.5 s 주기)를 기다리므로, 그 사이 두 명령이 섞이지 않게 합니다.
@@ -3275,9 +3616,27 @@ class SupervisorProvider extends ChangeNotifier {
     // 홈 복귀가 성공하면 그 홈은 '가 본 자리'가 됩니다. 젯슨이 home.yaml 에
     // 이미 기록했지만, 앱 화면의 경고를 바로 내리기 위해 여기서도 반영합니다.
     if (event.kind == GoalEventKind.returnHomeSucceeded && _home != null) {
-      _home = _home!.copyWith(visitedOk: true);
-    } else if (event.kind == GoalEventKind.returnHomeFailed && _home != null) {
-      _home = _home!.copyWith(visitedOk: false);
+      _home = _home!.copyWith(visitedOk: true, note: '');
+    }
+    // 주행이 끝나면(성공·실패·취소, 홈 복귀든 안내든) 홈 상태를 로봇에서 다시 읽습니다
+    // (2026-11-19 사용자). 로봇은 홈 30 cm 안에 한 번이라도 들어오면 '가 봄'으로, 복귀가 막혀
+    // 실패하면 '접근할 수 없음'으로 적습니다 — 방향만 못 맞춰 실패·취소로 끝난 복귀도 '가 봄'이라
+    // 앱이 결과 종류만 보고 정할 수 없습니다. 로봇은 사건을 내기 전에 파일을 씁니다.
+    final home = _home;
+    final settings = _lastSettings;
+    if (home != null &&
+        settings != null &&
+        _homeMapId.isNotEmpty &&
+        (!home.visitedOk || home.note.isNotEmpty) &&
+        const {
+          GoalEventKind.succeeded,
+          GoalEventKind.failed,
+          GoalEventKind.canceled,
+          GoalEventKind.returnHomeSucceeded,
+          GoalEventKind.returnHomeFailed,
+          GoalEventKind.returnHomeCanceled,
+        }.contains(event.kind)) {
+      unawaited(refreshHome(settings, _homeMapId));
     }
 
     if (event.needsPopup) {

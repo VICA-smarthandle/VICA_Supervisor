@@ -117,7 +117,12 @@ class MapRefreshButton extends StatelessWidget {
     required this.map,
     required this.icon,
     required this.label,
+    this.inRow = false,
   });
+
+  /// 한 줄(Row) 안에 놓을 때 true. 앱 테마의 OutlinedButton 최소 폭이 무한대라, 그대로 두면
+  /// Row 안에서 폭을 정하지 못합니다 — 내용 폭만 쓰게 합니다.
+  final bool inRow;
 
   final SupervisorProvider supervisor;
   final AppSettings settings;
@@ -136,6 +141,9 @@ class MapRefreshButton extends StatelessWidget {
             // 동작이 어긋났고, 홈은 이 버튼 말고는 수동 갱신 경로가 아예
             // 없었습니다(2026-09-02).
             : () => supervisor.refreshMapData(settings, current.mapId),
+        style: inRow
+            ? OutlinedButton.styleFrom(minimumSize: const Size(0, 44))
+            : null,
         icon: Icon(icon, size: 18),
         label: label,
       ),
