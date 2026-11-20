@@ -149,4 +149,23 @@ void main() {
     expect(mission.paneNav2, isFalse);
     expect(ModeStatus.fromJson({'mode': 'idle', 'state': 'idle'}).paneNodes, isNull);
   });
+
+  test('mic_check 칸: 없으면 none, active·activating·deactivating 이 점검 중', () {
+    final none = ModeStatus.fromJson({'mode': 'idle', 'state': 'idle'});
+    expect(none.micCheck, 'none');
+    expect(none.micCheckActive, isFalse);
+    final going = ModeStatus.fromJson({
+      'mode': 'idle',
+      'state': 'idle',
+      'mic_check': {'state': 'deactivating', 'port': 8770},
+    });
+    expect(going.micCheck, 'deactivating');
+    expect(going.micCheckActive, isTrue);
+    final off = ModeStatus.fromJson({
+      'mode': 'idle',
+      'state': 'idle',
+      'mic_check': {'state': 'inactive', 'port': 8770},
+    });
+    expect(off.micCheckActive, isFalse);
+  });
 }

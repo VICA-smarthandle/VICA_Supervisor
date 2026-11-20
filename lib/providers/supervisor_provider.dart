@@ -949,6 +949,10 @@ class SupervisorProvider extends ChangeNotifier {
       ? _callModeService(kVoiceNodeOnService, '음성 노드 켜기')
       : _callModeService(kVoiceNodeOffService, '음성 노드 끄기');
 
+  /// 마이크 점검기 켜기·끝내기. 움직이는 중에는 모드 노드가 거절합니다.
+  Future<(bool, String)> startMicCheck() => _callModeService(kMicCheckStartService, '마이크 점검 시작');
+  Future<(bool, String)> stopMicCheck() => _callModeService(kMicCheckStopService, '마이크 점검 끝내기');
+
   /// 음성을 로컬 / 외부 API 로. 음성이 떠 있으면 젯슨이 다시 띄웁니다(말이 끊김).
   Future<(bool, String)> setVoice(VoiceChoice choice) => switch (choice) {
         VoiceChoice.local => _callModeService(kVoiceLocalService, '음성 로컬'),

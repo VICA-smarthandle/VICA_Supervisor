@@ -147,6 +147,7 @@ class ModeStatus {
     this.stopInSec,
     this.detector = 'none',
     this.voice = 'none',
+    this.micCheck = 'none',
     this.voiceChoice = VoiceChoice.local,
     this.voiceEvents = const [],
     this.voiceEventsEpoch = 0,
@@ -195,6 +196,9 @@ class ModeStatus {
   /// 음성 유닛 상태. 유닛이 없으면 none.
   final String voice;
 
+  /// 마이크 점검기 유닛 상태(`mic_check.state`). 없으면 none.
+  final String micCheck;
+
   /// 고른 음성(젯슨 voice_mode 파일).
   final VoiceChoice voiceChoice;
 
@@ -237,6 +241,9 @@ class ModeStatus {
   /// 음성 노드(유닛)가 켜져 있거나 켜지는 중인가(2026-11-20, 캔버스 104).
   bool get voiceOn => voice == 'active' || voice == 'activating';
 
+  /// 마이크 점검기가 켜져 있거나 켜지는 중·내려가는 중인가(내려가는 중에도 칩을 되돌리는 중이라 점검 중으로 본다).
+  bool get micCheckActive => micCheck == 'active' || micCheck == 'activating' || micCheck == 'deactivating';
+
   /// 주행 묶음이 켜져 있거나 켜지는 중·꺼지는 중인가.
   bool get driveOn => mode == 'drive';
 
@@ -262,6 +269,7 @@ class ModeStatus {
       stopInSec: stopIn is num ? stopIn.round() : null,
       detector: json['detector'] as String? ?? 'none',
       voice: json['voice'] as String? ?? 'none',
+      micCheck: (json['mic_check'] is Map ? (json['mic_check'] as Map)['state'] : null) as String? ?? 'none',
       voiceChoice: VoiceChoice.fromWire(json['voice_mode'] as String?),
       voiceEvents: [
         for (final raw in (json['voice_events'] is List ? json['voice_events'] as List : const []))

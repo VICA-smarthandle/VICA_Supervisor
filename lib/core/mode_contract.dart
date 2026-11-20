@@ -33,6 +33,12 @@ const String kDetectorOffService = '/vica/mode/detector_off';
 const String kVoiceNodeOnService = '/vica/mode/voice_on';
 const String kVoiceNodeOffService = '/vica/mode/voice_off';
 
+/// 마이크 점검기(음성 저장소 `mic_check_session`, 유닛 `vica-miccheck`) 켜기·끝내기. 준비에 1~2분.
+/// 점검기는 `ws://<로봇>:8770/ws` 로 앱과 말한다. 움직이는 중에는 거절된다.
+const String kMicCheckStartService = '/vica/mode/mic_check_start';
+const String kMicCheckStopService = '/vica/mode/mic_check_stop';
+const int kMicCheckPort = 8770;
+
 /// 음성: 로컬(⑬, 로봇 안 midm2-mini) / 외부 API(⑫, 클라우드 LLM). 고른 값은 젯슨 파일에 남고,
 /// 음성이 떠 있으면 다시 띄운다(말이 끊김). 움직이는 중에는 거절된다.
 const String kVoiceLocalService = '/vica/mode/voice_offline';
