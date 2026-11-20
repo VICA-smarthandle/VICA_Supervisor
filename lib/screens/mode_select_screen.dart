@@ -31,6 +31,7 @@ import 'settings_screen.dart';
 import '../ros/ros_bridge_client.dart';
 import '../widgets/confirm_logout.dart';
 import '../widgets/drive_map_change.dart';
+import '../widgets/mic_check_entry.dart';
 import '../widgets/ros_connection_tile.dart';
 import '../widgets/vica_ui.dart';
 
@@ -217,6 +218,12 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
                 style: const TextStyle(color: VicaColors.muted, fontSize: 12),
               ),
             ],
+            // 2026-11-20 사용자(캔버스 105): 모드가 아니라 도구라 카드보다 작게, 카드 아래·로봇 끄기 위에 한 줄.
+            // 주행이 꺼져 있을 때만(켜져 있으면 대시보드 주행 설정 칸에서).
+            if (modeStatus != null && (!modeStatus.driveOn || modeStatus.micCheckActive)) ...[
+              const SizedBox(height: 14),
+              _MicCheckRow(status: modeStatus),
+            ],
             // 로봇 끄기(2026-11-18 사용자 결정, 목업 '로봇 끄기 A'): 모드 카드와 떨어진 맨 아래 한 줄.
             // 연결이 없으면 보낼 곳이 없어 막습니다.
             const SizedBox(height: 28),
@@ -258,6 +265,15 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
         label: '이미 충돌 중',
         enabled: false,
         hint: '동일 노드가 동시에 실행되고 있습니다.',
+      );
+    }
+    // 2026-11-20 사용자(캔버스 105 ②): 점검 중에는 주행을 켤 수 없습니다. 점검기가 마이크를 쥐고 있습니다.
+    if (mode != null && mode.micCheckActive && !mode.driveOn) {
+      return const _CardState(
+        color: VicaColors.primary,
+        label: '마이크 점검 중',
+        enabled: false,
+        hint: '점검을 끝낸 뒤 켜세요',
       );
     }
     if (mode != null) {
@@ -767,6 +783,48 @@ class _StopWarningNotice extends StatelessWidget {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+// 모드 선택 화면의 '마이크 점검' 줄(캔버스 105 ①②).
+class _MicCheckRow extends StatelessWidget {
+  const _MicCheckRow({required this.status});
+
+  final ModeStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, color) = micCheckStateText(status, onModeSelect: true);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: VicaColors.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: VicaColors.border),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.tune, size: 22, color: VicaColors.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '마이크 점검',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: VicaColors.text),
+                ),
+                Text(
+                  vicaKeepWords(label),
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color),
+                ),
+              ],
+            ),
+          ),
+          MicCheckButton(status: status),
         ],
       ),
     );
