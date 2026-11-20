@@ -4,26 +4,33 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../core/layout_breakpoints.dart';
+import '../models/mic_check.dart';
+import '../providers/supervisor_provider.dart';
 import '../services/mic_check_controller.dart';
 import '../widgets/mic_check/event_list.dart';
 import '../widgets/mic_check/live_card.dart';
 import '../widgets/mic_check/progress_card.dart';
 import '../widgets/mic_check/recent_graph.dart';
+import '../widgets/mic_check/result_card.dart';
+import '../widgets/mic_check/sheets.dart';
 import '../widgets/mic_check/step_card.dart';
+import '../widgets/mic_check/values_card.dart';
 import '../widgets/vica_ui.dart';
 
 /// 끊겨 보내지 못했을 때 띄우는 안내.
 const kMicSendFailed = '연결이 끊겨 보내지 못했습니다 · 다시 붙은 뒤 누르세요';
 
 class MicCheckScreen extends StatefulWidget {
-  const MicCheckScreen({super.key, required this.controller, this.onFinish});
+  const MicCheckScreen({super.key, required this.controller, this.supervisor});
 
   final MicCheckController controller;
 
-  /// 앱바 '끝내기'. 확인 시트는 Task 12 가 이 자리에 붙입니다.
-  final VoidCallback? onFinish;
+  /// 모드 상태(`modeStatus.micCheck`)를 보고 점검기가 스스로 끝났는지 알아냅니다. 안 주면 Provider 에서 찾고,
+  /// 그것도 없으면 이 감시만 하지 않습니다.
+  final SupervisorProvider? supervisor;
 
   @override
   State<MicCheckScreen> createState() => _MicCheckScreenState();
@@ -31,17 +38,80 @@ class MicCheckScreen extends StatefulWidget {
 
 class _MicCheckScreenState extends State<MicCheckScreen> {
   StreamSubscription<String>? _toasts;
+  SupervisorProvider? _supervisor;
+
+  // 이 화면이 '끝내기'로 점검기를 내리는 중이면 모드 상태 변화를 '스스로 끝남'으로 보지 않습니다.
+  bool _finishing = false;
+  bool _wasActive = false;
+
+  // '저장'을 눌러 save_preview 를 기다리는 중일 때만 도착한 미리보기를 시트로 띄웁니다(예전 것은 무시).
+  bool _awaitPreview = false;
+  MicCheckSavePreview? _lastPreview;
 
   @override
   void initState() {
     super.initState();
     _toasts = widget.controller.toasts.listen(_snack);
+    _lastPreview = widget.controller.savePreview;
+    widget.controller.addListener(_onController);
+    _supervisor = widget.supervisor ?? _findSupervisor();
+    _wasActive = _supervisor?.modeStatus?.micCheckActive ?? false;
+    _supervisor?.addListener(_onMode);
+  }
+
+  SupervisorProvider? _findSupervisor() {
+    try {
+      return context.read<SupervisorProvider>();
+    } on ProviderNotFoundException {
+      return null;
+    }
   }
 
   @override
   void dispose() {
     _toasts?.cancel();
+    widget.controller.removeListener(_onController);
+    _supervisor?.removeListener(_onMode);
     super.dispose();
+  }
+
+  // 점검기가 준비 중에 죽는 등 이 화면 밖에서 끝났을 때(켜짐 → inactive·failed) 화면이 멈춰 있지 않게 닫습니다.
+  void _onMode() {
+    final m = _supervisor?.modeStatus;
+    if (m == null) return;
+    final active = m.micCheckActive;
+    final ended = m.micCheck == 'inactive' || m.micCheck == 'failed';
+    if (_wasActive && ended && !_finishing && mounted) {
+      _snack('점검기가 끝났습니다');
+      Navigator.of(context).pop(false);
+    }
+    _wasActive = active;
+  }
+
+  void _onController() {
+    final p = widget.controller.savePreview;
+    if (!_awaitPreview || p == null || identical(p, _lastPreview)) return;
+    _lastPreview = p;
+    _awaitPreview = false;
+    _confirmSave(p);
+  }
+
+  Future<void> _confirmSave(MicCheckSavePreview p) async {
+    if (await showMicSaveSheet(context, p) && mounted) _send('save');
+  }
+
+  Future<void> _confirmRestore() async {
+    if (await showMicRestoreSheet(context) && mounted) _send('restore');
+  }
+
+  // '끝내기': 확인 → finish 를 보내고 닫습니다. 끊겨 못 보내면 모드 노드에 점검기 내리기를 대신 요청합니다.
+  Future<void> _confirmFinish() async {
+    if (!await showMicFinishSheet(context) || !mounted) return;
+    _finishing = true;
+    if (!widget.controller.send('finish')) {
+      await _supervisor?.stopMicCheck();
+    }
+    if (mounted) Navigator.of(context).pop(true);
   }
 
   void _snack(String text) {
@@ -52,8 +122,16 @@ class _MicCheckScreenState extends State<MicCheckScreen> {
   }
 
   // 끊긴 동안 누른 버튼은 조용히 버리지 않고 안내합니다.
-  void _send(String cmd, [Map<String, Object?> args = const {}]) {
-    if (!widget.controller.send(cmd, args)) _snack(kMicSendFailed);
+  bool _send(String cmd, [Map<String, Object?> args = const {}]) {
+    final ok = widget.controller.send(cmd, args);
+    if (!ok) _snack(kMicSendFailed);
+    return ok;
+  }
+
+  bool _sendValues(String cmd, [Map<String, Object?> args = const {}]) {
+    final ok = _send(cmd, args);
+    if (ok && cmd == 'save_preview') _awaitPreview = true;
+    return ok;
   }
 
   @override
@@ -65,7 +143,7 @@ class _MicCheckScreenState extends State<MicCheckScreen> {
         actions: [
           TextButton(
             key: const ValueKey('mic_check_finish'),
-            onPressed: widget.onFinish ?? () {},
+            onPressed: _confirmFinish,
             child: const Text('끝내기'),
           ),
         ],
@@ -146,7 +224,7 @@ class _MicCheckScreenState extends State<MicCheckScreen> {
                 Text(st.place, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
               c.connected
                   ? const _HeadChip('● 연결됨', VicaColors.green)
-                  : const _HeadChip('● 연결 끊김 · 다시 붙는 중', VicaColors.red),
+                  : const _HeadChip('● 끊김 · 다시 붙는 중', VicaColors.red),
               chip,
             ],
           ),
@@ -193,13 +271,15 @@ class _MicCheckScreenState extends State<MicCheckScreen> {
     ];
   }
 
-  // 결과표·값 고치기(Task 12)는 진행 카드 아래에 이어 붙입니다.
+  // 진행 → 결과표(채점이 있을 때) → 값 고치기 순입니다(캔버스 109).
   List<Widget> _rightCards() {
     final c = widget.controller;
     final st = c.status;
     if (st == null) return const [];
     return [
       MicProgressCard(status: st, frame: c.frame, onSend: _send),
+      if (c.results != null) MicResultCard(results: c.results!, busy: c.busy != null),
+      MicValuesCard(status: st, onSend: _sendValues, onRestore: _confirmRestore),
     ];
   }
 }
