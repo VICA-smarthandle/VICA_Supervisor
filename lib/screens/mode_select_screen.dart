@@ -273,7 +273,7 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
         color: VicaColors.primary,
         label: '마이크 점검 중',
         enabled: false,
-        hint: '마이크 점검 중입니다. 점검을 끝낸 뒤 켜세요.',
+        hint: '점검을 끝낸 뒤 켜세요',
       );
     }
     if (mode != null) {

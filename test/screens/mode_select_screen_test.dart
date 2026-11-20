@@ -459,7 +459,7 @@ void main() {
       expect(supervisor.calls, isNot(contains('drive_start')));
     });
 
-    testWidgets('점검 중 주행 카드에는 "마이크 점검 중입니다. 점검을 끝낸 뒤 켜세요." 가 보이고 눌러도 시작 안 함', (tester) async {
+    testWidgets('점검 중 주행 카드에는 "마이크 점검 중 · 점검을 끝낸 뒤 켜세요" 가 보이고 눌러도 시작 안 함', (tester) async {
       final supervisor = _FakeSupervisor();
       await pump(tester, supervisor);
       supervisor.injectMode(idleMic(micCheck: 'active'));
@@ -467,7 +467,7 @@ void main() {
 
       await tester.tap(find.text('주행'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('마이크 점검 중입니다. 점검을 끝낸 뒤 켜세요.'), findsOneWidget);
+      expect(find.textContaining('마이크 점검 중 · 점검을 끝낸 뒤 켜세요'), findsOneWidget);
       expect(supervisor.calls, isNot(contains('drive_start')));
     });
 
