@@ -459,6 +459,18 @@ void main() {
       expect(supervisor.calls, isNot(contains('drive_start')));
     });
 
+    testWidgets('주행 켜짐 + 점검 중이면 주행 카드로 들어가고 "이어 하기" 줄이 보인다', (tester) async {
+      final supervisor = _FakeSupervisor();
+      final modeProvider = await pump(tester, supervisor);
+      supervisor.injectMode(const ModeStatus(mode: 'drive', state: ModeState.running, micCheck: 'active'));
+      await tester.pump();
+
+      expect(find.text('이어 하기'), findsOneWidget);
+      expect(find.textContaining('마이크 점검 중 ·'), findsNothing);
+      await chooseSubmode(tester, '안내·배송');
+      expect(modeProvider.mode, AppMode.drive);
+    });
+
     testWidgets('점검 중 주행 카드에는 "마이크 점검 중 · 점검을 끝낸 뒤 켜세요" 가 보이고 눌러도 시작 안 함', (tester) async {
       final supervisor = _FakeSupervisor();
       await pump(tester, supervisor);

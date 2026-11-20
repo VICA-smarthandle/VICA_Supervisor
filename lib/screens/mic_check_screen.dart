@@ -108,7 +108,8 @@ class _MicCheckScreenState extends State<MicCheckScreen> {
   Future<void> _confirmFinish() async {
     if (!await showMicFinishSheet(context) || !mounted) return;
     _finishing = true;
-    if (!widget.controller.send('finish')) {
+    // 준비 중(status 없음)에는 점검기가 명령을 처리하지 않습니다. 바로 내립니다(칩은 이미 .env 값).
+    if (widget.controller.status == null || !widget.controller.send('finish')) {
       await _supervisor?.stopMicCheck();
     }
     if (mounted) Navigator.of(context).pop(true);

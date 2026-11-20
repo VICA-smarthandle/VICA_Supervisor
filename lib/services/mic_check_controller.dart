@@ -124,7 +124,11 @@ class MicCheckController extends ChangeNotifier {
   bool send(String cmd, [Map<String, Object?> args = const {}]) {
     final channel = _channel;
     if (!connected || channel == null) return false;
-    channel.sink.add(jsonEncode({'cmd': cmd, ...args}));
+    try {
+      channel.sink.add(jsonEncode({'cmd': cmd, ...args}));
+    } catch (_) {
+      return false;
+    }
     return true;
   }
 

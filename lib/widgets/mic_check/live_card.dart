@@ -22,19 +22,50 @@ double? _num(MicCheckStatus s, String k) {
   return v is num ? v.toDouble() : null;
 }
 
-class MicLiveCard extends StatelessWidget {
-  const MicLiveCard({super.key, required this.status, required this.frame});
+/// "비카야"·"멈춰" 상태 글자('걸림')를 붙잡아 두는 시간(옛 점검 페이지의 1.5 s 피크 유지).
+const kMicPeakHold = Duration(milliseconds: 1500);
+
+class MicLiveCard extends StatefulWidget {
+  const MicLiveCard({super.key, required this.status, required this.frame, this.now = DateTime.now});
 
   final MicCheckStatus status;
   final MicCheckFrame? frame;
 
+  /// 시험이 시계를 대신 줍니다.
+  final DateTime Function() now;
+
+  @override
+  State<MicLiveCard> createState() => _MicLiveCardState();
+}
+
+class _MicLiveCardState extends State<MicLiveCard> {
+  DateTime? _wakeOverAt;
+  DateTime? _stopOverAt;
+  MicCheckFrame? _seen;
+
+  static bool _stopOver(MicCheckFrame f, double? th) =>
+      (th != null && f.stop >= th) || (f.robot && f.stop >= kMicSpeakingStop);
+
+  bool _held(DateTime? at, DateTime t) => at != null && t.difference(at) <= kMicPeakHold;
+
   @override
   Widget build(BuildContext context) {
-    final f = frame;
+    final status = widget.status;
+    final f = widget.frame;
     final listen = _num(status, 'listen_min_rms');
     final short = _num(status, 'short_answer_min_rms');
     final wakeTh = _num(status, 'wake_threshold');
     final stopTh = _num(status, 'emergency_single');
+
+    // 문턱을 넘은 프레임의 시각을 기억해 1.5 s 동안 '걸림' 을 유지합니다. 막대 채움은 순간값 그대로입니다.
+    final t = widget.now();
+    if (f != null && !identical(f, _seen)) {
+      _seen = f;
+      if (wakeTh != null && f.wake >= wakeTh) _wakeOverAt = t;
+      if (_stopOver(f, stopTh)) _stopOverAt = t;
+    }
+    final wakeHeld = f != null && _held(_wakeOverAt, t);
+    final stopHeld = f != null && _held(_stopOverAt, t);
 
     return VicaCard(
       child: Column(
@@ -76,7 +107,7 @@ class MicLiveCard extends StatelessWidget {
             label: '“비카야”',
             value: f?.wake,
             valueText: f?.wake.toStringAsFixed(2),
-            state: f == null ? null : (wakeTh != null && f.wake >= wakeTh ? '걸림' : '아래'),
+            state: f == null ? null : (wakeHeld ? '걸림' : '아래'),
             over: f != null && wakeTh != null && f.wake >= wakeTh,
             pos: micLinPos,
             lines: [if (wakeTh != null) _Line(wakeTh, '문턱 ${wakeTh.toStringAsFixed(2)}')],
@@ -87,9 +118,7 @@ class MicLiveCard extends StatelessWidget {
             label: '“멈춰”',
             value: f?.stop,
             valueText: f?.stop.toStringAsFixed(2),
-            state: f == null
-                ? null
-                : (_stopOver(f, stopTh) ? '걸림' : '아래'),
+            state: f == null ? null : (stopHeld ? '걸림' : '아래'),
             over: f != null && _stopOver(f, stopTh),
             pos: micLinPos,
             lines: [
@@ -103,8 +132,6 @@ class MicLiveCard extends StatelessWidget {
     );
   }
 
-  static bool _stopOver(MicCheckFrame f, double? th) =>
-      (th != null && f.stop >= th) || (f.robot && f.stop >= kMicSpeakingStop);
 }
 
 class _Chip extends StatelessWidget {

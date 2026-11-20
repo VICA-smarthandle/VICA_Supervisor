@@ -252,6 +252,17 @@ void main() {
     expect(find.text(vicaKeepWords('호출어·‘멈춰’ 안 됨')), findsNothing);
   });
 
+  testWidgets('점검 중 감지가 꺼져 있으면 카메라 감지 스위치가 잠기고 "점검 중 · 켤 수 없음"', (tester) async {
+    await pump(tester, drive(detector: 'inactive', voiceState: 'inactive', micCheck: 'active'));
+    expect(tester.widget<Switch>(_detectorSwitch).onChanged, isNull);
+    expect(find.text(vicaKeepWords('점검 중 · 켤 수 없음')), findsNWidgets(2));
+  });
+
+  testWidgets('음성 노드가 끄는 중이면 마이크 점검 버튼을 못 누른다', (tester) async {
+    await pump(tester, drive(voiceState: 'deactivating'));
+    expect(micButtonEnabled(tester), isFalse);
+  });
+
   testWidgets('점검 → 확인 창(감지 켜짐이면 세 줄) → 취소하면 아무 일 없다', (tester) async {
     final supervisor = await pump(tester, drive(voiceState: 'inactive'));
     await tester.tap(micButton());

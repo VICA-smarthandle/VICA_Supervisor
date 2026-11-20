@@ -111,11 +111,15 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
                 ? Icons.visibility_off_outlined
                 : Icons.visibility_outlined,
             title: '카메라 감지', // 2026-11-17 사용자: '사람 감지' → '카메라 감지'
-            state: _detectorText(status.detector),
+            // 점검 중에는 감지를 다시 켤 수 없습니다(사용자 11-19: 점검 시작 때 끈 감지를 못 켜게).
+            state: status.micCheckActive && detectorOff
+                ? ('점검 중 · 켤 수 없음', VicaColors.muted)
+                : _detectorText(status.detector),
             trailing: Switch(
               key: const ValueKey('drive_nodes_detector_switch'),
               value: status.detectorOn,
               onChanged: _busy ||
+                      (status.micCheckActive && detectorOff) ||
                       status.detector == 'none' ||
                       status.detector == 'deactivating'
                   ? null
@@ -162,7 +166,11 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
             state: micCheckStateText(status),
             trailing: MicCheckButton(
               status: status,
-              enabled: !_busy && (status.micCheckActive || !status.voiceOn),
+              enabled: !_busy &&
+                  (status.micCheckActive ||
+                      status.voice == 'inactive' ||
+                      status.voice == 'failed' ||
+                      status.voice == 'none'),
             ),
           ),
           const Divider(height: 28, color: VicaColors.border),

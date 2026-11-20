@@ -92,6 +92,17 @@ void main() {
     });
   });
 
+  test('send: sink.add 가 예외를 던지면 false', () {
+    fakeAsync((async) {
+      final server = FakeRosServer();
+      final c = MicCheckController(uri: Uri.parse('ws://h:8770/ws'), connector: server.connect)..start();
+      async.flushMicrotasks();
+      server.last.addThrows = true;
+      expect(c.send('record'), isFalse);
+      c.dispose();
+    });
+  });
+
   test('10 s 마다 ping', () {
     fakeAsync((async) {
       final server = FakeRosServer();

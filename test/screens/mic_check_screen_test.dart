@@ -450,13 +450,12 @@ void main() {
     });
 
     // 화면을 route 로 열어 pop 결과를 받습니다.
-    Future<(_Fake, SupervisorProvider, List<bool?>)> openRoute(WidgetTester tester) async {
+    Future<(_Fake, SupervisorProvider, List<bool?>)> openRoute(WidgetTester tester, {bool withStatus = true}) async {
       tester.view.physicalSize = const Size(390, 1800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
-      final c = _Fake()
-        ..connected = true
-        ..status = _status();
+      final c = _Fake()..connected = true;
+      if (withStatus) c.status = _status();
       addTearDown(c.dispose);
       final sup = _StopRecorder();
       addTearDown(sup.dispose);
@@ -499,6 +498,17 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('mic_check_sheet_ok')));
       await tester.pumpAndSettle();
+      expect((sup as _StopRecorder).stops, 1);
+      expect(results, [true]);
+    });
+
+    testWidgets('준비 중(status 없음)에 끝내기를 확정하면 finish 대신 stopMicCheck 로 true', (tester) async {
+      final (c, sup, results) = await openRoute(tester, withStatus: false);
+      await tester.tap(find.byKey(const ValueKey('mic_check_finish')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('mic_check_sheet_ok')));
+      await tester.pumpAndSettle();
+      expect(c.sent, isEmpty);
       expect((sup as _StopRecorder).stops, 1);
       expect(results, [true]);
     });

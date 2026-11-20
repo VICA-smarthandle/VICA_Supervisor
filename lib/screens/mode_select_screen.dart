@@ -220,7 +220,7 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
             ],
             // 2026-11-20 사용자(캔버스 105): 모드가 아니라 도구라 카드보다 작게, 카드 아래·로봇 끄기 위에 한 줄.
             // 주행이 꺼져 있을 때만(켜져 있으면 대시보드 주행 설정 칸에서).
-            if (modeStatus != null && !modeStatus.driveOn) ...[
+            if (modeStatus != null && (!modeStatus.driveOn || modeStatus.micCheckActive)) ...[
               const SizedBox(height: 14),
               _MicCheckRow(status: modeStatus),
             ],
@@ -268,7 +268,7 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
       );
     }
     // 2026-11-20 사용자(캔버스 105 ②): 점검 중에는 주행을 켤 수 없습니다. 점검기가 마이크를 쥐고 있습니다.
-    if (mode != null && mode.micCheckActive) {
+    if (mode != null && mode.micCheckActive && !mode.driveOn) {
       return const _CardState(
         color: VicaColors.primary,
         label: '마이크 점검 중',
