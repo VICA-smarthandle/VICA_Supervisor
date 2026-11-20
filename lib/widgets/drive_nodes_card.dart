@@ -6,6 +6,7 @@
 // '주행 끄기'는 2026-11-18 위쪽 막대로 옮겼습니다(drive_stop_button.dart).
 // 2026-11-19 사용자: '빔포밍 회전'(호출 방향 회전) 켜기/끄기 — 음성 노드 서비스로 바로 갑니다.
 // 2026-11-20 사용자: '음성 노드' 켜기/끄기 줄(캔버스 104 ①②③) — 카메라 감지 바로 뒤.
+// 2026-11-20 사용자: 그 아래 '마이크 점검' 줄(캔버스 104 ②④) — 음성이 꺼져 있고 점검 중이 아닐 때만 '점검'이 눌립니다.
 // 둘 다 젯슨 모드 노드의 서비스로 갑니다. 지금 상태는 /vica/mode_status 만 보고 그립니다.
 // 모드 노드가 없거나 주행이 꺼져 있으면 아무것도 그리지 않습니다.
 import 'package:flutter/material.dart';
@@ -14,6 +15,7 @@ import 'package:provider/provider.dart';
 import '../models/mode_status.dart';
 import '../providers/app_mode_provider.dart';
 import '../providers/supervisor_provider.dart';
+import 'mic_check_entry.dart';
 import 'vica_ui.dart';
 import 'voice_alert_snack.dart';
 
@@ -134,21 +136,35 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
           _Row(
             icon: Icons.graphic_eq,
             title: '음성 노드',
-            state: _voiceNodeText(status.voice),
+            // 점검 중에는 음성 노드를 켤 수 없습니다(캔버스 104 ④).
+            state: status.micCheckActive
+                ? ('점검 중 · 켤 수 없음', VicaColors.muted)
+                : _voiceNodeText(status.voice),
             trailing: Switch(
               key: const ValueKey('drive_nodes_voice_node_switch'),
               value: status.voiceOn,
               onChanged: _busy ||
+                      status.micCheckActive ||
                       status.voice == 'none' ||
                       status.voice == 'deactivating'
                   ? null
                   : (on) => _run(() => supervisor.setVoiceNode(on)),
             ),
           ),
-          if (voiceOff) ...[
+          if (voiceOff && !status.micCheckActive) ...[
             const SizedBox(height: 10),
             const _Note(warning: true, text: '호출어·‘멈춰’ 안 됨'),
           ],
+          const SizedBox(height: 14),
+          _Row(
+            icon: Icons.tune,
+            title: '마이크 점검',
+            state: micCheckStateText(status),
+            trailing: MicCheckButton(
+              status: status,
+              enabled: !_busy && (status.micCheckActive || !status.voiceOn),
+            ),
+          ),
           const Divider(height: 28, color: VicaColors.border),
           // 2026-11-19 사용자: 빔포밍 회전(캔버스 101번 보드). 상태는 음성 노드가 남긴 토픽만 따릅니다.
           // 음성 유닛이 active 가 아니면 남아 있는 값은 낡은 것이라 모름으로 그립니다.

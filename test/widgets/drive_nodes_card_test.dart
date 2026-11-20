@@ -7,12 +7,17 @@ import 'package:vica_supervisor/models/mode_status.dart';
 import 'package:vica_supervisor/providers/app_mode_provider.dart';
 import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
+import 'package:vica_supervisor/services/mic_check_controller.dart';
 import 'package:vica_supervisor/widgets/drive_nodes_card.dart';
+import 'package:vica_supervisor/widgets/mic_check_entry.dart';
 import 'package:vica_supervisor/widgets/vica_ui.dart';
 
 class _FakeSupervisor extends SupervisorProvider {
   final calls = <String>[];
   (bool, String) reply = (true, '처리했습니다.');
+
+  @override
+  String get connectedUrl => 'ws://10.0.0.5:9090';
 
   @override
   Future<(bool, String)> setDetector(bool on) async {
@@ -39,6 +44,12 @@ class _FakeSupervisor extends SupervisorProvider {
   }
 
   @override
+  Future<(bool, String)> startMicCheck() async {
+    calls.add('mic_check_start');
+    return reply;
+  }
+
+  @override
   Future<(bool, String)> setWakeDoaTurn(bool on) async {
     calls.add(on ? 'beam_on' : 'beam_off');
     return reply;
@@ -50,10 +61,29 @@ final _detectorSwitch = find.byKey(const ValueKey('drive_nodes_detector_switch')
 final _voiceNodeSwitch = find.byKey(const ValueKey('drive_nodes_voice_node_switch'));
 final _beamSwitch = find.byKey(const ValueKey('drive_nodes_wake_doa_turn_switch'));
 
+bool _disposed = false;
+
+// 점검 화면 자리표시용 — 연결하지 않고 버려졌는지만 기록합니다.
+class _NoopController extends MicCheckController {
+  _NoopController(Uri uri) : super(uri: uri);
+  @override
+  void start() {}
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+}
+
+// 자리표시 화면의 두 버튼이 쓰는 pop. 시험의 Navigator 는 하나뿐이라 전역 키로 부릅니다.
+final _navKey = GlobalKey<NavigatorState>();
+void _pop(bool value) => _navKey.currentState!.pop(value);
+
 ModeStatus drive({
   String detector = 'active',
   VoiceChoice voice = VoiceChoice.local,
   String voiceState = 'active',
+  String micCheck = 'none',
 }) =>
     ModeStatus(
       mode: 'drive',
@@ -62,6 +92,7 @@ ModeStatus drive({
       detector: detector,
       voice: voiceState,
       voiceChoice: voice,
+      micCheck: micCheck,
     );
 
 void main() {
@@ -83,7 +114,7 @@ void main() {
           ChangeNotifierProvider(create: (_) => AppModeProvider()),
           ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ],
-        child: const MaterialApp(home: Scaffold(body: SingleChildScrollView(child: DriveNodesCard()))),
+        child: MaterialApp(navigatorKey: _navKey, home: const Scaffold(body: SingleChildScrollView(child: DriveNodesCard()))),
       ),
     );
     await tester.pump();
@@ -174,6 +205,124 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(find.text('안 됐습니다: 로봇이 움직이는 중입니다. 멈춘 뒤 다시 누르세요.'), findsOneWidget);
+  });
+
+  // ---- 마이크 점검 들어가는 곳(2026-11-20, 캔버스 104 ②④·106) ----
+
+  final starts = <Uri>[];
+  setUp(() {
+    starts.clear();
+    _disposed = false;
+    micCheckControllerFactory = (uri) {
+      starts.add(uri);
+      return _NoopController(uri);
+    };
+    // 점검 화면 대신 '끝내기'(true)·'저절로 끝남'(false) 버튼만 있는 자리표시 화면.
+    micCheckScreenBuilder = (controller, supervisor) => Scaffold(
+          body: Column(children: [
+            TextButton(onPressed: () => _pop(true), child: const Text('끝내기')),
+            TextButton(onPressed: () => _pop(false), child: const Text('저절로 끝남')),
+          ]),
+        );
+  });
+
+  Finder micButton() => find.byKey(const ValueKey('mic_check_entry_button'));
+  bool micButtonEnabled(WidgetTester tester) =>
+      tester.widget<FilledButton>(micButton()).onPressed != null;
+
+  testWidgets('마이크 점검 줄: 음성 켜짐이면 "음성을 끄면 시작"·점검 비활성', (tester) async {
+    await pump(tester, drive());
+    expect(find.text('마이크 점검'), findsOneWidget);
+    expect(find.text(vicaKeepWords('음성을 끄면 시작')), findsOneWidget);
+    expect(micButtonEnabled(tester), isFalse);
+  });
+
+  testWidgets('마이크 점검 줄: 음성 꺼짐이면 "약 12분 · 로봇 정지"·점검 활성', (tester) async {
+    await pump(tester, drive(voiceState: 'inactive'));
+    expect(find.text(vicaKeepWords('약 12분 · 로봇 정지')), findsOneWidget);
+    expect(micButtonEnabled(tester), isTrue);
+  });
+
+  testWidgets('점검 중: "● 점검 중"·"이어 하기", 음성 노드 스위치 잠김·"점검 중 · 켤 수 없음"', (tester) async {
+    await pump(tester, drive(voiceState: 'inactive', micCheck: 'active'));
+    expect(find.text(vicaKeepWords('● 점검 중')), findsOneWidget);
+    expect(find.text('이어 하기'), findsOneWidget);
+    expect(find.text(vicaKeepWords('점검 중 · 켤 수 없음')), findsOneWidget);
+    expect(tester.widget<Switch>(_voiceNodeSwitch).onChanged, isNull);
+    expect(find.text(vicaKeepWords('호출어·‘멈춰’ 안 됨')), findsNothing);
+  });
+
+  testWidgets('점검 → 확인 창(감지 켜짐이면 세 줄) → 취소하면 아무 일 없다', (tester) async {
+    final supervisor = await pump(tester, drive(voiceState: 'inactive'));
+    await tester.tap(micButton());
+    await tester.pumpAndSettle();
+    expect(find.text('마이크 점검을 시작할까요?'), findsOneWidget);
+    expect(find.text('약 12분 · 손잡이 자리에서 진행'), findsOneWidget);
+    expect(find.text('카메라 감지도 끕니다'), findsOneWidget);
+    await tester.tap(find.text('취소'));
+    await tester.pumpAndSettle();
+    expect(supervisor.calls, isEmpty);
+  });
+
+  testWidgets('감지가 이미 꺼져 있으면 확인 창에 세 번째 줄이 없다', (tester) async {
+    await pump(tester, drive(voiceState: 'inactive', detector: 'inactive'));
+    await tester.tap(micButton());
+    await tester.pumpAndSettle();
+    expect(find.text('약 12분 · 손잡이 자리에서 진행'), findsOneWidget);
+    expect(find.text('카메라 감지도 끕니다'), findsNothing);
+  });
+
+  testWidgets('시작 → startMicCheck, 받으면 노드 문구 스낵 + 점검 화면', (tester) async {
+    final supervisor = await pump(tester, drive(voiceState: 'inactive'));
+    supervisor.reply = (true, '마이크 점검을 시작합니다 · 준비 1~2분');
+    await tester.tap(micButton());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('시작'));
+    await tester.pumpAndSettle();
+    expect(supervisor.calls, ['mic_check_start']);
+    expect(find.text('마이크 점검을 시작합니다 · 준비 1~2분'), findsOneWidget);
+    expect(find.text('끝내기'), findsOneWidget);
+    expect(starts, hasLength(1));
+    expect(starts.single.port, 8770);
+  });
+
+  testWidgets('시작이 거절되면 "안 됐습니다: " + 문구, 점검 화면은 안 열린다', (tester) async {
+    final supervisor = await pump(tester, drive(voiceState: 'inactive'));
+    supervisor.reply = (false, '로봇이 움직이는 중입니다. 멈춘 뒤 다시 누르세요.');
+    await tester.tap(micButton());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('시작'));
+    await tester.pumpAndSettle();
+    expect(find.text('안 됐습니다: 로봇이 움직이는 중입니다. 멈춘 뒤 다시 누르세요.'), findsOneWidget);
+    expect(find.text('끝내기'), findsNothing);
+    expect(starts, isEmpty);
+  });
+
+  testWidgets('이어 하기는 시작 서비스 없이 화면만 연다', (tester) async {
+    final supervisor = await pump(tester, drive(voiceState: 'inactive', micCheck: 'active'));
+    await tester.tap(micButton());
+    await tester.pumpAndSettle();
+    expect(supervisor.calls, isEmpty);
+    expect(find.text('끝내기'), findsOneWidget);
+  });
+
+  testWidgets('true 로 닫히면 주행 켜짐 끝 스낵, 컨트롤러는 버린다', (tester) async {
+    await pump(tester, drive(voiceState: 'inactive', micCheck: 'active'));
+    await tester.tap(micButton());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('끝내기'));
+    await tester.pumpAndSettle();
+    expect(find.text('점검을 끝냈습니다 · 음성 노드를 켜야 새 값이 적용됩니다'), findsOneWidget);
+    expect(_disposed, isTrue);
+  });
+
+  testWidgets('false 로 닫히면(저절로 끝남) 끝 스낵 없음', (tester) async {
+    await pump(tester, drive(voiceState: 'inactive', micCheck: 'active'));
+    await tester.tap(micButton());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('저절로 끝남'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('점검을 끝냈습니다'), findsNothing);
   });
 
   // ---- 빔포밍 회전(2026-11-19 사용자, 캔버스 101번 보드) ----
