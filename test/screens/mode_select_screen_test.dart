@@ -450,12 +450,25 @@ void main() {
       supervisor.injectMode(idleMic(micCheck: 'active'));
       await tester.pump();
 
-      expect(find.text('마이크 점검 중'), findsOneWidget);
+      expect(find.textContaining('마이크 점검 중 ·'), findsOneWidget);
       expect(find.text(vicaKeepWords('● 점검 중')), findsOneWidget);
       expect(find.text('이어 하기'), findsOneWidget);
       await tester.tap(find.text('주행'));
       await tester.pumpAndSettle();
       expect(find.text('주행 모드 선택'), findsNothing);
+      expect(supervisor.calls, isNot(contains('drive_start')));
+    });
+
+    testWidgets('점검 중 주행 카드에는 "마이크 점검 중입니다. 점검을 끝낸 뒤 켜세요." 가 보이고 눌러도 시작 안 함', (tester) async {
+      final supervisor = _FakeSupervisor();
+      await pump(tester, supervisor);
+      supervisor.injectMode(idleMic(micCheck: 'active'));
+      await tester.pump();
+
+      await tester.tap(find.text('주행'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('마이크 점검 중입니다. 점검을 끝낸 뒤 켜세요.'), findsOneWidget);
+      expect(supervisor.calls, isNot(contains('drive_start')));
     });
 
     testWidgets('점검 → 시작 → 점검 화면, true 로 닫히면 "점검을 끝냈습니다"', (tester) async {
