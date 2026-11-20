@@ -5,6 +5,7 @@
 //   - 음성을 로컬(LOCAL, 로봇 안 midm2-mini) / 외부 API(클라우드 LLM) 중 고르기.
 // '주행 끄기'는 2026-11-18 위쪽 막대로 옮겼습니다(drive_stop_button.dart).
 // 2026-11-19 사용자: '빔포밍 회전'(호출 방향 회전) 켜기/끄기 — 음성 노드 서비스로 바로 갑니다.
+// 2026-11-20 사용자: '음성 노드' 켜기/끄기 줄(캔버스 104 ①②③) — 카메라 감지 바로 뒤.
 // 둘 다 젯슨 모드 노드의 서비스로 갑니다. 지금 상태는 /vica/mode_status 만 보고 그립니다.
 // 모드 노드가 없거나 주행이 꺼져 있으면 아무것도 그리지 않습니다.
 import 'package:flutter/material.dart';
@@ -51,6 +52,7 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
     }
     final submode = context.watch<AppModeProvider>().driveSubmode;
     final detectorOff = status.detector == 'inactive';
+    final voiceOff = status.voice == 'inactive' || status.voice == 'failed';
     final beamOn = status.voice == 'active' ? supervisor.wakeDoaTurnOn : null;
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -125,6 +127,27 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
               warning: true,
               text: '감지 꺼짐 · 접근 요청·경비 알림 없음 · 다시 켜면 10~20초',
             ),
+          ],
+          const Divider(height: 28, color: VicaColors.border),
+          // 2026-11-20 사용자(캔버스 104): 음성 노드(호출어·'멈춰' 감지) 켜기·끄기. 줄 순서는
+          // 카메라 감지 · 음성 노드 · 빔포밍 회전 · 음성 LLM. 꺼짐 안내는 카메라 감지와 같은 경고 칸.
+          _Row(
+            icon: Icons.graphic_eq,
+            title: '음성 노드',
+            state: _voiceNodeText(status.voice),
+            trailing: Switch(
+              key: const ValueKey('drive_nodes_voice_node_switch'),
+              value: status.voiceOn,
+              onChanged: _busy ||
+                      status.voice == 'none' ||
+                      status.voice == 'deactivating'
+                  ? null
+                  : (on) => _run(() => supervisor.setVoiceNode(on)),
+            ),
+          ),
+          if (voiceOff) ...[
+            const SizedBox(height: 10),
+            const _Note(warning: true, text: '호출어·‘멈춰’ 안 됨'),
           ],
           const Divider(height: 28, color: VicaColors.border),
           // 2026-11-19 사용자: 빔포밍 회전(캔버스 101번 보드). 상태는 음성 노드가 남긴 토픽만 따릅니다.
@@ -204,6 +227,15 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
         'deactivating' => ('끄는 중', VicaColors.warning),
         'inactive' => ('잠시 꺼짐', const Color(0xFF8A5F1C)),
         'failed' => ('꺼짐(오류) · 다시 켜 보세요', VicaColors.red),
+        _ => ('유닛 없음', VicaColors.muted),
+      };
+
+  static (String, Color) _voiceNodeText(String state) => switch (state) {
+        'active' => ('켜짐', VicaColors.green),
+        'activating' => ('켜는 중', VicaColors.primary),
+        'deactivating' => ('끄는 중', VicaColors.warning),
+        'inactive' => ('꺼짐', const Color(0xFF8A5F1C)),
+        'failed' => ('꺼짐(오류)', VicaColors.red),
         _ => ('유닛 없음', VicaColors.muted),
       };
 

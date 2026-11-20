@@ -234,6 +234,9 @@ class ModeStatus {
   /// 감지기가 켜져 있거나 켜지는 중인가.
   bool get detectorOn => detector == 'active' || detector == 'activating';
 
+  /// 음성 노드(유닛)가 켜져 있거나 켜지는 중인가(2026-11-20, 캔버스 104).
+  bool get voiceOn => voice == 'active' || voice == 'activating';
+
   /// 주행 묶음이 켜져 있거나 켜지는 중·꺼지는 중인가.
   bool get driveOn => mode == 'drive';
 

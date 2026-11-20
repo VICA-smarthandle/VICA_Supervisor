@@ -944,6 +944,11 @@ class SupervisorProvider extends ChangeNotifier {
       ? _callModeService(kDetectorOnService, '사람 감지 켜기')
       : _callModeService(kDetectorOffService, '사람 감지 끄기');
 
+  /// 음성 노드만 켜고 끄기(2026-11-20 사용자, 캔버스 104). 움직이는 중·주행 모드가 아니면 모드 노드가 거절합니다.
+  Future<(bool, String)> setVoiceNode(bool on) => on
+      ? _callModeService(kVoiceNodeOnService, '음성 노드 켜기')
+      : _callModeService(kVoiceNodeOffService, '음성 노드 끄기');
+
   /// 음성을 로컬 / 외부 API 로. 음성이 떠 있으면 젯슨이 다시 띄웁니다(말이 끊김).
   Future<(bool, String)> setVoice(VoiceChoice choice) => switch (choice) {
         VoiceChoice.local => _callModeService(kVoiceLocalService, '음성 로컬'),

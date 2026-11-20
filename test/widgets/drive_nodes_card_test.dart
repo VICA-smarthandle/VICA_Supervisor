@@ -21,6 +21,12 @@ class _FakeSupervisor extends SupervisorProvider {
   }
 
   @override
+  Future<(bool, String)> setVoiceNode(bool on) async {
+    calls.add(on ? 'voice_node_on' : 'voice_node_off');
+    return reply;
+  }
+
+  @override
   Future<(bool, String)> setVoice(VoiceChoice choice) async {
     calls.add('voice_${choice.wire}');
     return reply;
@@ -41,14 +47,20 @@ class _FakeSupervisor extends SupervisorProvider {
 
 // 2026-11-19: 스위치가 둘(카메라 감지·빔포밍 회전)이라 키로 찾습니다.
 final _detectorSwitch = find.byKey(const ValueKey('drive_nodes_detector_switch'));
+final _voiceNodeSwitch = find.byKey(const ValueKey('drive_nodes_voice_node_switch'));
 final _beamSwitch = find.byKey(const ValueKey('drive_nodes_wake_doa_turn_switch'));
 
-ModeStatus drive({String detector = 'active', VoiceChoice voice = VoiceChoice.local}) => ModeStatus(
+ModeStatus drive({
+  String detector = 'active',
+  VoiceChoice voice = VoiceChoice.local,
+  String voiceState = 'active',
+}) =>
+    ModeStatus(
       mode: 'drive',
       state: ModeState.running,
       nav2: 'active',
       detector: detector,
-      voice: 'active',
+      voice: voiceState,
       voiceChoice: voice,
     );
 
@@ -87,8 +99,8 @@ void main() {
 
   testWidgets('사람 감지 스위치를 끄면 감지기만 끄라고 보낸다', (tester) async {
     final supervisor = await pump(tester, drive());
-    // 2026-11-17 간결화(사용자 승인): 감지기 'active' 는 '켜짐' 한 단어. 음성 줄도 '켜짐'이라 둘입니다.
-    expect(find.text(vicaKeepWords('켜짐')), findsNWidgets(2));
+    // 2026-11-17 간결화(사용자 승인): 감지기 'active' 는 '켜짐' 한 단어. 음성 노드·음성 LLM 줄도 '켜짐'이라 셋입니다.
+    expect(find.text(vicaKeepWords('켜짐')), findsNWidgets(3));
 
     await tester.tap(_detectorSwitch);
     await tester.pump();
@@ -108,6 +120,62 @@ void main() {
     expect(supervisor.calls, ['detector_on']);
   });
 
+  // ---- 음성 노드 켜기·끄기(2026-11-20 사용자, 캔버스 104 ①②③) ----
+
+  Switch voiceNodeSwitch(WidgetTester tester) => tester.widget<Switch>(_voiceNodeSwitch);
+
+  testWidgets('음성 노드 켜짐: 제목·켜진 스위치, 안내 없음', (tester) async {
+    await pump(tester, drive());
+    expect(find.text('음성 노드'), findsOneWidget);
+    expect(voiceNodeSwitch(tester).value, isTrue);
+    expect(find.text(vicaKeepWords('호출어·‘멈춰’ 안 됨')), findsNothing);
+  });
+
+  testWidgets('음성 노드 꺼짐: 꺼진 스위치·꺼짐 글자·안내', (tester) async {
+    final supervisor = await pump(tester, drive(voiceState: 'inactive'));
+    expect(voiceNodeSwitch(tester).value, isFalse);
+    expect(voiceNodeSwitch(tester).onChanged, isNotNull);
+    // 음성 노드 줄과 음성 LLM 줄이 둘 다 '꺼짐'.
+    expect(find.text(vicaKeepWords('꺼짐')), findsNWidgets(2));
+    expect(find.text(vicaKeepWords('호출어·‘멈춰’ 안 됨')), findsOneWidget);
+
+    await tester.tap(_voiceNodeSwitch);
+    await tester.pump();
+    expect(supervisor.calls, ['voice_node_on']);
+  });
+
+  testWidgets('음성 노드 상태 글자: 켜는 중·끄는 중', (tester) async {
+    await pump(tester, drive(voiceState: 'activating'));
+    expect(find.text(vicaKeepWords('켜는 중')), findsWidgets);
+    expect(voiceNodeSwitch(tester).value, isTrue);
+    await pump(tester, drive(voiceState: 'deactivating'));
+    expect(find.text(vicaKeepWords('끄는 중')), findsOneWidget);
+  });
+
+  testWidgets('음성 노드가 끄는 중이면 스위치를 못 누른다', (tester) async {
+    await pump(tester, drive(voiceState: 'deactivating'));
+    expect(voiceNodeSwitch(tester).onChanged, isNull);
+  });
+
+  testWidgets('음성 노드 스위치를 끄면 setVoiceNode(false) 와 받은 문구를 스낵으로 보인다', (tester) async {
+    final supervisor = await pump(tester, drive());
+    supervisor.reply = (true, '음성 노드를 껐습니다');
+    await tester.tap(_voiceNodeSwitch);
+    await tester.pump();
+    await tester.pump();
+    expect(supervisor.calls, ['voice_node_off']);
+    expect(find.text('음성 노드를 껐습니다'), findsOneWidget);
+  });
+
+  testWidgets('음성 노드 거절이면 "안 됐습니다: " 를 붙여 보인다', (tester) async {
+    final supervisor = await pump(tester, drive());
+    supervisor.reply = (false, '로봇이 움직이는 중입니다. 멈춘 뒤 다시 누르세요.');
+    await tester.tap(_voiceNodeSwitch);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('안 됐습니다: 로봇이 움직이는 중입니다. 멈춘 뒤 다시 누르세요.'), findsOneWidget);
+  });
+
   // ---- 빔포밍 회전(2026-11-19 사용자, 캔버스 101번 보드) ----
 
   Switch beamSwitch(WidgetTester tester) => tester.widget<Switch>(_beamSwitch);
@@ -117,8 +185,8 @@ void main() {
     supervisor.setWakeDoaTurnForTest(true);
     await tester.pump();
     expect(find.text('빔포밍 회전'), findsOneWidget);
-    // 감지기·빔포밍·음성 세 줄이 '켜짐'.
-    expect(find.text(vicaKeepWords('켜짐')), findsNWidgets(3));
+    // 감지기·음성 노드·빔포밍·음성 LLM 네 줄이 '켜짐'.
+    expect(find.text(vicaKeepWords('켜짐')), findsNWidgets(4));
     expect(beamSwitch(tester).value, isTrue);
     expect(beamSwitch(tester).onChanged, isNotNull);
     expect(find.byIcon(Icons.explore_outlined), findsOneWidget);

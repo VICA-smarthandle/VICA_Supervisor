@@ -67,6 +67,15 @@ void main() {
     expect(status.nav2Up, isTrue);
   });
 
+  test('음성 노드는 active·activating 일 때 켜진 것으로 본다(캔버스 104)', () {
+    bool on(String v) => ModeStatus(mode: 'drive', state: ModeState.running, voice: v).voiceOn;
+    expect(on('active'), isTrue);
+    expect(on('activating'), isTrue);
+    expect(on('inactive'), isFalse);
+    expect(on('failed'), isFalse);
+    expect(on('none'), isFalse);
+  });
+
   test('음성을 모르면 로컬로 본다(젯슨도 그렇게 띄운다)', () {
     expect(VoiceChoice.fromWire(null), VoiceChoice.local);
     expect(VoiceChoice.fromWire('offline'), VoiceChoice.local);

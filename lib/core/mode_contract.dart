@@ -28,6 +28,11 @@ const String kNav2RestartService = '/vica/mode/nav2_restart';
 const String kDetectorOnService = '/vica/mode/detector_on';
 const String kDetectorOffService = '/vica/mode/detector_off';
 
+/// 음성 노드(호출어·'멈춰' 감지를 하는 음성 유닛)만 켜고 끄기. 움직이는 중에는 거절된다.
+/// 2026-11-20 사용자(캔버스 104): 마이크 점검 때 사람이 직접 끄고 켠다.
+const String kVoiceNodeOnService = '/vica/mode/voice_on';
+const String kVoiceNodeOffService = '/vica/mode/voice_off';
+
 /// 음성: 로컬(⑬, 로봇 안 midm2-mini) / 외부 API(⑫, 클라우드 LLM). 고른 값은 젯슨 파일에 남고,
 /// 음성이 떠 있으면 다시 띄운다(말이 끊김). 움직이는 중에는 거절된다.
 const String kVoiceLocalService = '/vica/mode/voice_offline';
