@@ -81,6 +81,8 @@ void main() {
     expect(s.gainFactory, 31.6);
     expect(s.chipOk, isFalse);
     expect(s.chipProblems, ['AGC 쓰기 실패']);
+    expect(s.noiseAtCheck, 0.004);
+    expect(s.shortOverListen, 1.0);
   });
 
   test('status: 빠진 칸은 기본값', () {
@@ -90,6 +92,21 @@ void main() {
     expect(s.ranges, isEmpty);
     expect(s.chipOk, isTrue);
     expect(s.chipProblems, isEmpty);
+    expect(s.noiseAtCheck, isNull);
+    expect(s.shortOverListen, 1.0);
+  });
+
+  test('status: noise_at_check·short_over_listen 정수·null', () {
+    final s = (MicCheckMessage.parse(
+            '{"type":"status","noise_at_check":null,"short_over_listen":2}')
+        as MicStatusMessage)
+        .status;
+    expect(s.noiseAtCheck, isNull);
+    expect(s.shortOverListen, 2.0);
+    final t = (MicCheckMessage.parse('{"type":"status","noise_at_check":1}')
+        as MicStatusMessage)
+        .status;
+    expect(t.noiseAtCheck, 1.0);
   });
 
   test('frame: null 칸과 숫자 형식', () {

@@ -86,6 +86,8 @@ class MicCheckStatus {
     this.gainFactory = 0.0,
     this.chipOk = true,
     this.chipProblems = const [],
+    this.noiseAtCheck,
+    this.shortOverListen = 1.0,
   });
 
   final String place;
@@ -119,6 +121,12 @@ class MicCheckStatus {
   final bool chipOk;
   final List<String> chipProblems;
 
+  /// 조용 단계에서 잰 소음 최대값(아직 없으면 null). 진행 카드의 소음 줄에 씁니다.
+  final double? noiseAtCheck;
+
+  /// 짧은 답 최소는 수음 최소의 몇 배 이상이어야 하는지(값 고치기 안내용).
+  final double shortOverListen;
+
   factory MicCheckStatus.fromJson(Map<String, Object?> json) => MicCheckStatus(
         place: _s(json['place']),
         step: json['step'] is Map
@@ -150,6 +158,8 @@ class MicCheckStatus {
         gainFactory: _d(json['gain_factory']),
         chipOk: json['chip_ok'] != false,
         chipProblems: _strings(json['chip_problems']),
+        noiseAtCheck: _dn(json['noise_at_check']),
+        shortOverListen: _d(json['short_over_listen'], 1.0),
       );
 }
 
