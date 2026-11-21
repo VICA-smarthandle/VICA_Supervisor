@@ -5,7 +5,7 @@ import 'package:vica_supervisor/app.dart' show vicaTheme;
 import 'package:vica_supervisor/models/mic_check.dart';
 import 'package:vica_supervisor/widgets/mic_check/live_card.dart';
 
-MicCheckStatus _status() => MicCheckStatus.fromJson({
+MicCheckStatus _status({double listen = 0.012, double short = 0.02}) => MicCheckStatus.fromJson({
       'place': '4층 복도',
       'step': {
         'key': 'call', 'no': 3, 'of': 9, 'name': '호출', 'say': '', 'rep': 1, 'reps': 5,
@@ -16,7 +16,7 @@ MicCheckStatus _status() => MicCheckStatus.fromJson({
       ],
       'progress': {'call': []},
       'values': {
-        'listen_min_rms': 0.012, 'short_answer_min_rms': 0.02, 'approach_min_rms': null, 'band_min': 0.004,
+        'listen_min_rms': listen, 'short_answer_min_rms': short, 'approach_min_rms': null, 'band_min': 0.004,
         'wake_threshold': 0.62, 'emergency_single': 0.55,
         'agc': 0.007, 'agc_max_gain': null, 'echo': 'mid',
       },
@@ -54,5 +54,24 @@ void main() {
     await show(_frame());
     expect(find.textContaining('걸림'), findsNothing);
     expect(find.textContaining('아래'), findsNWidgets(3));
+  });
+
+  // 11-21 캡처: 수음 0.027·짧은 답 0.027 이면 두 눈금 글자가 같은 자리에 겹쳐 읽히지 않았다.
+  testWidgets('수음·짧은 답 문턱이 가까우면 눈금 글자를 한 번만 적는다', (tester) async {
+    Future<void> show(MicCheckStatus st) async {
+      await tester.pumpWidget(MaterialApp(theme: vicaTheme(),
+        home: Scaffold(body: SingleChildScrollView(child: MicLiveCard(status: st, frame: _frame()))),
+      ));
+    }
+
+    await show(_status(listen: 0.027, short: 0.027));
+    expect(find.text('수음·짧은 답'), findsOneWidget);
+    expect(find.text('짧은 답'), findsNothing);
+    expect(find.text('수음'), findsNothing);
+
+    await show(_status(listen: 0.008, short: 0.05));
+    expect(find.text('수음'), findsOneWidget);
+    expect(find.text('짧은 답'), findsOneWidget);
+    expect(find.text('수음·짧은 답'), findsNothing);
   });
 }

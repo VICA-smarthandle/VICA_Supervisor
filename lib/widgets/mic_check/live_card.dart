@@ -95,8 +95,14 @@ class _MicLiveCardState extends State<MicLiveCard> {
             over: f != null && listen != null && f.rms >= listen,
             pos: micLogPos,
             lines: [
-              if (listen != null) _Line(listen, '수음'),
-              if (short != null) _Line(short, '짧은 답', color: VicaColors.warning),
+              // 두 문턱이 막대 위에서 가까우면 글자가 겹친다(11-21 캡처: 둘 다 0.027) — 글자는 한 번만 적는다.
+              if (listen != null && short != null && (micLogPos(listen) - micLogPos(short)).abs() < _kMergeLabelPos) ...[
+                _Line(listen, '수음·짧은 답'),
+                _Line(short, '', color: VicaColors.warning),
+              ] else ...[
+                if (listen != null) _Line(listen, '수음'),
+                if (short != null) _Line(short, '짧은 답', color: VicaColors.warning),
+              ],
             ],
             edge: const [_Tick(0.001, '0.001'), _Tick(0.1, '0.1'), _Tick(1, '1')],
           ),
@@ -179,6 +185,10 @@ class _NoiseRow extends StatelessWidget {
     );
   }
 }
+
+/// 두 문턱 눈금 글자를 합치는 거리(막대 길이에 대한 비). 폰 막대 ≈320 px 에서 ≈32 px — '수음'(2자)과
+/// '짧은 답'(4자)의 반폭 합보다 넉넉하다.
+const double _kMergeLabelPos = 0.10;
 
 class _Line {
   const _Line(this.at, this.label, {this.color = VicaColors.text, this.dashed = false});
@@ -263,7 +273,7 @@ class _Meter extends StatelessWidget {
                     width: 2,
                     child: ColoredBox(color: l.dashed ? VicaColors.red : l.color),
                   ),
-                for (final l in lines)
+                for (final l in lines.where((l) => l.label.isNotEmpty))
                   Positioned(
                     left: pos(l.at) * w,
                     top: 17,
