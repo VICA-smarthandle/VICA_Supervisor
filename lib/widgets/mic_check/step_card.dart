@@ -122,6 +122,9 @@ class _MicStepCardState extends State<MicStepCard> {
                 const SizedBox(width: 10),
                 OutlinedButton(
                   key: const ValueKey('mic_check_redo'),
+                  // 앱 테마의 minimumSize 는 폭 무한대(Size.fromHeight) — Row 안에서는 폭을 0 부터로 풀어야
+                  // 배치 오류로 줄 전체가 안 그려지지 않는다(11-21 실기: '녹음 시작'·'다시'가 안 보임).
+                  style: OutlinedButton.styleFrom(minimumSize: const Size(0, 46)),
                   onPressed: chipOk && !recording ? () => widget.onSend('redo', {'step': st.key}) : null,
                   child: const Text('다시'),
                 ),
