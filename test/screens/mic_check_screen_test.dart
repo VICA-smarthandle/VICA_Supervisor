@@ -100,7 +100,11 @@ MicCheckStatus _status({
       },
       'agc_choices': [0.005, 0.007, 0.01],
       'gain_choices': [2.0, 4.0, 8.0, 31.6],
-      'echo_choices': {'strong': '센', 'mid': '중간', 'factory': '공장값', 'start': '처음 값'},
+      // 11-21 점검기가 '약'·'최대'를 더함 — 점검기는 긴 문구를 보내고 앱이 짧게 줄인다.
+      'echo_choices': {
+        'weak': '약 (0.5·켜짐)', 'strong': '센', 'mid': '중간', 'max': '최대 (3.0·켜짐)',
+        'factory': '공장값', 'start': '처음 값',
+      },
       'gain_factory': 31.6,
       'short_over_listen': shortOver,
       'chip_ok': chipOk,
@@ -358,9 +362,11 @@ void main() {
         {'key': 'agc_max_gain', 'value': 4.0},
         {'key': 'echo', 'value': 'strong'},
       ]);
-      for (final t in ['×2', '×4', '×8', '×31.6', '센', '중간', '공장값', '처음 값']) {
+      for (final t in ['×2', '×4', '×8', '×31.6', '약', '센', '중간', '최대', '공장값', '처음 값']) {
         expect(find.text(t), findsWidgets, reason: t);
       }
+      expect(find.text('약 (0.5·켜짐)'), findsNothing);
+      expect(find.text('최대 (3.0·켜짐)'), findsNothing);
       expect(tester.widget<ChoiceChip>(find.byKey(const ValueKey('mic_check_agc_max_gain_31.6'))).selected, isTrue);
       expect(tester.widget<ChoiceChip>(find.byKey(const ValueKey('mic_check_echo_mid'))).selected, isTrue);
     });

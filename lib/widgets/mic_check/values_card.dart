@@ -28,7 +28,8 @@ const kMicNone = {
 };
 
 /// 에코 단추 짧은 문구(캔버스 109). 그 밖의 키는 점검기가 준 문구를 씁니다.
-const _echoShort = {'strong': '센', 'mid': '중간', 'factory': '공장값'};
+/// 2026-11-21 점검기 선택지 확대: 약(0.5·켜짐)·최대(3.0·켜짐)도 같은 꼴로 줄입니다.
+const _echoShort = {'weak': '약', 'mid': '중간', 'strong': '센', 'max': '최대', 'factory': '공장값'};
 
 bool _same(Object? a, Object? b) {
   if (a is num && b is num) return (a - b).abs() < 1e-9;
