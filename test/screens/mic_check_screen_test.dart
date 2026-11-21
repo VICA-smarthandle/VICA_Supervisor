@@ -401,6 +401,24 @@ void main() {
       expect(c.sent.single.$1, 'rejudge');
     });
 
+    // 11-21 캡처: 폭 390 에서 세 단추를 한 줄에 두자 '다시 채점'이 '다시 채 / 점'으로 꺾였다.
+    // 목업 109 대로 '다시 채점'은 한 줄 전체, '저장'·'원래대로'는 그 아래 한 줄.
+    testWidgets('다시 채점은 한 줄 전체, 저장·원래대로는 아래 줄(목업 109)', (tester) async {
+      await _pump(tester, setup: (c) {
+        c.connected = true;
+        c.status = _status();
+      });
+      final rejudge = tester.getRect(find.byKey(const ValueKey('mic_check_rejudge')));
+      final save = tester.getRect(find.byKey(const ValueKey('mic_check_save')));
+      final restore = tester.getRect(find.byKey(const ValueKey('mic_check_restore')));
+      expect(rejudge.bottom, lessThanOrEqualTo(save.top));
+      expect(save.top, restore.top);
+      expect(rejudge.width, greaterThan(save.width + restore.width));
+      // 글자가 한 줄로 들어간다(두 줄이면 높이가 두 배 가까이 된다).
+      final label = tester.getRect(find.text('다시 채점'));
+      expect(label.height, lessThan(30));
+    });
+
     testWidgets('저장 → save_preview 도착 → 시트 → 저장', (tester) async {
       final c = await _pump(tester, setup: (c) {
         c.connected = true;

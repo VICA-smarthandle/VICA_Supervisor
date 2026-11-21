@@ -121,16 +121,16 @@ class _MicValuesCardState extends State<MicValuesCard> {
           _gain(),
           _echo(),
           const SizedBox(height: 14),
+          // 목업 109: '다시 채점'은 한 줄 전체, '저장'·'원래대로'는 그 아래 한 줄.
+          // 11-21 캡처 — 세 단추를 한 줄에 두자 폭 390 에서 '다시 채점'이 두 줄로 꺾였다.
+          OutlinedButton(
+            key: const ValueKey('mic_check_rejudge'),
+            onPressed: () => widget.onSend('rejudge'),
+            child: const Text('다시 채점'),
+          ),
+          const SizedBox(height: 8),
           Row(
             children: [
-              Expanded(
-                child: OutlinedButton(
-                  key: const ValueKey('mic_check_rejudge'),
-                  onPressed: () => widget.onSend('rejudge'),
-                  child: const Text('다시 채점'),
-                ),
-              ),
-              const SizedBox(width: 8),
               Expanded(
                 child: FilledButton(
                   key: const ValueKey('mic_check_save'),
