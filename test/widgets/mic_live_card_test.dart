@@ -1,6 +1,7 @@
 // 실시간 카드: "비카야"·"멈춰" 상태 글자는 최근 1.5 s 최고값으로 정하고, 막대 채움은 순간값입니다.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vica_supervisor/app.dart' show vicaTheme;
 import 'package:vica_supervisor/models/mic_check.dart';
 import 'package:vica_supervisor/widgets/mic_check/live_card.dart';
 
@@ -35,7 +36,7 @@ void main() {
     var t = DateTime(2026, 11, 20, 12);
     final status = _status();
     Future<void> show(MicCheckFrame f) async {
-      await tester.pumpWidget(MaterialApp(
+      await tester.pumpWidget(MaterialApp(theme: vicaTheme(),
         home: Scaffold(
           body: SingleChildScrollView(child: MicLiveCard(status: status, frame: f, now: () => t)),
         ),

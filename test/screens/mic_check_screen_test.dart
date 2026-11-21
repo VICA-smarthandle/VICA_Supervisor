@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vica_supervisor/app.dart' show vicaTheme;
 import 'package:vica_supervisor/models/mic_check.dart';
 import 'package:vica_supervisor/models/mode_status.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
@@ -132,7 +133,7 @@ Future<_Fake> _pump(WidgetTester tester, {double width = 390, void Function(_Fak
   final c = _Fake();
   addTearDown(c.dispose);
   setup?.call(c);
-  await tester.pumpWidget(MaterialApp(home: MicCheckScreen(controller: c)));
+  await tester.pumpWidget(MaterialApp(theme: vicaTheme(), home: MicCheckScreen(controller: c)));
   return c;
 }
 
@@ -461,7 +462,7 @@ void main() {
       addTearDown(sup.dispose);
       final results = <bool?>[];
       // 뒤 화면에 Scaffold 가 있어야 닫힌 뒤에도 스낵이 보입니다(실제 앱은 대시보드).
-      await tester.pumpWidget(MaterialApp(
+      await tester.pumpWidget(MaterialApp(theme: vicaTheme(),
         home: Scaffold(
           body: Builder(
             builder: (ctx) => TextButton(

@@ -1,6 +1,7 @@
 // 대시보드 '주행 노드' 카드(2026-11-16 목업 B·C): 사람 감지 잠시 끄기·음성 LOCAL/외부 API 고르기.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vica_supervisor/app.dart' show vicaTheme;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vica_supervisor/models/mode_status.dart';
@@ -114,7 +115,7 @@ void main() {
           ChangeNotifierProvider(create: (_) => AppModeProvider()),
           ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ],
-        child: MaterialApp(navigatorKey: _navKey, home: const Scaffold(body: SingleChildScrollView(child: DriveNodesCard()))),
+        child: MaterialApp(theme: vicaTheme(), navigatorKey: _navKey, home: const Scaffold(body: SingleChildScrollView(child: DriveNodesCard()))),
       ),
     );
     await tester.pump();

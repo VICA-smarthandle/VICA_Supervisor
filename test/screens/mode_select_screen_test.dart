@@ -4,6 +4,7 @@
 // 가깝습니다. 그래서 카드가 뜨는지보다 언제 막히는지를 더 촘촘히 검증합니다.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vica_supervisor/app.dart' show vicaTheme;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vica_supervisor/core/app_mode.dart';
@@ -113,7 +114,7 @@ void main() {
           ChangeNotifierProvider(create: (_) => SettingsProvider()),
           ChangeNotifierProvider(create: (_) => AuthProvider()),
         ],
-        child: MaterialApp(navigatorKey: _navKey, home: const ModeSelectScreen()),
+        child: MaterialApp(theme: vicaTheme(), navigatorKey: _navKey, home: const ModeSelectScreen()),
       ),
     );
     await tester.pump();
