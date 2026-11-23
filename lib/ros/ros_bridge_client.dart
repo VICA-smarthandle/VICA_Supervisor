@@ -35,7 +35,12 @@ class RosBridgeClient {
   RosBridgeClient({
     required this.onState,
     RosChannelConnector? connector,
-  }) : _connector = connector ?? WebSocketChannel.connect;
+    DateTime Function()? now,
+  })  : _connector = connector ?? WebSocketChannel.connect,
+        _now = now ?? DateTime.now;
+
+  /// 시각. 시험은 가짜 시계를 끼웁니다.
+  final DateTime Function() _now;
 
   final RosStateHandler onState;
   final RosChannelConnector _connector;
@@ -47,6 +52,10 @@ class RosBridgeClient {
   RosConnectionState _state = RosConnectionState.disconnected;
 
   RosConnectionState get state => _state;
+
+  /// 마지막으로 무엇이든 받은 시각(토픽·서비스 응답 모두). 붙은 순간도 여기서 시작합니다.
+  DateTime? get lastReceivedAt => _lastReceivedAt;
+  DateTime? _lastReceivedAt;
 
   Future<void> connect(String url) async {
     await close();
@@ -65,6 +74,7 @@ class RosBridgeClient {
           'ROS 연결 오류: $error',
         ),
       );
+      _lastReceivedAt = _now();
       _setState(RosConnectionState.connected, 'ROS 연결 완료');
     } catch (error) {
       _setState(RosConnectionState.failed, 'ROS 연결 실패: $error');
@@ -114,11 +124,14 @@ class RosBridgeClient {
     });
   }
 
-  void advertise({required String topic, required String type}) {
+  /// [latch] 면 rosbridge 가 마지막 값을 늦게 붙은 구독자에게도 줍니다(TRANSIENT_LOCAL).
+  void advertise(
+      {required String topic, required String type, bool latch = false}) {
     _send({
       'op': 'advertise',
       'topic': topic,
       'type': type,
+      if (latch) 'latch': true,
     });
   }
 
@@ -171,6 +184,7 @@ class RosBridgeClient {
       'service': service,
       'type': type,
       'args': args,
+      'timeout': timeout.inMilliseconds / 1000.0,
     });
     return completer.future.timeout(
       timeout,
@@ -189,6 +203,7 @@ class RosBridgeClient {
   }
 
   void _handleRawMessage(dynamic raw) {
+    _lastReceivedAt = _now();
     try {
       final decoded = jsonDecode(raw as String) as Map<String, Object?>;
 

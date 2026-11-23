@@ -76,18 +76,19 @@ void main() {
     await pumpShell(tester);
 
     const expected = [
-      '대시보드',
-      '지도 설정',
-      '원격 주행',
-      '물류 배송',
-      '현재 위치',
-      '시스템 진단',
-      '알림 및 로그',
-      '설정',
+      ('대시보드', '대시보드'),
+      ('지도', '지도 설정'),
+      ('주행', '원격 주행'),
+      ('배송', '물류 배송'),
+      ('경비', '경비'),
+      ('현재 위치', '현재 위치'),
+      ('시스템 진단', '시스템 진단'),
+      ('알림 및 로그', '알림 및 로그'),
+      ('설정', '설정'),
     ];
 
     final sidebar = find.byKey(const ValueKey('desktop_sidebar'));
-    for (final label in expected) {
+    for (final (label, title) in expected) {
       await tester.tap(
         find.descendant(of: sidebar, matching: find.text(label)),
         warnIfMissed: false,
@@ -95,9 +96,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.widgetWithText(AppBar, label),
+        find.widgetWithText(AppBar, title),
         findsOneWidget,
-        reason: "'$label' 을 눌렀는데 그 제목의 화면이 뜨지 않았습니다.",
+        reason: "'$label' 을 눌렀는데 '$title' 화면이 뜨지 않았습니다.",
       );
     }
   });

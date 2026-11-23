@@ -6,6 +6,8 @@ import '../models/robot_status.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../ros/ros_bridge_client.dart';
+import '../widgets/drive_map_change.dart';
+import '../widgets/drive_nodes_card.dart';
 import '../widgets/health_banner.dart';
 import '../widgets/ros_connection_tile.dart';
 import '../widgets/vica_ui.dart';
@@ -15,9 +17,6 @@ class DashboardScreen extends StatelessWidget {
 
   /// 상단 배너를 탭하면 시스템 진단 화면으로 보냅니다.
   final VoidCallback? onOpenDiagnostics;
-
-  static const double metricLabelFontSize = 14;
-  static const double errorMetricLabelFontSize = 12;
 
   @override
   Widget build(BuildContext context) {
@@ -35,92 +34,47 @@ class DashboardScreen extends StatelessWidget {
         .where((robot) => robot.status != 'moving' && !robot.hasError)
         .length;
     final robot = supervisor.primaryRobot ?? _waitingRobot();
-    final metricCards = [
-      VicaMetricCard(
-        icon: Icons.smart_toy,
-        label: '전체 로봇',
+    final counts = [
+      VicaCount(
+        label: '로봇',
         value: robots.length.toString(),
-        color: VicaColors.primary,
-        labelFontSize: metricLabelFontSize,
-        badge: '정상',
-        unit: '대',
+        accent: VicaColors.primary,
       ),
-      VicaMetricCard(
-        icon: Icons.navigation,
-        label: '운행 중',
+      VicaCount(
+        label: '운행',
         value: moving.toString(),
-        color: VicaColors.green,
-        labelFontSize: metricLabelFontSize,
-        badge: '주행',
-        unit: '대',
+        accent: VicaColors.green,
       ),
-      VicaMetricCard(
-        icon: Icons.hourglass_empty,
-        label: '대기 중',
+      VicaCount(
+        label: '대기',
         value: waiting.toString(),
-        color: VicaColors.muted,
-        labelFontSize: metricLabelFontSize,
-        badge: '대기',
-        unit: '대',
+        accent: VicaColors.warning,
       ),
-      VicaMetricCard(
-        icon: Icons.warning,
-        label: '오류 · 긴급정지',
+      VicaCount(
+        label: '오류',
         value: errors.toString(),
-        color: VicaColors.red,
-        labelMaxLines: 2,
-        labelFontSize: errorMetricLabelFontSize,
-        badge: errors == 0 ? '이상 없음' : '이상 있음',
-        unit: '건',
+        color: errors == 0 ? VicaColors.green : VicaColors.red,
+        accent: errors == 0 ? VicaColors.textTertiary : VicaColors.red,
       ),
     ];
 
     return VicaPage(
-      title: '로봇 현황',
       children: [
         if (!connected)
           VicaDisconnectedNotice(detail: supervisor.connectionDetail),
         HealthBanner(onTap: onOpenDiagnostics),
+        const DriveMapMismatchCard(),
+        const DriveNodesCard(),
         _ConnectionButtons(
           hasMaps: supervisor.maps.isNotEmpty,
           onRequestMaps:
               connected ? () => supervisor.requestMapList(settings) : null,
         ),
         const SizedBox(height: 18),
-        Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              maxWidth: VicaBreakpoints.metricGridMaxWidth,
-            ),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final columnCount =
-                    constraints.maxWidth >= VicaBreakpoints.metricGridWide
-                        ? 4
-                        : 2;
-                final cellHeight = MediaQuery.textScalerOf(context)
-                    .scale(VicaMetricCard.baseHeight);
-                return GridView.builder(
-                  itemCount: metricCards.length,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: columnCount,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                    mainAxisExtent: cellHeight,
-                  ),
-                  itemBuilder: (context, index) => metricCards[index],
-                );
-              },
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        const VicaSectionTitle('로봇 상태'),
+        VicaCountStrip(items: counts),
+        const VicaSectionTitle('로봇'),
         VicaRobotCard(robot: robot),
-        const VicaSectionTitle('최근 알림'),
+        const VicaSectionTitle('알림'),
         if (supervisor.logs.isEmpty)
           const VicaCard(child: Text('최근 알림이 없습니다.'))
         else
@@ -159,13 +113,14 @@ class _ConnectionButtons extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const rosButton = VicaRosConnectionButton();
-    final mapButton = OutlinedButton.icon(
+    final mapButton = PressScale(
+        child: OutlinedButton.icon(
       onPressed: onRequestMaps,
       icon: Icon(
         hasMaps ? Icons.check_circle : Icons.radio_button_unchecked,
       ),
       label: Text(hasMaps ? '지도 연결됨' : '지도 미연결'),
-    );
+    ));
 
     return LayoutBuilder(
       builder: (context, constraints) {

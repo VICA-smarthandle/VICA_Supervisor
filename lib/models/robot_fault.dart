@@ -1,3 +1,4 @@
+import '../core/fault_messages.dart';
 import '../core/fault_severity.dart';
 import '../core/json_read.dart';
 
@@ -44,6 +45,13 @@ class RobotFault {
 
   /// 화면에 보여줄 컴포넌트 이름.
   String get componentLabelText => componentLabel(component);
+
+  /// 화면에 쓸 짧은 한 문장('LiDAR 신호가 끊겼으니 USB 연결을 확인해주세요.').
+  String get message => faultShortMessage(
+        code: faultCode,
+        detail: detail,
+        componentLabel: componentLabelText,
+      );
 
   /// 결함이 이어진 시간. 관리자가 "방금 생긴 것"과 "계속되는 것"을 구분하는 값입니다.
   Duration get duration {

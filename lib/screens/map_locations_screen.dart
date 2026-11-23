@@ -1,15 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/home_position.dart' show kHomeUnvisitedText;
 import '../models/location_point.dart';
+import '../models/mission_activity.dart';
+import '../models/mode_status.dart';
+import '../models/stack_status.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../widgets/initial_pose_card.dart';
 import '../widgets/drive_control_bar.dart';
 import '../widgets/drive_map_canvas.dart';
+import '../widgets/drive_map_change.dart';
+import '../widgets/manual_drive_card.dart';
 import '../widgets/map_canvas.dart';
+import '../widgets/map_fix_card.dart';
 import '../widgets/map_picker.dart';
+import '../widgets/map_work_layout.dart';
 import '../widgets/vica_ui.dart';
+
+const double _driveRowMinWidth = 330;
 
 class MapLocationsScreen extends StatefulWidget {
   const MapLocationsScreen({super.key});
@@ -22,6 +32,18 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
   bool _picking = false;
   Offset? _picked;
   PoseDirection? _direction = PoseDirection.right;
+
+  bool _manual = false;
+
+  /// 수동 주행을 열어 두는 미션 상태(mission_logic.State). 그 밖은 모두 막습니다.
+  static const _manualIdleStates = {
+    '',
+    'idle',
+    'none',
+    'arrived',
+    'failed',
+    'estopped'
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -38,9 +60,21 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     final drivingGoal = robot?.currentGoal.trim() ?? '';
     final paused = supervisor.navigationPaused;
     final driving = drivingGoal.isNotEmpty && !paused;
+    final activity = MissionActivity.of(robot);
+    final busy = driving || paused || activity != null;
+    final String? manualBlocked;
+    if (robot == null) {
+      manualBlocked = '로봇 상태를 받지 못해 쓸 수 없습니다.';
+    } else if (busy ||
+        robot.status == 'moving' ||
+        supervisor.patrolPhase.active ||
+        !_manualIdleStates.contains(robot.dialogState.trim())) {
+      manualBlocked = kManualDriveBusyMessage;
+    } else {
+      manualBlocked = null;
+    }
 
-    return VicaPage(
-      title: '원격 주행',
+    return MapWorkLayout(
       children: [
         MapPickerRow(
           supervisor: supervisor,
@@ -56,11 +90,65 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
           },
           refreshIcon: Icons.refresh,
           refreshLabel: const Text('새로고침'),
+          showRefresh: false,
         ),
-        const SizedBox(height: 18),
-        if (map == null)
-          const NoMapCard()
-        else ...[
+        const SizedBox(height: 10),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final width = !constraints.maxWidth.isFinite ||
+                    constraints.maxWidth < _driveRowMinWidth
+                ? _driveRowMinWidth
+                : constraints.maxWidth;
+            return FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                width: width,
+                child: Row(
+                  children: [
+                    MapRefreshButton(
+                      supervisor: supervisor,
+                      settings: settings,
+                      map: map,
+                      icon: Icons.refresh,
+                      label: const Text('새로고침'),
+                      inRow: true,
+                    ),
+                    const Spacer(),
+                    for (final (label, manual) in const [
+                      ('원격 주행', false),
+                      ('수동 주행', true),
+                    ]) ...[
+                      if (manual) const SizedBox(width: 8),
+                      MapFixChoiceButton(
+                        label: label,
+                        width: 92,
+                        selected: _manual == manual,
+                        onTap: () => setState(() {
+                          _manual = manual;
+                          if (_manual) {
+                            _picking = false;
+                            _picked = null;
+                            supervisor.clearPoseCheck();
+                          }
+                        }),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 14),
+        DriveMapBanner(viewedMapId: supervisor.selectedMapId),
+        if (map == null) ...[
+          const NoMapCard(),
+          if (_manual) ...[
+            const SizedBox(height: 20),
+            ManualDriveCard(blockedMessage: manualBlocked),
+          ],
+        ] else ...[
           DriveMapCanvas(
             map: map,
             settings: settings,
@@ -95,7 +183,9 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
                 : (location) => supervisor.selectLocation(location.locationId),
           ),
           const SizedBox(height: 20),
-          if (_picking)
+          if (_manual)
+            ManualDriveCard(blockedMessage: manualBlocked)
+          else if (_picking)
             InitialPoseCard(
               picked: _picked,
               direction: _direction,
@@ -118,111 +208,133 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
               }),
             )
           else
-            _initialPoseEntry(context, supervisor, driving || paused),
-          const SizedBox(height: 20),
-          VicaCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '저장 장소 목록',
-                        style: Theme.of(context).textTheme.titleMedium,
+            _initialPoseEntry(context, supervisor, busy),
+          if (!_manual) const SizedBox(height: 20),
+          if (!_manual)
+            VicaCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '저장 장소 목록',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                      PressScale(
+                          child: OutlinedButton(
+                        onPressed: null,
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 36),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                        ),
+                        child: Text('${locations.length}개'),
+                      )),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 10,
+                    children: locations.map((location) {
+                      final selected =
+                          supervisor.selectedLocationId == location.locationId;
+                      return ChoiceChip(
+                        selected: selected,
+                        avatar: Icon(
+                          selected ? Icons.check_circle : Icons.location_on,
+                          color: selected
+                              ? VicaColors.text
+                              : VicaColors.primaryDark,
+                          size: 18,
+                        ),
+                        label: Text(location.name),
+                        onSelected: (_) =>
+                            supervisor.selectLocation(location.locationId),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 14),
+                  if (activity != null && activity.lines.isNotEmpty) ...[
+                    Text(
+                      activity.lines
+                          .map((line) =>
+                              vicaKeepWords(vicaBreakAtSentences(line)))
+                          .join('\n'),
+                      style: const TextStyle(
+                        color: VicaColors.muted,
+                        fontSize: 13,
                       ),
                     ),
-                    OutlinedButton(
-                      onPressed: null,
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(0, 36),
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                      ),
-                      child: Text('${locations.length}개'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 10,
-                  children: locations.map((location) {
-                    final selected =
-                        supervisor.selectedLocationId == location.locationId;
-                    return ChoiceChip(
-                      selected: selected,
-                      avatar: Icon(
-                        selected ? Icons.check_circle : Icons.location_on,
-                        color:
-                            selected ? VicaColors.text : VicaColors.primaryDark,
-                        size: 18,
-                      ),
-                      label: Text(location.name),
-                      onSelected: (_) =>
-                          supervisor.selectLocation(location.locationId),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 14),
-                if (driving || paused) ...[
-                  Text(
-                    vicaKeepWords(vicaBreakAtSentences(
-                      paused
-                          ? '$drivingGoal(으)로 가던 중 일시정지했습니다. 다시 출발하거나 취소할 수 있습니다.'
-                          : '$drivingGoal(으)로 주행 중입니다.',
-                    )),
-                    style: const TextStyle(
-                      color: VicaColors.muted,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                ],
-                FilledButton.icon(
-                  onPressed: selected == null || driving || paused
-                      ? null
-                      : () => _requestDrive(context, supervisor, selected),
-                  icon: Icon(driving ? Icons.directions_run : Icons.navigation),
-                  label: Text(driving ? '주행 중' : '선택 장소로 주행 요청'),
-                ),
-                if (driving || paused) ...[
-                  const SizedBox(height: 10),
-                  DriveControlBar(
-                    supervisor: supervisor,
-                    paused: paused,
-                    cancelLabel: '주행 취소',
-                    cancelTitle: '주행 취소',
-                    cancelBody: '진행 중인 주행을 취소합니다. 목적지는 지워지며 다시 요청해야 합니다.',
-                    keepLabel: '계속 주행',
-                  ),
-                ],
-                if (supervisor.homeBelongsTo(map.mapId) &&
-                    supervisor.home != null) ...[
-                  const SizedBox(height: 10),
-                  const Divider(height: 20),
-                  OutlinedButton.icon(
-                    onPressed: driving || paused
-                        ? null
-                        : () => _confirmReturnHome(context, supervisor),
-                    icon: const Icon(Icons.home_outlined),
-                    label: Text(
-                      driving || paused ? '주행 중에는 홈으로 부를 수 없습니다' : '홈으로 복귀',
-                    ),
-                  ),
-                  if (!supervisor.home!.visitedOk) ...[
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 10),
+                  ] else if (activity == null && (driving || paused)) ...[
                     Text(
                       vicaKeepWords(vicaBreakAtSentences(
-                        '홈에 아직 가 본 적이 없습니다. 지도 설정 화면에서 확인해주세요.',
+                        paused
+                            ? '$drivingGoal(으)로 가던 중 일시정지했습니다. 다시 출발하거나 취소할 수 있습니다.'
+                            : '$drivingGoal(으)로 주행 중입니다.',
                       )),
                       style: const TextStyle(
-                          color: VicaColors.muted, fontSize: 12),
+                        color: VicaColors.muted,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ] else if (activity == null && supervisor.isDocked) ...[
+                    Text(
+                      '${vicaKeepWords('도크에 들어가 있습니다.')}\n'
+                      '${vicaKeepWords('장소를 고르면 도크에서 먼저 나온 뒤 출발합니다.')}',
+                      style: const TextStyle(
+                        color: VicaColors.muted,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  PressScale(
+                      child: FilledButton.icon(
+                    onPressed: selected == null || busy
+                        ? null
+                        : () => _requestDrive(context, supervisor, selected),
+                    icon: Icon(activity != null
+                        ? _activityIcon(activity.kind)
+                        : driving
+                            ? Icons.directions_run
+                            : Icons.navigation),
+                    label: Text(activity?.lockedRequestLabel ??
+                        (driving ? '주행 중' : '선택 장소로 주행 요청')),
+                  )),
+                  if (activity != null && activity.cancellable) ...[
+                    const SizedBox(height: 10),
+                    PressScale(
+                        child: OutlinedButton.icon(
+                      onPressed: () => _confirmActivityCancel(
+                        context,
+                        supervisor,
+                        activity,
+                      ),
+                      icon: const Icon(Icons.cancel_outlined),
+                      label: Text(activity.cancelLabel),
+                    )),
+                  ] else if (activity == null && (driving || paused)) ...[
+                    const SizedBox(height: 10),
+                    DriveControlBar(
+                      supervisor: supervisor,
+                      paused: paused,
+                      cancelLabel: '주행 취소',
+                      cancelTitle: '주행 취소',
+                      cancelBody: '진행 중인 주행을 취소합니다. 목적지는 지워지며 다시 요청해야 합니다.',
+                      keepLabel: '계속 주행',
                     ),
                   ],
+                  if (activity == null || !activity.isDock)
+                    ..._homeDockButtons(context, supervisor, map.mapId,
+                        activity, driving, paused, busy),
                 ],
-              ],
+              ),
             ),
-          ),
         ],
       ],
     );
@@ -291,13 +403,19 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
+  static bool _nav2Down(StackStatus? stack, ModeStatus? mode) {
+    if (mode != null && mode.nav2Up) {
+      return false;
+    }
+    return stack != null && !stack.nav2Running;
+  }
+
   Future<void> _enterPosePicking(SupervisorProvider supervisor) async {
     await supervisor.refreshStackStatus();
     if (!mounted) {
       return;
     }
-    final fresh = supervisor.stackStatus;
-    if (fresh != null && !fresh.nav2Running) {
+    if (_nav2Down(supervisor.stackStatus, supervisor.modeStatus)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('주행(Nav2)이 꺼져 있습니다. 확인해주세요.')),
       );
@@ -312,8 +430,7 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
     SupervisorProvider supervisor,
     bool busyDriving,
   ) {
-    final stack = supervisor.stackStatus;
-    final nav2Down = stack != null && !stack.nav2Running;
+    final nav2Down = _nav2Down(supervisor.stackStatus, supervisor.modeStatus);
     final blocked = busyDriving
         ? '주행 중에는 초기 위치를 변경할 수 없습니다. 변경하시려면 주행을 멈추세요.'
         : (nav2Down ? '주행(Nav2)이 꺼져 있습니다. 확인해주세요.' : '');
@@ -344,14 +461,237 @@ class _MapLocationsScreenState extends State<MapLocationsScreen> {
             style: const TextStyle(color: VicaColors.muted, fontSize: 13),
           ),
           const SizedBox(height: 12),
-          OutlinedButton.icon(
+          PressScale(
+              child: OutlinedButton.icon(
             onPressed:
                 blocked.isEmpty ? () => _enterPosePicking(supervisor) : null,
             icon: const Icon(Icons.add_location_alt_outlined),
             label: const Text('초기 위치 잡기'),
-          ),
+          )),
         ],
       ),
+    );
+  }
+
+  static IconData _activityIcon(MissionActivityKind kind) => switch (kind) {
+        MissionActivityKind.wait => Icons.hourglass_empty,
+        MissionActivityKind.approach => Icons.person_outline,
+        MissionActivityKind.firstGuide => Icons.record_voice_over_outlined,
+        MissionActivityKind.dock => Icons.power,
+        MissionActivityKind.undock => Icons.power_off,
+      };
+
+  /// 아래 홈·도킹 버튼. 둘 다 누를 수 있으면 한 줄에 반씩, 잠겼으면 잠긴 글자가 길어 한 줄씩.
+  static List<Widget> _homeDockButtons(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    String mapId,
+    MissionActivity? activity,
+    bool driving,
+    bool paused,
+    bool busy,
+  ) {
+    final hasHome = supervisor.homeBelongsTo(mapId) && supervisor.home != null;
+    final docked = supervisor.isDocked;
+    final hasSpot = supervisor.dockSpotFor(mapId) != null;
+    final resume = !docked && !busy && supervisor.canResumeUndock;
+    final undockPaused = resume && supervisor.undockPaused;
+    final showDock = (docked || hasSpot) && !undockPaused;
+    if (!hasHome && !showDock && !resume) {
+      return const [];
+    }
+    final lockedText =
+        activity?.lockedRequestLabel ?? (driving || paused ? '주행 중' : '');
+    final Widget? homeButton = hasHome
+        ? PressScale(
+            child: OutlinedButton.icon(
+            onPressed:
+                busy ? null : () => _confirmReturnHome(context, supervisor),
+            icon: const Icon(Icons.home_outlined),
+            label: Text(
+              activity?.homeLockedLabel ??
+                  (driving || paused ? '주행 중에는 홈으로 부를 수 없습니다' : '홈으로 복귀'),
+            ),
+          ))
+        : null;
+    Widget? dockButton;
+    if (showDock) {
+      dockButton = PressScale(
+          child: docked
+              ? OutlinedButton.icon(
+                  onPressed:
+                      busy ? null : () => _confirmUndock(context, supervisor),
+                  icon: const Icon(Icons.power_off),
+                  label: const Text('도크에서 나오기'),
+                )
+              : OutlinedButton.icon(
+                  onPressed: busy
+                      ? null
+                      : () => _confirmDockStart(context, supervisor),
+                  icon: const Icon(Icons.power),
+                  label: Text(busy ? '$lockedText에는 도킹을 시작할 수 없습니다' : '도킹 시작'),
+                ));
+    }
+    final Widget? resumeButton = resume
+        ? PressScale(
+            child: OutlinedButton.icon(
+            onPressed: () => _confirmUndockResume(context, supervisor),
+            icon: const Icon(Icons.power_off),
+            label: Text(undockPaused ? '도크에서 나오기 다시시작' : '도크에서 나오기'),
+          ))
+        : null;
+    return [
+      const SizedBox(height: 10),
+      const Divider(height: 20),
+      if (resumeButton != null && dockButton != null) ...[
+        if (homeButton != null) ...[homeButton, const SizedBox(height: 10)],
+        Row(
+          children: [
+            Expanded(child: dockButton),
+            const SizedBox(width: 10),
+            Expanded(child: resumeButton),
+          ],
+        ),
+      ] else if (resumeButton != null && undockPaused) ...[
+        if (homeButton != null) ...[homeButton, const SizedBox(height: 10)],
+        resumeButton,
+      ] else if (resumeButton != null) ...[
+        if (homeButton != null)
+          Row(
+            children: [
+              Expanded(child: homeButton),
+              const SizedBox(width: 10),
+              Expanded(child: resumeButton),
+            ],
+          )
+        else
+          resumeButton,
+      ] else if (!busy && homeButton != null && dockButton != null)
+        Row(
+          children: [
+            Expanded(child: homeButton),
+            const SizedBox(width: 10),
+            Expanded(child: dockButton),
+          ],
+        )
+      else ...[
+        if (homeButton != null) homeButton,
+        if (homeButton != null && dockButton != null)
+          const SizedBox(height: 10),
+        if (dockButton != null) dockButton,
+      ],
+      if (hasHome &&
+          supervisor.home!.warning(kHomeUnvisitedText).isNotEmpty) ...[
+        const SizedBox(height: 6),
+        Text(
+          vicaKeepWords(vicaBreakAtSentences(
+            supervisor.home!.warning(kHomeUnvisitedText),
+          )),
+          style: const TextStyle(color: VicaColors.muted, fontSize: 12),
+        ),
+      ],
+    ];
+  }
+
+  /// '도킹 시작' 확인(목업 73).
+  static Future<void> _confirmDockStart(
+    BuildContext context,
+    SupervisorProvider supervisor,
+  ) async {
+    final settings = context.read<SettingsProvider>().settings;
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.power,
+      title: '도킹 시작',
+      body: '로봇이 도크 앞으로 이동한 뒤 도크에 들어갑니다.',
+      confirmLabel: '시작',
+    );
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+    final message = await supervisor.startDocking(settings);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  /// '도크에서 나오기' 확인(목업 67, 문구는 11-18 사용자 지정).
+  static Future<void> _confirmUndock(
+    BuildContext context,
+    SupervisorProvider supervisor,
+  ) async {
+    final settings = context.read<SettingsProvider>().settings;
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.power_off,
+      title: '도크에서 나오기',
+      body: '로봇이 초음파를 켜고 약 70cm 후진 후 제자리 회전합니다. 회전 후 주행 모드로 전환됩니다.',
+      confirmLabel: '나오기',
+    );
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+    final message = await supervisor.undock(settings);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  /// 나오다 멈춘 자리에서 '도크에서 나오기'(2026-11-19 사용자) — 남은 동작만 이어서 합니다.
+  static Future<void> _confirmUndockResume(
+    BuildContext context,
+    SupervisorProvider supervisor,
+  ) async {
+    final settings = context.read<SettingsProvider>().settings;
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.power_off,
+      title: supervisor.undockPaused ? '도크에서 나오기 다시시작' : '도크에서 나오기',
+      body: '멈춘 자리에서 남은 나오기 동작을 이어서 합니다.',
+      confirmLabel: '나오기',
+    );
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+    final message = await supervisor.undock(settings);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  /// '대기 취소'·'접근 취소' 확인(목업 44·45). 주행 취소 확인창과 같은 틀입니다.
+  static Future<void> _confirmActivityCancel(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    MissionActivity activity,
+  ) async {
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.stop_circle_outlined,
+      iconColor: VicaColors.red,
+      title: activity.cancelTitle,
+      body: activity.cancelBody,
+      cancelLabel: activity.keepLabel,
+      confirmLabel: activity.confirmLabel,
+      danger: true,
+    );
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+    final now = MissionActivity.of(supervisor.primaryRobot);
+    if (now == null || now.kind != activity.kind || !now.cancellable) {
+      return;
+    }
+    await sendRobotCommand(
+      context,
+      activity.isDock
+          ? supervisor.cancelDocking
+          : activity.kind == MissionActivityKind.approach
+              ? supervisor.cancelApproach
+              : supervisor.cancelWait,
     );
   }
 

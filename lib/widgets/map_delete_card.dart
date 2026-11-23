@@ -100,13 +100,14 @@ class _MapDeleteCardState extends State<MapDeleteCard> {
             ),
           ),
           const SizedBox(height: 6),
-          OutlinedButton.icon(
+          PressScale(
+              child: OutlinedButton.icon(
             onPressed: canRename
                 ? () => _rename(context, settings, selectedMap.mapId, typedName)
                 : null,
             icon: const Icon(Icons.drive_file_rename_outline),
             label: const Text('이름 바꾸기'),
-          ),
+          )),
           const Divider(height: 28),
           Material(
             type: MaterialType.transparency,
@@ -126,7 +127,8 @@ class _MapDeleteCardState extends State<MapDeleteCard> {
             ),
           ),
           const SizedBox(height: 6),
-          OutlinedButton.icon(
+          PressScale(
+              child: OutlinedButton.icon(
             onPressed: selected == null || _busy || !_alsoDestinations
                 ? null
                 : () => _confirmDelete(context, settings, selected),
@@ -135,7 +137,7 @@ class _MapDeleteCardState extends State<MapDeleteCard> {
             style: OutlinedButton.styleFrom(
               foregroundColor: VicaColors.red,
             ),
-          ),
+          )),
         ],
       ],
     );

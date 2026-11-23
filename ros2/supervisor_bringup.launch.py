@@ -19,6 +19,7 @@ WORKSPACE_ROOT = SUPERVISOR_ROOT.parent.parent
 MAP_LIST_NODE = SUPERVISOR_ROOT / "map_list_node.py"
 STATUS_NODE = SUPERVISOR_ROOT / "vica_status_app_node.py"
 KEEPOUT_NODE = SUPERVISOR_ROOT / "keepout_map_node.py"
+MAP_FIX_NODE = SUPERVISOR_ROOT / "map_fix_node.py"
 ROUTE_NODE = SUPERVISOR_ROOT / "route_graph_node.py"
 MAP_HTTP_SERVER = SUPERVISOR_ROOT / "map_http_server.py"
 
@@ -79,6 +80,12 @@ def generate_launch_description() -> LaunchDescription:
                 output="screen",
             ),
             ExecuteProcess(
+                cmd=[sys.executable, str(MAP_FIX_NODE)],
+                output="screen",
+                respawn=True,
+                respawn_delay=3.0,
+            ),
+            ExecuteProcess(
                 cmd=[sys.executable, str(ROUTE_NODE)],
                 output="screen",
             ),
@@ -88,7 +95,7 @@ def generate_launch_description() -> LaunchDescription:
                     str(STATUS_NODE),
                     "--ros-args",
                     "-p",
-                    ["map_yaml:=", map_yaml],
+                    ["map_yaml:='", map_yaml, "'"],
                 ],
                 output="screen",
             ),

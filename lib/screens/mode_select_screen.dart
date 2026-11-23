@@ -1,15 +1,23 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/app_mode.dart';
 import '../core/layout_breakpoints.dart';
+import '../core/mode_contract.dart';
+import '../models/mode_status.dart';
 import '../models/stack_status.dart';
 import '../providers/app_mode_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/supervisor_provider.dart';
+import 'drive_bringup_screen.dart';
+import 'robot_shutdown_screen.dart';
 import 'settings_screen.dart';
 import '../ros/ros_bridge_client.dart';
 import '../widgets/confirm_logout.dart';
+import '../widgets/drive_map_change.dart';
+import '../widgets/mic_check_entry.dart';
 import '../widgets/ros_connection_tile.dart';
 import '../widgets/vica_ui.dart';
 
@@ -36,6 +44,8 @@ class ModeSelectScreen extends StatefulWidget {
 }
 
 class _ModeSelectScreenState extends State<ModeSelectScreen> {
+  Timer? _poll;
+
   @override
   void initState() {
     super.initState();
@@ -45,6 +55,22 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
       }
       context.read<SupervisorProvider>().refreshStackStatus();
     });
+    _poll = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!mounted) {
+        return;
+      }
+      final supervisor = context.read<SupervisorProvider>();
+      if (supervisor.connectionState == RosConnectionState.connected &&
+          !supervisor.stackStatusLoading) {
+        supervisor.refreshStackStatus();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
   }
 
   @override
@@ -53,53 +79,94 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
     final connected =
         supervisor.connectionState == RosConnectionState.connected;
     final status = supervisor.stackStatus;
+    final modeStatus = supervisor.modeStatus;
     final username = context.watch<AuthProvider>().currentUsername ?? '';
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('모드를 선택해주세요'),
+        title: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            VicaLogo(size: 32),
+            SizedBox(width: 10),
+            Flexible(
+              child: Text(
+                'VICA_SUPERVISOR',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
         actions: [
-          IconButton(
+          if (username.isNotEmpty)
+            Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 96),
+                child: Text(
+                  username,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, color: VicaColors.muted),
+                ),
+              ),
+            ),
+          PressScale(
+              child: IconButton(
             onPressed: supervisor.stackStatusLoading
                 ? null
                 : () => supervisor.refreshStackStatus(),
             icon: const Icon(Icons.refresh),
             tooltip: '로봇 상태 다시 확인',
-          ),
-          IconButton(
+          )),
+          PressScale(
+              child: IconButton(
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
             ),
             icon: const Icon(Icons.settings_outlined),
             tooltip: '설정',
-          ),
-          IconButton(
+          )),
+          PressScale(
+              child: IconButton(
             onPressed: () => confirmLogout(context),
             icon: const Icon(Icons.logout),
             tooltip: '로그아웃',
-          ),
+          )),
           const SizedBox(width: 8),
         ],
       ),
       body: SafeArea(
         child: VicaPage(
-          title: '$username 님, 모드를 선택해주세요',
           children: [
             const VicaRosConnectionTile(),
             if (status != null && (status.duplicated || status.conflicting))
               _ConflictNotice(status: status),
             if (!connected) const _UnknownNotice(),
+            if (modeStatus != null &&
+                !modeStatus.driveOn &&
+                modeStatus.stopTimeouts.isNotEmpty)
+              _StopWarningNotice(units: modeStatus.stopTimeouts),
+            const DriveMapMismatchCard(),
             const SizedBox(height: 4),
             LayoutBuilder(
               builder: (context, constraints) {
+                final driveState = _driveState(status, modeStatus);
+                final mappingState = _mappingState(status, modeStatus);
                 final cards = [
                   _ModeCard(
                     mode: AppMode.drive,
-                    state: _driveState(status),
+                    state: driveState,
+                    onTap: driveState.enabled
+                        ? () => _onDrive(context, modeStatus)
+                        : null,
                   ),
                   _ModeCard(
                     mode: AppMode.mapping,
-                    state: _mappingState(status),
+                    state: mappingState,
+                    onTap: mappingState.enabled
+                        ? () => _onMapping(context, modeStatus)
+                        : null,
                   ),
                 ];
                 if (VicaBreakpoints.isCompact(constraints.maxWidth)) {
@@ -131,13 +198,64 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
                 style: const TextStyle(color: VicaColors.muted, fontSize: 12),
               ),
             ],
+            if (modeStatus != null &&
+                (!modeStatus.driveOn || modeStatus.micCheckActive)) ...[
+              const SizedBox(height: 14),
+              _MicCheckRow(status: modeStatus),
+            ],
+            const SizedBox(height: 28),
+            const Divider(height: 1),
+            const SizedBox(height: 14),
+            PressScale(
+                child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: VicaColors.red,
+                side: const BorderSide(color: VicaColors.red, width: 1.5),
+                minimumSize: const Size.fromHeight(48),
+                shape: const StadiumBorder(),
+                textStyle:
+                    const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+              ),
+              onPressed:
+                  connected ? () => confirmAndShutdownRobot(context) : null,
+              icon: const Icon(Icons.power_settings_new, size: 20),
+              label: const Text('로봇 끄기'),
+            )),
+            const SizedBox(height: 6),
+            const Text(
+              '전원을 내리기 전에 누르세요',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: VicaColors.muted),
+            ),
           ],
         ),
       ),
     );
   }
 
-  _CardState _driveState(StackStatus? status) {
+  _CardState _driveState(StackStatus? status, ModeStatus? mode) {
+    if (status != null && status.duplicated) {
+      return const _CardState(
+        color: VicaColors.red,
+        label: '이미 충돌 중',
+        enabled: false,
+        hint: '동일 노드가 동시에 실행되고 있습니다.',
+      );
+    }
+    if (mode != null && mode.micCheckActive && !mode.driveOn) {
+      return const _CardState(
+        color: VicaColors.primary,
+        label: '마이크 점검 중',
+        enabled: false,
+        hint: '점검을 끝낸 뒤 켜세요',
+      );
+    }
+    if (mode != null) {
+      final modeCard = _driveStateFromMode(status, mode);
+      if (modeCard != null) {
+        return modeCard;
+      }
+    }
     if (status == null) {
       return const _CardState(
         color: VicaColors.muted,
@@ -175,7 +293,87 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
     );
   }
 
-  _CardState _mappingState(StackStatus? status) {
+  _CardState? _driveStateFromMode(StackStatus? status, ModeStatus mode) {
+    if (mode.mode == 'mapping' || (status?.mappingRunning ?? false)) {
+      return const _CardState(
+        color: VicaColors.red,
+        label: '지도 그리는 중',
+        enabled: false,
+        hint: '지도 그리기를 먼저 끝내야 합니다.',
+      );
+    }
+    if (mode.driveOn) {
+      return switch (mode.state) {
+        ModeState.starting => const _CardState(
+            color: VicaColors.primary,
+            label: '켜는 중',
+            enabled: true,
+          ),
+        ModeState.stopping => const _CardState(
+            color: VicaColors.warning,
+            label: '끄는 중',
+            enabled: true,
+          ),
+        ModeState.needInitialPose => const _CardState(
+            color: VicaColors.primary,
+            label: '켜져 있음 · 초기 위치 대기',
+            enabled: true,
+          ),
+        ModeState.error => const _CardState(
+            color: VicaColors.red,
+            label: '기동 실패',
+            enabled: true,
+            hint: '눌러서 확인하세요.',
+          ),
+        _ => const _CardState(
+            color: VicaColors.primary,
+            label: '켜져 있음',
+            enabled: true,
+          ),
+      };
+    }
+    if (_nav2Outside(status, mode)) {
+      return const _CardState(
+        color: VicaColors.primary,
+        label: '주행 노드 실행 중',
+        enabled: true,
+      );
+    }
+    return const _CardState(
+      color: VicaColors.muted,
+      label: '꺼져 있음 · 켜는 데 약 40초',
+      enabled: true,
+    );
+  }
+
+  /// 유닛 밖(칸·터미널)에서 뜬 Nav2 가 있는가. 모드 노드가 알려 주면(pane_nodes) 그것을, 아니면 노드 목록을 봅니다.
+  static bool _nav2Outside(StackStatus? status, ModeStatus? mode) =>
+      mode?.paneNav2 ?? (status?.nav2Running ?? false);
+
+  _CardState _mappingState(StackStatus? status, ModeStatus? mode) {
+    if (status != null && status.duplicated) {
+      return const _CardState(
+        color: VicaColors.red,
+        label: '이미 충돌 중',
+        enabled: false,
+        hint: '동일 노드가 동시에 실행되고 있습니다.',
+      );
+    }
+    if (mode != null && mode.driveOn) {
+      return mode.state == ModeState.stopping
+          ? const _CardState(
+              color: VicaColors.warning,
+              label: '주행 끄는 중',
+              enabled: false,
+              hint: '다 꺼지면 고를 수 있습니다.',
+            )
+          : const _CardState(
+              color: VicaColors.warning,
+              label: '주행 켜짐',
+              enabled: true,
+              hint: '누르면 주행을 끄고 지도로 갑니다.',
+            );
+    }
     if (status == null) {
       return const _CardState(
         color: VicaColors.muted,
@@ -191,7 +389,7 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
         hint: '동일 노드가 동시에 실행되고 있습니다.',
       );
     }
-    if (status.nav2Running) {
+    if (_nav2Outside(status, mode)) {
       return const _CardState(
         color: VicaColors.red,
         label: 'Nav2 실행 중',
@@ -212,27 +410,408 @@ class _ModeSelectScreenState extends State<ModeSelectScreen> {
       enabled: true,
     );
   }
+
+  Future<void> _onDrive(BuildContext context, ModeStatus? mode) async {
+    final choice =
+        await showDriveSubmodeSheet(context, voice: mode?.voiceChoice);
+    if (choice == null || !context.mounted) {
+      return;
+    }
+    final (submode, voice) = choice;
+    final modes = context.read<AppModeProvider>();
+    final supervisor = context.read<SupervisorProvider>();
+    if (mode != null && voice != null && voice != mode.voiceChoice) {
+      final (ok, message) = await supervisor.setVoice(voice);
+      if (!context.mounted) {
+        return;
+      }
+      if (!ok) {
+        await showVicaNotice(
+          context,
+          icon: Icons.error_outline,
+          iconColor: VicaColors.red,
+          title: '음성을 바꾸지 못했습니다',
+          body: message,
+        );
+        return;
+      }
+    }
+    if (mode == null || mode.state == ModeState.running) {
+      modes.enterDrive(submode);
+      return;
+    }
+    if (!mode.driveOn) {
+      final (ok, message) = await supervisor.driveStart();
+      if (!context.mounted) {
+        return;
+      }
+      if (!ok && message.startsWith(kPaneDriveRefusal)) {
+        modes.enterDrive(submode);
+        return;
+      }
+      if (!ok) {
+        await showVicaNotice(
+          context,
+          icon: Icons.error_outline,
+          iconColor: VicaColors.red,
+          title: '주행을 켜지 못했습니다',
+          body: message,
+        );
+        return;
+      }
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => DriveBringupScreen(submode: submode),
+      ),
+    );
+  }
+
+  Future<void> _onMapping(BuildContext context, ModeStatus? mode) async {
+    final modes = context.read<AppModeProvider>();
+    if (mode == null || !mode.driveOn) {
+      modes.select(AppMode.mapping);
+      return;
+    }
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.map,
+      title: '주행을 끄고 지도 그리기로 갈까요?',
+      body: 'Nav2·미션·손잡이를 끕니다. 보통 5~15초 걸리고, 다 꺼지면 지도 그리기 화면으로 '
+          '갑니다. 로봇이 움직이는 중이면 끌 수 없습니다.',
+      confirmLabel: '주행 끄고 지도로',
+    );
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+    final (ok, message) = await context.read<SupervisorProvider>().driveStop();
+    if (!context.mounted) {
+      return;
+    }
+    if (!ok) {
+      await showVicaNotice(
+        context,
+        icon: Icons.error_outline,
+        iconColor: VicaColors.red,
+        title: '주행을 끄지 못했습니다',
+        body: message,
+      );
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const DriveBringupScreen(thenMapping: true),
+      ),
+    );
+  }
+}
+
+/// 주행 하위 모드 시트(목업 '안 2', 2026-11-16 사용자 채택). 고르지 않고 닫으면 null.
+Future<(DriveSubmode, VoiceChoice?)?> showDriveSubmodeSheet(
+  BuildContext context, {
+  VoiceChoice? voice,
+}) {
+  var picked = voice;
+  return showModalBottomSheet<(DriveSubmode, VoiceChoice?)>(
+    context: context,
+    backgroundColor: VicaColors.card,
+    showDragHandle: true,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (sheetContext) {
+      return StatefulBuilder(
+        builder: (sheetContext, setSheetState) => SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  '주행 모드 선택',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: VicaColors.text,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  '켜는 데 약 40초',
+                  style: TextStyle(fontSize: 13, color: VicaColors.muted),
+                ),
+                const SizedBox(height: 14),
+                if (picked != null) ...[
+                  const DriveMapRow(),
+                  const SizedBox(height: 10),
+                  _VoicePicker(
+                    value: picked!,
+                    onChanged: (choice) => setSheetState(() => picked = choice),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                for (final submode in DriveSubmode.values) ...[
+                  _SubmodeButton(
+                    submode: submode,
+                    onTap: () =>
+                        Navigator.of(sheetContext).pop((submode, picked)),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                PressScale(
+                    child: TextButton(
+                  onPressed: () => Navigator.of(sheetContext).pop(),
+                  child: const Text('닫기'),
+                )),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class _VoicePicker extends StatelessWidget {
+  const _VoicePicker({required this.value, required this.onChanged});
+
+  final VoiceChoice value;
+  final ValueChanged<VoiceChoice> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: VicaColors.surfaceSunken,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: VicaColors.border),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.mic_none, color: VicaColors.primary, size: 22),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+              '음성 LLM',
+              style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: VicaColors.text),
+            ),
+          ),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 160),
+            child: DropdownButton<VoiceChoice>(
+              isExpanded: true,
+              alignment: AlignmentDirectional.centerEnd,
+              value: value,
+              underline: const SizedBox.shrink(),
+              borderRadius: BorderRadius.circular(12),
+              onChanged: (choice) {
+                if (choice != null) {
+                  onChanged(choice);
+                }
+              },
+              items: [
+                for (final choice in VoiceChoice.values)
+                  DropdownMenuItem(
+                    value: choice,
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: Text(
+                      choice.label,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SubmodeButton extends StatelessWidget {
+  const _SubmodeButton({required this.submode, required this.onTap});
+
+  final DriveSubmode submode;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return PressScale(
+        child: Material(
+      color: VicaColors.card,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+          decoration: BoxDecoration(
+            border: Border.all(color: VicaColors.border),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: VicaColors.accentTint,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(submode.icon, size: 26, color: VicaColors.primary),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      submode.title,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: VicaColors.text,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      vicaKeepWords(submode.subtitle),
+                      style: const TextStyle(
+                          fontSize: 12, color: VicaColors.muted),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: VicaColors.muted),
+            ],
+          ),
+        ),
+      ),
+    ));
+  }
+}
+
+class _StopWarningNotice extends StatelessWidget {
+  const _StopWarningNotice({required this.units});
+
+  final List<String> units;
+
+  @override
+  Widget build(BuildContext context) {
+    const ink = Color(0xFF7A4219);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFBEFE6),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE9C7AE)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: ink, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '지난 주행 끄기가 늦었습니다',
+                  style: TextStyle(fontWeight: FontWeight.w800, color: ink),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  vicaKeepWords(
+                    '${units.map(modeUnitLabel).join(', ')} 이(가) 제때 끝나지 않아 강제 종료됐습니다. '
+                    '되풀이되면 로봇을 재부팅하세요.',
+                  ),
+                  style: const TextStyle(fontSize: 12, color: ink, height: 1.5),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MicCheckRow extends StatelessWidget {
+  const _MicCheckRow({required this.status});
+
+  final ModeStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, color) = micCheckStateText(status, onModeSelect: true);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: VicaColors.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: VicaColors.border),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.tune, size: 22, color: VicaColors.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '마이크 점검',
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: VicaColors.text),
+                ),
+                Text(
+                  vicaKeepWords(label),
+                  style: TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w700, color: color),
+                ),
+              ],
+            ),
+          ),
+          MicCheckButton(status: status),
+        ],
+      ),
+    );
+  }
 }
 
 class _ModeCard extends StatelessWidget {
-  const _ModeCard({required this.mode, required this.state});
+  const _ModeCard({required this.mode, required this.state, this.onTap});
 
   final AppMode mode;
   final _CardState state;
+
+  /// null 이면 눌러도 아무 일도 없습니다(막힌 카드).
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final enabled = state.enabled;
     return Opacity(
       opacity: enabled ? 1 : 0.55,
-      child: Material(
+      child: PressScale(
+          child: Material(
         color: VicaColors.card,
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: enabled
-              ? () => context.read<AppModeProvider>().select(mode)
-              : null,
+          onTap: enabled ? onTap : null,
           child: Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -307,7 +886,7 @@ class _ModeCard extends StatelessWidget {
             ),
           ),
         ),
-      ),
+      )),
     );
   }
 }
@@ -390,8 +969,7 @@ class _UnknownNotice extends StatelessWidget {
           Expanded(
             child: Text(
               vicaKeepWords(vicaBreakAtSentences(
-                'ROS 에 연결하지 않아 로봇 상태를 확인할 수 없습니다. '
-                '모드 선택은 가능하지만 중복 실행 여부는 확인되지 않은 상태입니다.',
+                '오프라인 · 상태·중복 실행 확인 불가',
               )),
               style: const TextStyle(fontSize: 12),
             ),

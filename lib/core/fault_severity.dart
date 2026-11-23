@@ -146,7 +146,7 @@ String componentLabel(String component) {
     'lidar': 'LiDAR',
     'perception': '카메라 인식',
     'guidance': '핸들 및 초음파',
-    'voice': '음성 (노드 실행만 확인)',
+    'voice': '음성 LLM',
     'app': '앱 연결',
     'computer': '컴퓨터',
     'monitor': '상태 감시',

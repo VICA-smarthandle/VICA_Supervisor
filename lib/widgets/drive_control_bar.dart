@@ -38,22 +38,24 @@ class DriveControlBar extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: OutlinedButton.icon(
+          child: PressScale(
+              child: OutlinedButton.icon(
             onPressed: () => sendRobotCommand(
               context,
               paused ? supervisor.resumeNavigation : supervisor.pauseNavigation,
             ),
             icon: Icon(paused ? Icons.play_arrow : Icons.pause),
             label: Text(paused ? '다시 출발' : '일시정지'),
-          ),
+          )),
         ),
         const SizedBox(width: 10),
         Expanded(
-          child: OutlinedButton.icon(
+          child: PressScale(
+              child: OutlinedButton.icon(
             onPressed: () => _confirmCancel(context),
             icon: const Icon(Icons.cancel_outlined),
             label: Text(cancelLabel),
-          ),
+          )),
         ),
       ],
     );

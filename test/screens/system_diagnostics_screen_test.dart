@@ -85,7 +85,7 @@ void main() {
           findsOneWidget);
     });
 
-    testWidgets('활성 결함의 컴포넌트·등급·조치를 모두 보여준다', (tester) async {
+    testWidgets('활성 결함의 컴포넌트·등급·사유·코드를 보여주고 할 일은 숨긴다', (tester) async {
       final supervisor = _FakeSupervisor()..injectHealth(healthMsg());
       await tester
           .pumpWidget(wrap(const SystemDiagnosticsScreen(), supervisor));
@@ -93,9 +93,42 @@ void main() {
 
       expect(find.text('LiDAR'), findsWidgets);
       expect(find.text('주행 불가'), findsWidgets);
-      expect(find.text('LIDAR_SCAN_STALE'), findsOneWidget);
-      expect(find.textContaining(vicaKeepWords('2.1초')), findsOneWidget);
-      expect(find.textContaining(vicaKeepWords('USB 연결')), findsOneWidget);
+      expect(find.textContaining('LIDAR_SCAN_STALE'), findsOneWidget);
+      expect(
+          find.textContaining(vicaKeepWords('LiDAR 신호가 끊겼으니')), findsOneWidget);
+      expect(find.textContaining(vicaKeepWords('2.1초')), findsNothing);
+      expect(find.textContaining(vicaKeepWords('rplidar 노드')), findsNothing);
+    });
+
+    testWidgets('맨 위 한 줄 판정: 상태와 가장 높은 결함 부품', (tester) async {
+      final supervisor = _FakeSupervisor()..injectHealth(healthMsg());
+      await tester
+          .pumpWidget(wrap(const SystemDiagnosticsScreen(), supervisor));
+      await tester.pump();
+
+      expect(find.text('LiDAR · 결함 1건'), findsOneWidget);
+    });
+
+    testWidgets('항목 타일은 안 된 것이 앞에 온다', (tester) async {
+      final supervisor = _FakeSupervisor()..injectHealth(healthMsg());
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(390, 2400);
+      addTearDown(() {
+        tester.view.resetDevicePixelRatio();
+        tester.view.resetPhysicalSize();
+      });
+      await tester
+          .pumpWidget(wrap(const SystemDiagnosticsScreen(), supervisor));
+      await tester.pump();
+
+      final tileLidar = tester.getTopLeft(find.text('LiDAR').first);
+      final tileMotor = tester.getTopLeft(find.text('모터'));
+      expect(
+        tileLidar.dy < tileMotor.dy ||
+            (tileLidar.dy == tileMotor.dy && tileLidar.dx < tileMotor.dx),
+        isTrue,
+      );
+      expect(find.text('항목별 상태'), findsOneWidget);
     });
 
     testWidgets('발생 횟수와 지속 시간을 보여준다', (tester) async {
@@ -105,7 +138,7 @@ void main() {
       await tester.pump();
 
       expect(find.textContaining('3회'), findsOneWidget);
-      expect(find.textContaining('지속'), findsOneWidget);
+      expect(find.text('42초째'), findsOneWidget);
     });
 
     testWidgets('래치된 결함에 래치 배지를 붙인다', (tester) async {
@@ -167,8 +200,10 @@ void main() {
           .pumpWidget(wrap(const SystemDiagnosticsScreen(), supervisor));
       await tester.pump();
 
-      expect(find.textContaining('· 발생'), findsWidgets);
-      expect(find.textContaining('· 해소'), findsWidgets);
+      expect(find.text('최근 1시간'), findsOneWidget);
+      expect(find.text('발생 · LiDAR 주행 불가'), findsOneWidget);
+      expect(find.text('해소 · 모터'), findsOneWidget);
+      expect(find.textContaining('이력 더 보기'), findsNothing);
       expect(find.textContaining('지속 중'), findsNothing);
     });
 
@@ -181,8 +216,8 @@ void main() {
           .pumpWidget(wrap(const SystemDiagnosticsScreen(), supervisor));
       await tester.pump();
 
-      expect(find.textContaining('· 발생  ×4회'), findsOneWidget);
-      expect(find.textContaining('처음 '), findsOneWidget);
+      expect(find.text('발생 · LiDAR 주행 불가'), findsOneWidget);
+      expect(find.text('×4'), findsOneWidget);
     });
 
     testWidgets('다른 결함이 사이에 끼면 따로 접는다', (tester) async {
@@ -198,7 +233,7 @@ void main() {
       await tester.pump();
 
       expect(find.textContaining('×'), findsNothing);
-      expect(find.textContaining('· 발생'), findsNWidgets(3));
+      expect(find.textContaining('발생 ·'), findsNWidgets(3));
     });
   });
 
@@ -228,8 +263,9 @@ void main() {
       await tester.pump();
 
       expect(find.textContaining('주행 불가'), findsOneWidget);
-      expect(find.textContaining('LiDAR'), findsOneWidget);
-      expect(find.textContaining(vicaKeepWords('2.1초')), findsOneWidget);
+      expect(find.textContaining('LiDAR'), findsWidgets);
+      expect(
+          find.textContaining(vicaKeepWords('USB 연결을 확인해주세요')), findsOneWidget);
     });
 
     testWidgets('다른 결함 수를 함께 알린다', (tester) async {

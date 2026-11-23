@@ -1,0 +1,193 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../models/map_fix.dart';
+import '../models/vica_map.dart';
+import '../providers/settings_provider.dart';
+import '../providers/supervisor_provider.dart';
+import '../ros/ros_bridge_client.dart';
+import '../screens/map_erase_screen.dart';
+import '../screens/map_rescan_screen.dart';
+import 'map_fix_card.dart';
+import 'vica_ui.dart';
+
+class MapFixPanel extends StatefulWidget {
+  const MapFixPanel({
+    super.key,
+    required this.map,
+    required this.otherPanelOpen,
+    required this.onCloseOthers,
+  });
+
+  /// 지도 설정에서 보고 있는 지도.
+  final VicaMap map;
+
+  /// 지도 설정의 다른 칸이 펼쳐져 있는가. 그동안 이 칸은 접혀 있습니다.
+  final bool otherPanelOpen;
+
+  /// 펼쳐진 다른 칸을 접습니다(저장하지 않은 편집이 있으면 화면이 묻습니다).
+  final Future<bool> Function() onCloseOthers;
+
+  @override
+  State<MapFixPanel> createState() => _MapFixPanelState();
+}
+
+class _MapFixPanelState extends State<MapFixPanel> {
+  bool _expanded = false;
+  bool _busy = false;
+  bool _wasDriving = false;
+  String _note = '';
+
+  @override
+  void didUpdateWidget(MapFixPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.otherPanelOpen) {
+      _expanded = false;
+    }
+    if (oldWidget.map.mapId != widget.map.mapId) {
+      _note = '';
+      if (_expanded) {
+        _refresh();
+      }
+    }
+  }
+
+  Future<void> _toggle() async {
+    if (_expanded) {
+      setState(() => _expanded = false);
+      return;
+    }
+    if (widget.otherPanelOpen && !await widget.onCloseOthers()) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() => _expanded = true);
+    _refresh();
+  }
+
+  /// 잠금과 최근 수정을 로봇에 다시 묻습니다. 칸을 열 때와 수정이 끝날 때만 부릅니다.
+  Future<void> _refresh() async {
+    final supervisor = context.read<SupervisorProvider>();
+    final reply = await supervisor.refreshMapFix(widget.map.mapId);
+    if (!mounted) {
+      return;
+    }
+    setState(() => _note = reply.accepted ? '' : reply.message);
+  }
+
+  void _toast(String message) {
+    if (!mounted || message.trim().isEmpty) {
+      return;
+    }
+    final lines = message
+        .split('\n')
+        .map((line) => vicaKeepWords(vicaBreakAtSentences(line)));
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(lines.join('\n'))));
+  }
+
+  /// 지도 파일이 바뀐 뒤 — 기록과 지도 그림(그림 버전)을 다시 받습니다.
+  void _afterChange() {
+    final supervisor = context.read<SupervisorProvider>();
+    supervisor.requestMapList(context.read<SettingsProvider>().settings);
+    _refresh();
+  }
+
+  Future<void> _openErase() async {
+    final result = await Navigator.of(context).push<MapFixResult>(
+      MaterialPageRoute(builder: (_) => MapEraseScreen(map: widget.map)),
+    );
+    if (!mounted || result == null) {
+      return;
+    }
+    _toast(mapFixDoneMessage(result, done: '지웠습니다.'));
+    _afterChange();
+  }
+
+  Future<void> _openRescan() async {
+    final result = await Navigator.of(context).push<MapFixResult>(
+      MaterialPageRoute(builder: (_) => MapRescanScreen(map: widget.map)),
+    );
+    if (!mounted || result == null) {
+      return;
+    }
+    _toast(mapFixDoneMessage(result));
+    _afterChange();
+  }
+
+  Future<void> _undo() async {
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.undo,
+      title: vicaKeepWords('마지막 수정을 되돌릴까요?'),
+      confirmLabel: '되돌리기',
+      danger: true,
+    );
+    if (!confirmed || !mounted) {
+      return;
+    }
+    setState(() => _busy = true);
+    final reply = await context.read<SupervisorProvider>().mapFix(
+          widget.map.mapId,
+          'undo',
+        );
+    if (!mounted) {
+      return;
+    }
+    setState(() => _busy = false);
+    if (!reply.accepted) {
+      setState(() => _note = reply.message);
+      _toast(reply.message);
+      return;
+    }
+    _toast(mapFixDoneMessage(reply, done: '되돌렸습니다.'));
+    _afterChange();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final supervisor = context.watch<SupervisorProvider>();
+    final connected =
+        supervisor.connectionState == RosConnectionState.connected;
+    final robot = supervisor.primaryRobot;
+    final driving = robot != null &&
+        (robot.currentGoal.trim().isNotEmpty ||
+            !kMapFixIdleDialogStates.contains(robot.dialogState.trim()));
+    if (_wasDriving && !driving && _expanded) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _refresh();
+        }
+      });
+    }
+    _wasDriving = driving;
+
+    final status = supervisor.mapFixStatusFor(widget.map.mapId);
+    final word = mapFixStateWord(
+      connected: connected,
+      status: _expanded ? status : null,
+      driving: driving,
+    );
+    return VicaExpandPanel(
+      title: '지도 수정',
+      icon: Icons.auto_fix_high,
+      summary: word,
+      summaryColor: mapFixStateColor(word),
+      expanded: _expanded,
+      onTap: _toggle,
+      child: MapFixCard(
+        connected: connected,
+        status: status,
+        driving: driving,
+        busy: _busy,
+        note: _note,
+        onErase: _openErase,
+        onScan: _openRescan,
+        onUndo: _undo,
+      ),
+    );
+  }
+}

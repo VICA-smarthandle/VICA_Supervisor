@@ -117,6 +117,18 @@ void main() {
       expect(provider.delivery, isNull);
     });
 
+    test('번호 없는 장소도 연락처를 쓰면 문턱을 넘는다 — 모양이 틀리면 막는다(2026-11-17 B안)', () async {
+      expect(
+          await provider.startDelivery(const AppSettings(), _noPhone,
+              phone: '010-12'),
+          contains('모양이 아닙니다'));
+      final message = await provider
+          .startDelivery(const AppSettings(), _noPhone, phone: '010-9876-5432');
+      expect(message, isNot(contains('연락처가 없습니다')),
+          reason: '번호 문턱은 넘고 연결 문턱에서 멈춘다');
+      expect(provider.delivery, isNull);
+    });
+
     test('연결이 없으면 요청이 안 나가고 배송도 기억하지 않는다', () async {
       final message =
           await provider.startDelivery(const AppSettings(), _office);
@@ -133,6 +145,15 @@ void main() {
   });
 
   group('도착', () {
+    test('내 배송에 남긴 메시지가 도착 문자에 들어간다(2026-11-17)', () async {
+      provider.setDeliveryForTest(DeliveryJob(
+          destination: _office, startedAt: DateTime(2026), note: '서류 두 장입니다'));
+      provider.handleGoalEventForTest(goalEvent('goal_succeeded'));
+      await Future<void>.delayed(Duration.zero);
+      expect(notifier.lastText, '[305호] 비카 도착: 서류 두 장입니다');
+      expect(provider.pendingDeliveryNotice?.text, '[305호] 비카 도착: 서류 두 장입니다');
+    });
+
     test('내 목적지 도착에 문자를 한 번 보낸다', () async {
       provider.setDeliveryForTest(driving());
       provider.handleGoalEventForTest(goalEvent('goal_succeeded'));
@@ -245,6 +266,91 @@ void main() {
       expect(provider.pendingDeliveryNotice?.result.detail, '통신사 확인 없음');
     });
 
+    group('다른 화면 배송의 문자 결과(웹)', () {
+      late SupervisorProvider web;
+      setUp(() {
+        web = SupervisorProvider(
+          deliveryJobStore: MemoryDeliveryJobStore(),
+          showOtherScreenDeliveryNotices: true,
+        );
+        web.deliveryNotifierForTest = _CountingNotifier()
+          ..canSendNow = false
+          ..needsRelayNow = true;
+        web.handleLocationListForTest({
+          'map_id': 'm1',
+          'locations': [_office.toJson()],
+        });
+      });
+      tearDown(() => web.dispose());
+
+      test('폰이 보낸 배송의 결과를 같은 팝업으로 띄운다', () {
+        web.handleDeliverySmsResultForTest(relayed());
+        final notice = web.pendingDeliveryNotice;
+        expect(notice?.result.sent, isTrue);
+        expect(notice?.result.detail, '관리자 폰에서 보냈다');
+        expect(notice?.job.destination.name, '305호');
+        expect(notice?.job.destination.contactPhone, '01012345678');
+        expect(notice?.text, deliveryArrivalMessage('305호'));
+      });
+
+      test('같은 결과가 두 번 와도 팝업은 한 번이다', () {
+        web.handleDeliverySmsResultForTest(relayed());
+        web.consumeDeliveryNotice();
+        web.handleDeliverySmsResultForTest(relayed());
+        expect(web.pendingDeliveryNotice, isNull);
+      });
+
+      test('이 화면이 그 장소로 보낸 배송이면 다른 화면 팝업을 띄우지 않고 제 흐름에 넘긴다', () async {
+        web.setDeliveryForTest(driving());
+        web.handleDeliverySmsResultForTest(relayed());
+        expect(web.pendingDeliveryNotice, isNull,
+            reason: '결과가 도착 처리보다 먼저 온 경우');
+        web.handleGoalEventForTest(arrival());
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        expect(web.pendingDeliveryNotice?.result.detail, '관리자 폰에서 보냈다');
+      });
+
+      test('끝난 배송 기록이 같은 장소로 남아 있어도 폰이 보낸 배송의 팝업을 띄운다', () {
+        web.setDeliveryForTest(DeliveryJob(
+          destination: _office,
+          startedAt: DateTime(2026),
+          phase: DeliveryPhase.completed,
+        ));
+        web.handleDeliverySmsResultForTest(relayed());
+        expect(web.pendingDeliveryNotice?.result.detail, '관리자 폰에서 보냈다');
+      });
+
+      test('이 화면이 기다리다 놓친 결과가 늦게 와도 다른 화면 팝업으로 띄우지 않는다', () {
+        fakeAsync((async) {
+          web.setDeliveryForTest(driving());
+          web.handleGoalEventForTest(arrival());
+          async.flushMicrotasks();
+          async.elapse(deliverySmsRelayWait);
+          async.flushMicrotasks();
+          expect(web.pendingDeliveryNotice?.result.detail,
+              deliverySmsNoReplyDetail);
+          web.consumeDeliveryNotice();
+          web.handleDeliverySmsResultForTest(relayed());
+          expect(web.pendingDeliveryNotice, isNull);
+        });
+      });
+
+      test('장소를 목록에서 못 찾으면 팝업 없이 기록만 남긴다', () {
+        web.handleDeliverySmsResultForTest({
+          ...relayed(),
+          'location_id': 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+        });
+        expect(web.pendingDeliveryNotice, isNull);
+      });
+
+      test('웹이 아닌 화면(기본 폰)은 지금처럼 다른 화면 배송의 팝업을 띄우지 않는다', () {
+        injectOffice();
+        provider.handleDeliverySmsResultForTest(relayed());
+        expect(provider.pendingDeliveryNotice, isNull);
+      });
+    });
+
     test('결과가 기다림보다 먼저 와도 쓴다', () async {
       notifier.needsRelayNow = true;
       provider.setDeliveryForTest(driving());
@@ -280,6 +386,51 @@ void main() {
       expect(notifier.lastPhone, '01012345678');
       expect(notifier.lastText, contains('305호'));
       expect(provider.pendingDeliveryNotice, isNull, reason: '팝업은 배송을 보낸 화면에만');
+    });
+
+    test('다른 화면이 남긴 메시지를 대신 보내는 문자에 넣고, 한 번 쓰면 지운다', () async {
+      injectOffice();
+      provider.handleDeliveryNoteForTest({
+        'data':
+            '{"map_id": "m1", "location_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", '
+                '"note": "서류 두 장입니다", "sent_at": "2026-11-17T12:00:00"}',
+      });
+      provider.handleGoalEventForTest(arrival());
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(notifier.lastText, '[305호] 비카 도착: 서류 두 장입니다');
+      provider.handleGoalEventForTest(goalEvent('goal_succeeded',
+          delivery: true, stamp: '2026-11-17T13:00:00'));
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(notifier.calls, 2);
+      expect(notifier.lastText, deliveryArrivalMessage('305호'));
+    });
+
+    test('다른 화면이 바꾼 번호로 대신 보낸다', () async {
+      injectOffice();
+      provider.handleDeliveryNoteForTest({
+        'data':
+            '{"map_id": "m1", "location_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", '
+                '"note": "", "phone": "010-9876-5432"}',
+      });
+      provider.handleGoalEventForTest(arrival());
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(notifier.lastPhone, '01098765432');
+      expect(notifier.lastText, deliveryArrivalMessage('305호'));
+    });
+
+    test('다른 장소의 메시지는 쓰지 않는다', () async {
+      injectOffice();
+      provider.handleDeliveryNoteForTest({
+        'data':
+            '{"map_id": "m1", "location_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "note": "다른 방"}',
+      });
+      provider.handleGoalEventForTest(arrival());
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(notifier.lastText, deliveryArrivalMessage('305호'));
     });
 
     test('같은 도착이 두 번 와도 대신 보내기는 한 번이다', () async {

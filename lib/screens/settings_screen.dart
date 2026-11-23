@@ -347,7 +347,8 @@ class SettingsSaveButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FilledButton.icon(
+    return PressScale(
+        child: FilledButton.icon(
       onPressed: onPressed,
       style: FilledButton.styleFrom(
         minimumSize: const Size(0, 38),
@@ -356,7 +357,7 @@ class SettingsSaveButton extends StatelessWidget {
       ),
       icon: const Icon(Icons.check, size: 18),
       label: const Text('저장'),
-    );
+    ));
   }
 }
 
@@ -405,7 +406,8 @@ class _SettingsCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            InkWell(
+            PressScale(
+                child: InkWell(
               onTap: onToggle,
               child: Padding(
                 padding: EdgeInsets.fromLTRB(18, 16, 18, expanded ? 8 : 16),
@@ -436,7 +438,7 @@ class _SettingsCard extends StatelessWidget {
                   ],
                 ),
               ),
-            ),
+            )),
             if (expanded) ...[
               ...items,
               const SizedBox(height: 6),
@@ -507,7 +509,7 @@ class _ValueRow extends StatelessWidget {
     if (onTap == null) {
       return padded;
     }
-    return InkWell(onTap: onTap, child: padded);
+    return PressScale(child: InkWell(onTap: onTap, child: padded));
   }
 }
 
@@ -607,17 +609,19 @@ class _EditSheet extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: OutlinedButton(
+                child: PressScale(
+                    child: OutlinedButton(
                   onPressed: () => Navigator.of(context).pop(false),
                   child: const Text('취소'),
-                ),
+                )),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: FilledButton(
+                child: PressScale(
+                    child: FilledButton(
                   onPressed: () => Navigator.of(context).pop(true),
                   child: const Text('확인'),
-                ),
+                )),
               ),
             ],
           ),

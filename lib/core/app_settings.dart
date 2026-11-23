@@ -18,6 +18,12 @@ class AppSettings {
     this.missionPauseService = '/vica/mission/pause_navigation',
     this.missionResumeService = '/vica/mission/resume_navigation',
     this.missionHelpAckService = '/vica/mission/help_ack',
+    this.patrolStartService = '/vica/mission/patrol_start',
+    this.patrolStopService = '/vica/mission/patrol_stop',
+    this.patrolAckService = '/vica/mission/patrol_ack',
+    this.patrolRecordsClearService = '/vica/mission/patrol_records_clear',
+    this.patrolRouteSaveService = '/vica/patrol/route/save',
+    this.patrolRouteGetService = '/vica/patrol/route/get',
     this.deleteMapService = '/delete_map',
     this.renameMapService = '/rename_map',
     this.mappingStatusTopic = '/vica/mapping_status',
@@ -39,6 +45,7 @@ class AppSettings {
     this.routeStateTopic = '/vica/route/state',
     this.routeSavedTopic = '/vica/route/saved',
     this.deliverySmsResultTopic = '/vica/delivery/sms_result',
+    this.deliveryNoteTopic = '/vica/delivery/note',
     this.missionReturnHomeService = '/vica/mission/return_home',
     this.goalEventTopic = '/vica_goal_event',
     this.robotStatusTopic = '/robot_status',
@@ -98,6 +105,9 @@ class AppSettings {
   /// 관리자 유심 폰이 다른 화면(웹 등)에서 보낸 배송의 도착 문자를 대신 보내고 그 결과를
   final String deliverySmsResultTopic;
 
+  /// 배송을 보낸 화면이 받는 분께 남긴 메시지를 싣는 토픽(2026-11-17). 대신 보내는 관리자 유심 폰이
+  final String deliveryNoteTopic;
+
   final String missionReturnHomeService;
 
   final String goalEventTopic;
@@ -109,6 +119,12 @@ class AppSettings {
   final String missionPauseService;
   final String missionResumeService;
   final String missionHelpAckService;
+  final String patrolStartService;
+  final String patrolStopService;
+  final String patrolAckService;
+  final String patrolRecordsClearService;
+  final String patrolRouteSaveService;
+  final String patrolRouteGetService;
   final String robotStatusTopic;
   final String emergencyActivateService;
   final String emergencyResetService;
@@ -156,6 +172,7 @@ class AppSettings {
     String? routeStateTopic,
     String? routeSavedTopic,
     String? deliverySmsResultTopic,
+    String? deliveryNoteTopic,
     String? missionReturnHomeService,
     String? goalEventTopic,
     String? missionRequestService,
@@ -165,6 +182,12 @@ class AppSettings {
     String? missionPauseService,
     String? missionResumeService,
     String? missionHelpAckService,
+    String? patrolStartService,
+    String? patrolStopService,
+    String? patrolAckService,
+    String? patrolRecordsClearService,
+    String? patrolRouteSaveService,
+    String? patrolRouteGetService,
     String? robotStatusTopic,
     String? emergencyActivateService,
     String? emergencyResetService,
@@ -215,6 +238,7 @@ class AppSettings {
       routeSavedTopic: routeSavedTopic ?? this.routeSavedTopic,
       deliverySmsResultTopic:
           deliverySmsResultTopic ?? this.deliverySmsResultTopic,
+      deliveryNoteTopic: deliveryNoteTopic ?? this.deliveryNoteTopic,
       missionReturnHomeService:
           missionReturnHomeService ?? this.missionReturnHomeService,
       goalEventTopic: goalEventTopic ?? this.goalEventTopic,
@@ -229,6 +253,15 @@ class AppSettings {
       missionResumeService: missionResumeService ?? this.missionResumeService,
       missionHelpAckService:
           missionHelpAckService ?? this.missionHelpAckService,
+      patrolStartService: patrolStartService ?? this.patrolStartService,
+      patrolStopService: patrolStopService ?? this.patrolStopService,
+      patrolAckService: patrolAckService ?? this.patrolAckService,
+      patrolRecordsClearService:
+          patrolRecordsClearService ?? this.patrolRecordsClearService,
+      patrolRouteSaveService:
+          patrolRouteSaveService ?? this.patrolRouteSaveService,
+      patrolRouteGetService:
+          patrolRouteGetService ?? this.patrolRouteGetService,
       robotStatusTopic: robotStatusTopic ?? this.robotStatusTopic,
       emergencyActivateService:
           emergencyActivateService ?? this.emergencyActivateService,
@@ -304,6 +337,12 @@ class AppSettings {
       'missionPauseService': missionPauseService,
       'missionResumeService': missionResumeService,
       'missionHelpAckService': missionHelpAckService,
+      'patrolStartService': patrolStartService,
+      'patrolStopService': patrolStopService,
+      'patrolAckService': patrolAckService,
+      'patrolRecordsClearService': patrolRecordsClearService,
+      'patrolRouteSaveService': patrolRouteSaveService,
+      'patrolRouteGetService': patrolRouteGetService,
       'robotStatusTopic': robotStatusTopic,
       'emergencyActivateService': emergencyActivateService,
       'emergencyResetService': emergencyResetService,
@@ -369,6 +408,18 @@ class AppSettings {
           defaults.missionResumeService,
       missionHelpAckService: json['missionHelpAckService'] as String? ??
           defaults.missionHelpAckService,
+      patrolStartService:
+          json['patrolStartService'] as String? ?? defaults.patrolStartService,
+      patrolStopService:
+          json['patrolStopService'] as String? ?? defaults.patrolStopService,
+      patrolAckService:
+          json['patrolAckService'] as String? ?? defaults.patrolAckService,
+      patrolRecordsClearService: json['patrolRecordsClearService'] as String? ??
+          defaults.patrolRecordsClearService,
+      patrolRouteSaveService: json['patrolRouteSaveService'] as String? ??
+          defaults.patrolRouteSaveService,
+      patrolRouteGetService: json['patrolRouteGetService'] as String? ??
+          defaults.patrolRouteGetService,
       robotStatusTopic:
           json['robotStatusTopic'] as String? ?? defaults.robotStatusTopic,
       emergencyActivateService: json['emergencyActivateService'] as String? ??

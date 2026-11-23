@@ -514,7 +514,10 @@ REAL_TEMPLATES = sorted(p.stem for p in rt.TEMPLATE_DIR.glob("*.json")
 def test_real_templates_follow_the_home_standard(tmp_path, name):
     tpl = rt.load_template(name)
     nodes = {n["id"]: (n["forward"], n["left"]) for n in tpl["nodes"]}
-    assert nodes[2] == pytest.approx((-0.30, 0.30), abs=1e-3)
+    assert nodes[1] == pytest.approx((0.0, 0.0), abs=1e-3)
+    assert nodes[2][1] == pytest.approx(0.0, abs=1e-3) and nodes[2][0] > 0
+    assert nodes[4][0] == pytest.approx(0.0, abs=1e-3) and nodes[4][1] > 0
+    assert nodes[3][0] == pytest.approx(nodes[2][0], abs=1e-3)
     fs, ls = [f for f, _ in nodes.values()], [l for _, l in nodes.values()]
     assert tpl["zone"] == pytest.approx({"forward_min": min(fs) - rt.ZONE_END_M, "forward_max": max(fs) + rt.ZONE_END_M,
                                          "left_min": min(ls) - rt.ZONE_SIDE_M, "left_max": max(ls) + rt.ZONE_SIDE_M},
@@ -525,7 +528,7 @@ def test_real_templates_follow_the_home_standard(tmp_path, name):
     home = (6.0, 4.0, 0.0)
     g = rb.process_sketch(rb.MapGrid(tmp_path, "room"), rt.place_sketch(tpl, home))["graph"]
     near = min(math.dist(p, home[:2]) for a, b in g.edges() for p in rb._samples(g.nodes[a], g.nodes[b]))
-    assert 0.45 < near < 0.55
+    assert near < 0.01
 
 
 def _real_node_writer(maps, shift=0.0):

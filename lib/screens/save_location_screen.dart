@@ -5,10 +5,10 @@ import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/app_settings.dart';
-import '../core/contact_phone.dart';
 import '../core/location_edit.dart';
 import '../core/wait_spot_geometry.dart';
 import '../core/destination_categories.dart';
+import '../models/dock_state.dart';
 import '../models/home_position.dart';
 import '../models/location_point.dart';
 import '../models/pose_check_result.dart';
@@ -16,24 +16,39 @@ import '../models/vica_map.dart';
 import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../ros/ros_bridge_client.dart';
+import '../widgets/dock_dialogs.dart';
+import '../widgets/dock_position_card.dart';
 import '../widgets/home_position_card.dart';
 import '../widgets/initial_pose_card.dart' show PoseDirection;
 import '../widgets/keepout_card.dart';
+import '../widgets/drive_map_change.dart';
 import '../widgets/map_canvas.dart';
 import '../widgets/map_picker.dart';
+import '../widgets/map_work_layout.dart';
 import '../models/route_graph.dart' show kRailHandoffMeters;
 import '../widgets/rail_card.dart';
 import '../widgets/rail_far_place_dialog.dart';
 import '../widgets/route_dialogs.dart';
 import '../widgets/map_delete_card.dart';
+import '../widgets/map_fix_panel.dart';
 import '../widgets/vica_ui.dart';
 import '../widgets/wait_spot_overlay.dart';
 
 /// 지도 설정 화면에서 한 번에 하나만 펼치는 칸입니다.
-enum _SettingsPanel { none, location, home, keepout, rail, mapDelete }
+enum _SettingsPanel { none, location, home, dock, keepout, rail, mapDelete }
 
 class SaveLocationScreen extends StatefulWidget {
-  const SaveLocationScreen({super.key});
+  const SaveLocationScreen({
+    super.key,
+    this.onOpenDrive,
+    this.dockPanelRequest = 0,
+  });
+
+  /// 원격 주행 탭으로 보냅니다 — 도크 인식 저장이 '초기 위치를 잡아 주세요'로 실패했을 때의
+  final VoidCallback? onOpenDrive;
+
+  /// 0 보다 크면 도크 위치 칸을 펼친 채로 열고, 값이 오를 때마다 다시 펼칩니다 — 도킹 실패
+  final int dockPanelRequest;
 
   @override
   State<SaveLocationScreen> createState() => _SaveLocationScreenState();
@@ -47,7 +62,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   final _buildingController = TextEditingController();
   final _floorController = TextEditingController();
   final _ownerController = TextEditingController();
-  final _contactPhoneController = TextEditingController();
+  String _keptContactPhone = '';
   final _unavailableReasonController = TextEditingController();
 
   Offset? _pickedRos;
@@ -63,6 +78,10 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   PoseCheckResult? _homeStanding;
   SupervisorProvider? _homeStandingFrom;
   bool _homeSending = false;
+  bool _dockPicking = false;
+  Offset? _dockPickDock;
+  Offset? _dockPickFront;
+
   String? _editingLocationId;
   LocationPoint? _editingSaved;
   String? _category1;
@@ -88,6 +107,41 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   static const _moveStepM = 0.05;
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.dockPanelRequest > 0) {
+      _panel = _SettingsPanel.dock;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        final supervisor = context.read<SupervisorProvider>();
+        final mapId = supervisor.selectedMap?.mapId;
+        if (mapId != null) {
+          supervisor.refreshDockSpot(
+            context.read<SettingsProvider>().settings,
+            mapId,
+          );
+        }
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(SaveLocationScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.dockPanelRequest > oldWidget.dockPanelRequest &&
+        _panel != _SettingsPanel.dock) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _panel != _SettingsPanel.dock) {
+          _openPanel(
+              context, context.read<SupervisorProvider>(), _SettingsPanel.dock);
+        }
+      });
+    }
+  }
+
+  @override
   void dispose() {
     final standing = _homeStanding;
     final standingFrom = _homeStandingFrom;
@@ -101,7 +155,6 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     _buildingController.dispose();
     _floorController.dispose();
     _ownerController.dispose();
-    _contactPhoneController.dispose();
     _unavailableReasonController.dispose();
     super.dispose();
   }
@@ -118,6 +171,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
         draftAny != null && draftAny.mapId == map?.mapId ? draftAny : null;
     final pickedLocation =
         (draft != null || map == null) ? null : _previewLocation(map.mapId);
+    final dockLocked = supervisor.dockOnOtherMap(map?.mapId);
     final railEditing = map != null &&
         _panel == _SettingsPanel.rail &&
         supervisor.routeEditing &&
@@ -191,8 +245,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       );
     }
 
-    return VicaPage(
-      title: '지도 설정',
+    return MapWorkLayout(
       children: [
         MapPickerRow(
           supervisor: supervisor,
@@ -206,6 +259,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
           refreshLabel: const Text('새로고침'),
         ),
         const SizedBox(height: 18),
+        DriveMapBanner(viewedMapId: supervisor.selectedMapId),
         if (map == null)
           const NoMapCard()
         else ...[
@@ -258,6 +312,9 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                       : pickedLocation,
               poseArrow: _homeArrow(settings),
               homePoint: supervisor.homePointFor(map.mapId),
+              dockPoint:
+                  _dockPicking ? null : supervisor.dockPointFor(map.mapId),
+              dockPick: dockLocked ? null : _dockPickMark(),
               onTapMap: (ros) {
                 if (railEditing) {
                   supervisor.routeTap(ros);
@@ -265,6 +322,12 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                 }
                 if (_homeMode == HomeCardMode.picking) {
                   setState(() => _homePicked = ros);
+                  return;
+                }
+                if (_dockPicking && _panel == _SettingsPanel.dock) {
+                  if (!dockLocked) {
+                    _dockPickTap(ros);
+                  }
                   return;
                 }
                 if (_panel != _SettingsPanel.location) {
@@ -344,6 +407,29 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
             ),
           ),
           VicaExpandPanel(
+            title: '도크 위치',
+            icon: Icons.power,
+            summary: supervisor.dockSpotFor(map.mapId) != null ? '지정됨' : '없음',
+            expanded: _panel == _SettingsPanel.dock,
+            onTap: () => _openPanel(context, supervisor, _SettingsPanel.dock),
+            child: DockPositionCard(
+              spot: supervisor.dockSpotFor(map.mapId),
+              busy: supervisor.dockBusy,
+              canSendRobot: _canSendRobot(supervisor),
+              blockedReason: _blockedReason(supervisor),
+              onSave: () => _saveDock(context, supervisor, map.mapId),
+              onTryDock: () => _tryDock(context, supervisor),
+              onDelete: () =>
+                  _confirmDeleteDock(context, supervisor, map.mapId),
+              locked: dockLocked,
+              pickStage: dockLocked ? DockPickStage.none : _dockPickStage,
+              onStartMapPick: _startDockPick,
+              onPickAgain: _startDockPick,
+              onPickCancel: () => setState(_foldDockWork),
+              onPickSave: () => _saveDockPick(context, supervisor, map.mapId),
+            ),
+          ),
+          VicaExpandPanel(
             title: '금지구역',
             icon: Icons.block_outlined,
             summary: '${supervisor.keepoutZonesFor(map.mapId).length}개',
@@ -407,6 +493,14 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
               onTool: supervisor.setRouteTool,
             ),
           ),
+          MapFixPanel(
+            map: map,
+            otherPanelOpen: _panel != _SettingsPanel.none,
+            onCloseOthers: () async {
+              await _openPanel(context, supervisor, _SettingsPanel.none);
+              return _panel == _SettingsPanel.none;
+            },
+          ),
           VicaExpandPanel(
             title: '지도 관리',
             icon: Icons.delete_outline,
@@ -451,6 +545,13 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
         supervisor.requestRouteInfo(settings, mapId);
       }
     }
+    if (target == _SettingsPanel.dock && context.mounted) {
+      final settings = context.read<SettingsProvider>().settings;
+      final mapId = supervisor.selectedMap?.mapId;
+      if (mapId != null) {
+        supervisor.refreshDockSpot(settings, mapId);
+      }
+    }
 
     setState(() {
       _panel = target;
@@ -459,6 +560,9 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       }
       if (target != _SettingsPanel.home) {
         _foldHomeWork(supervisor);
+      }
+      if (target != _SettingsPanel.dock) {
+        _foldDockWork();
       }
     });
   }
@@ -511,6 +615,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     setState(() {
       _foldLocationWork();
       _foldHomeWork(supervisor);
+      _foldDockWork();
       _deleteTargetId = null;
     });
     supervisor.selectMap(settings, mapId);
@@ -566,6 +671,78 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     _homeMode = HomeCardMode.idle;
     _homePicked = null;
     _homeDirection = null;
+  }
+
+  void _foldDockWork() {
+    _dockPicking = false;
+    _dockPickDock = null;
+    _dockPickFront = null;
+  }
+
+  DockPickStage get _dockPickStage {
+    if (!_dockPicking) {
+      return DockPickStage.none;
+    }
+    if (_dockPickDock == null) {
+      return DockPickStage.dock;
+    }
+    return _dockPickFront == null ? DockPickStage.front : DockPickStage.preview;
+  }
+
+  /// '지도에서 지정'·'다시 지정' — 1 / 2 부터 다시 받습니다. 도크 위치 칸이 펼쳐져 있을 때만
+  void _startDockPick() {
+    if (_panel != _SettingsPanel.dock) {
+      return;
+    }
+    setState(() {
+      _dockPicking = true;
+      _dockPickDock = null;
+      _dockPickFront = null;
+    });
+  }
+
+  /// 인식 저장 실패 팝업의 '지도에서 지정'. 로봇의 답을 기다리는 사이 다른 칸으로 넘어갔을 수 있어,
+  Future<void> _startDockPickFromDialog(
+    BuildContext context,
+    SupervisorProvider supervisor,
+  ) async {
+    if (_panel != _SettingsPanel.dock) {
+      await _openPanel(context, supervisor, _SettingsPanel.dock);
+      if (!mounted) {
+        return;
+      }
+    }
+    _startDockPick();
+  }
+
+  /// 지정하는 중의 지도 누름. 첫 누름은 도크 구조물, 둘째 누름은 도크 앞쪽입니다.
+  void _dockPickTap(Offset ros) {
+    final dock = _dockPickDock;
+    if (dock == null) {
+      setState(() => _dockPickDock = ros);
+      return;
+    }
+    if (_dockPickFront != null || !DockMapPick.farEnough(dock, ros)) {
+      return;
+    }
+    setState(() => _dockPickFront = ros);
+  }
+
+  /// 지도에 그릴 지정 중 표시. 도크를 누르기 전에는 없습니다.
+  MapDockPick? _dockPickMark() {
+    final dock = _dockPickDock;
+    if (!_dockPicking || dock == null) {
+      return null;
+    }
+    final front = _dockPickFront;
+    if (front == null) {
+      return MapDockPick(dock: dock);
+    }
+    return MapDockPick(
+      dock: dock,
+      staging: DockMapPick(dock: dock, front: front).staging,
+      second: front,
+    );
   }
 
   void _dropHomeStanding(SupervisorProvider supervisor) {
@@ -736,7 +913,8 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
           const SizedBox(height: 14),
           _DraftSummary(location: draft),
           const SizedBox(height: 12),
-          OutlinedButton.icon(
+          PressScale(
+              child: OutlinedButton.icon(
             onPressed: () => _editDraft(
               context,
               supervisor,
@@ -746,13 +924,14 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
             ),
             icon: const Icon(Icons.edit_outlined),
             label: const Text('임시 저장 장소 수정'),
-          ),
+          )),
           const SizedBox(height: 10),
-          FilledButton.icon(
+          PressScale(
+              child: FilledButton.icon(
             onPressed: () => _saveDraftToRos(context, supervisor, settings),
             icon: const Icon(Icons.cloud_upload),
             label: const Text('ROS2에 장소 저장'),
-          ),
+          )),
         ],
       ],
     );
@@ -799,28 +978,31 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       Row(
         children: [
           Expanded(
-            child: OutlinedButton.icon(
+            child: PressScale(
+                child: OutlinedButton.icon(
               onPressed: draft != null
                   ? null
                   : () => _editSavedLocation(context, target, settings),
               icon: const Icon(Icons.edit_location_alt_outlined),
               label: Text(vicaKeepWords('선택 장소 수정')),
-            ),
+            )),
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: OutlinedButton.icon(
+            child: PressScale(
+                child: OutlinedButton.icon(
               onPressed: () =>
                   _deleteDestination(context, supervisor, settings, target),
               icon: const Icon(Icons.delete_outline),
               label: Text(vicaKeepWords('선택 장소 삭제')),
-            ),
+            )),
           ),
         ],
       ),
       if (spot == null) ...[
         const SizedBox(height: 10),
-        OutlinedButton(
+        PressScale(
+            child: OutlinedButton(
           onPressed: target.doorYaw == null || draft != null
               ? null
               : () => _startWaitPick(target),
@@ -829,7 +1011,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
             side: const BorderSide(color: VicaColors.primary),
           ),
           child: Text(vicaKeepWords('${target.name}에 대기 장소 추가')),
-        ),
+        )),
         if (target.doorYaw == null) ...[
           const SizedBox(height: 6),
           _hint('입구 방향이 없어 대기 장소를 정할 수 없습니다. '
@@ -880,30 +1062,33 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
         ),
       ]),
       const SizedBox(height: 12),
-      FilledButton.icon(
+      PressScale(
+          child: FilledButton.icon(
         onPressed: _canSendRobot(supervisor)
             ? () => _goTryWaitSpot(context, supervisor, settings, target)
             : null,
         icon: const Icon(Icons.near_me_outlined),
         label: Text(vicaKeepWords('대기 장소로 가보기 (확인용)')),
-      ),
+      )),
       const SizedBox(height: 10),
       Row(
         children: [
           Expanded(
-            child: OutlinedButton(
+            child: PressScale(
+                child: OutlinedButton(
               onPressed: () => _startWaitPick(target, keep: true),
               child: Text(vicaKeepWords('대기 장소 옮기기')),
-            ),
+            )),
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: OutlinedButton(
+            child: PressScale(
+                child: OutlinedButton(
               onPressed: () =>
                   _removeWaitSpot(context, supervisor, settings, target),
               style: OutlinedButton.styleFrom(foregroundColor: VicaColors.red),
               child: Text(vicaKeepWords('대기 장소만 지우기')),
-            ),
+            )),
           ),
         ],
       ),
@@ -1009,7 +1194,8 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
         Row(
           children: [
             Expanded(
-              child: FilledButton(
+              child: PressScale(
+                  child: FilledButton(
                 onPressed: _doorDirection == null
                     ? null
                     : () => _showLocationInfoSheet(
@@ -1021,14 +1207,15 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                 child: Text(vicaKeepWords(
                   editing == null ? '장소 정보 입력' : '수정 내용 입력',
                 )),
-              ),
+              )),
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: OutlinedButton(
+              child: PressScale(
+                  child: OutlinedButton(
                 onPressed: _clearPickedLocation,
                 child: Text(editing == null ? '선택 취소' : '수정 취소'),
-              ),
+              )),
             ),
           ],
         ),
@@ -1131,7 +1318,8 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
           children: [
             Expanded(
               flex: 2,
-              child: FilledButton(
+              child: PressScale(
+                  child: FilledButton(
                 onPressed: canSave
                     ? () => _saveWaitSpot(
                           context,
@@ -1147,14 +1335,15 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                         )
                     : null,
                 child: Text(vicaKeepWords('대기 장소 저장')),
-              ),
+              )),
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: OutlinedButton(
+              child: PressScale(
+                  child: OutlinedButton(
                 onPressed: () => setState(_clearWaitPick),
                 child: const Text('취소'),
-              ),
+              )),
             ),
           ],
         ),
@@ -1333,7 +1522,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
 
   /// 새 목적지를 젯슨에 저장한 직후 묻습니다(목업 3).
   Future<void> _askWaitSpot(BuildContext context, LocationPoint saved) async {
-    final pick = await showDialog<bool>(
+    final pick = await showVicaDialog<bool>(
       context: context,
       builder: (dialogContext) => VicaDialog(
         icon: Icons.place_outlined,
@@ -1344,15 +1533,17 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const SizedBox(height: 4),
-            FilledButton(
+            PressScale(
+                child: FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
               child: const Text('대기 장소 찍기'),
-            ),
+            )),
             const SizedBox(height: 8),
-            OutlinedButton(
+            PressScale(
+                child: OutlinedButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
               child: const Text('지정하지 않기'),
-            ),
+            )),
           ],
         ),
       ),
@@ -1659,7 +1850,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   /// 홈에 붙일 이름을 묻습니다. 비워도 됩니다 — 로봇은 쓰지 않습니다.
   Future<String?> _askHomeLabel(BuildContext context) async {
     final controller = TextEditingController();
-    final value = await showDialog<String>(
+    final value = await showVicaDialog<String>(
       context: context,
       builder: (dialogContext) => VicaDialog(
         icon: Icons.home_outlined,
@@ -1677,10 +1868,11 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
             onPressed: () => Navigator.of(dialogContext).pop(''),
             label: '이름 없이 저장',
           ),
-          FilledButton(
+          PressScale(
+              child: FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(controller.text),
             child: const Text('저장'),
-          ),
+          )),
         ],
       ),
     );
@@ -1706,6 +1898,163 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       return;
     }
     final message = await supervisor.returnHome(settings);
+    if (context.mounted) {
+      _toast(message);
+    }
+  }
+
+  /// '도크 인식해서 저장'(2026-11-19, 목업 84~88). 실패하면 사유에 맞는 팝업을 띄우고,
+  Future<void> _saveDock(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    String mapId,
+  ) async {
+    final settings = context.read<SettingsProvider>().settings;
+    while (context.mounted) {
+      final result = await supervisor.registerDock(settings, mapId);
+      if (!context.mounted) {
+        return;
+      }
+      if (result.ok) {
+        _toast(vicaKeepWords(result.savedText));
+        return;
+      }
+      final DockSaveFailChoice choice;
+      if (result.driveOff) {
+        await showDockDriveOffDialog(context);
+        return;
+      }
+      switch (result.reason) {
+        case 'not_found':
+          choice = await showDockNotFoundDialog(
+            context,
+            savedDockHint: _savedDockHint(supervisor, mapId),
+          );
+        case 'unstable':
+          choice = await showDockUnstableDialog(context, result: result);
+        case 'no_amcl':
+          choice = await showDockNoPoseDialog(context);
+        default:
+          _toast(vicaKeepWords(_dockSaveFailText(result.reason)));
+          return;
+      }
+      if (!context.mounted) {
+        return;
+      }
+      switch (choice) {
+        case DockSaveFailChoice.retry:
+          continue;
+        case DockSaveFailChoice.mapPick:
+          await _startDockPickFromDialog(context, supervisor);
+          return;
+        case DockSaveFailChoice.initialPose:
+          widget.onOpenDrive?.call();
+          return;
+        case DockSaveFailChoice.close:
+          return;
+      }
+    }
+  }
+
+  /// 팝업이 따로 없는 저장 실패(연결 없음·도킹 중·쓰기 실패 등)의 짧은 알림.
+  String _dockSaveFailText(String reason) => switch (reason) {
+        'not_connected' => kDockNotConnectedText,
+        'busy' => '로봇이 도킹 일을 하는 중입니다. 끝난 뒤 다시 저장하세요.',
+        _ => '도크 위치를 저장하지 못했습니다($reason).',
+      };
+
+  /// 도크를 찾지 못했을 때, 이미 저장된 도크가 로봇의 어느 쪽에 있는지(목업 86 회색 칸).
+  String? _savedDockHint(SupervisorProvider supervisor, String mapId) {
+    final spot = supervisor.dockSpotFor(mapId);
+    final robot = supervisor.primaryRobot;
+    if (spot == null || robot == null || robot.mapId != mapId) {
+      return null;
+    }
+    return savedDockHint(
+      dockX: spot.dockedX,
+      dockY: spot.dockedY,
+      robotX: robot.x,
+      robotY: robot.y,
+      robotYawDeg: robot.yaw,
+    );
+  }
+
+  /// '이 자리로 저장'(목업 90′) — 지도에서 누른 도크와 방향을 로봇에 보냅니다. 준비 위치는
+  Future<void> _saveDockPick(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    String mapId,
+  ) async {
+    final dock = _dockPickDock;
+    final front = _dockPickFront;
+    if (dock == null || front == null) {
+      return;
+    }
+    final settings = context.read<SettingsProvider>().settings;
+    final result = await supervisor.setDockFromMap(
+      settings,
+      mapId: mapId,
+      x: dock.dx,
+      y: dock.dy,
+      yawDeg: DockMapPick(dock: dock, front: front).fwdDeg,
+    );
+    if (!context.mounted) {
+      return;
+    }
+    if (result.ok) {
+      setState(_foldDockWork);
+      _toast(vicaKeepWords(kDockMapSavedText));
+      return;
+    }
+    if (isDockDriveOff(result.reason)) {
+      await showDockDriveOffDialog(context, saving: true);
+      return;
+    }
+    _toast(vicaKeepWords(_dockSaveFailText(result.reason)));
+  }
+
+  /// '도킹해 보기' — 원격 주행의 '도킹 시작'과 같은 요청입니다. 성공하면 '가 본 자리'가 됩니다.
+  Future<void> _tryDock(
+      BuildContext context, SupervisorProvider supervisor) async {
+    final settings = context.read<SettingsProvider>().settings;
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.power,
+      title: '도킹해 보기',
+      body: '로봇이 도크 앞으로 이동한 뒤 도크에 들어갑니다. '
+          '경로에 사람과 장애물이 없는지 확인하세요.\n\n'
+          '제대로 들어가면 이 도크 위치는 "가 본 자리"로 기록됩니다.',
+      confirmLabel: '시작',
+    );
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+    final message = await supervisor.startDocking(settings);
+    if (context.mounted) {
+      _toast(message);
+    }
+  }
+
+  Future<void> _confirmDeleteDock(
+    BuildContext context,
+    SupervisorProvider supervisor,
+    String mapId,
+  ) async {
+    final settings = context.read<SettingsProvider>().settings;
+    final confirmed = await showVicaConfirm(
+      context,
+      icon: Icons.delete_outline,
+      iconColor: VicaColors.red,
+      title: '도크 위치 지우기',
+      body: '도크 위치를 지우면 원격 주행의 \'도킹 시작\' 버튼이 사라집니다. '
+          '도크 구조물은 그대로입니다.',
+      confirmLabel: '삭제',
+      danger: true,
+    );
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+    final message = await supervisor.deleteDock(settings, mapId);
     if (context.mounted) {
       _toast(message);
     }
@@ -1753,7 +2102,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     final meters =
         supervisor.routeGraphFor(draft.mapId)?.distanceTo(draft.x, draft.y);
     if (meters != null && meters > kRailHandoffMeters && context.mounted) {
-      final editRail = await showDialog<bool>(
+      final editRail = await showVicaDialog<bool>(
         context: context,
         builder: (_) => RailFarPlaceDialog(name: draft.name, meters: meters),
       );
@@ -1972,19 +2321,6 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                             ),
                           ],
                           const SizedBox(height: 10),
-                          TextFormField(
-                            controller: _contactPhoneController,
-                            keyboardType: TextInputType.phone,
-                            decoration: const InputDecoration(
-                              labelText: '도착 문자 연락처 (선택)',
-                              hintText: '예: 010-1234-5678 · 비우면 배송 대상 제외',
-                            ),
-                            validator: (value) =>
-                                normalizeContactPhone(value ?? '') == null
-                                    ? '휴대폰 번호 모양이 아닙니다 (010-0000-0000).'
-                                    : null,
-                          ),
-                          const SizedBox(height: 10),
                           DropdownButtonFormField<String>(
                             initialValue: _authorization,
                             decoration:
@@ -2054,7 +2390,8 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                             },
                           ),
                           const SizedBox(height: 14),
-                          FilledButton.icon(
+                          PressScale(
+                              child: FilledButton.icon(
                             onPressed: _pickedRos == null
                                 ? null
                                 : () {
@@ -2102,13 +2439,14 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
                                       ? '임시 저장'
                                       : '수정 내용 저장',
                             ),
-                          ),
+                          )),
                           const SizedBox(height: 10),
-                          OutlinedButton.icon(
+                          PressScale(
+                              child: OutlinedButton.icon(
                             onPressed: () => Navigator.of(sheetContext).pop(),
                             icon: const Icon(Icons.close),
                             label: const Text('취소'),
-                          ),
+                          )),
                         ],
                       ),
                     ),
@@ -2195,6 +2533,19 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
   }
 
   /// 폼에 적힌 것으로 장소 한 건을 만듭니다. 좌표나 분류가 없으면 null 입니다.
+  String _currentContactPhone(String mapId) {
+    final id = _editingLocationId;
+    if (id != null) {
+      for (final location
+          in context.read<SupervisorProvider>().locationsFor(mapId)) {
+        if (location.locationId == id) {
+          return location.contactPhone;
+        }
+      }
+    }
+    return _keptContactPhone;
+  }
+
   LocationPoint? _locationFromForm(String mapId) {
     final picked = _pickedRos;
     final door = _doorDirection;
@@ -2216,7 +2567,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
       building: _buildingController.text.trim(),
       floor: int.parse(_floorController.text.trim()),
       owner: _category1 == 'person' ? _ownerController.text.trim() : '',
-      contactPhone: normalizeContactPhone(_contactPhoneController.text) ?? '',
+      contactPhone: _currentContactPhone(mapId),
       authorization: _authorization,
       isApproachable: _isApproachable,
       unavailableReason:
@@ -2263,7 +2614,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     _buildingController.text = draft.building;
     _floorController.text = draft.floor.toString();
     _ownerController.text = draft.owner;
-    _contactPhoneController.text = formatContactPhone(draft.contactPhone);
+    _keptContactPhone = draft.contactPhone;
     _unavailableReasonController.text = draft.unavailableReason;
     setState(() {
       _editingLocationId = draft.locationId;
@@ -2298,7 +2649,7 @@ class _SaveLocationScreenState extends State<SaveLocationScreen> {
     _buildingController.clear();
     _floorController.clear();
     _ownerController.clear();
-    _contactPhoneController.clear();
+    _keptContactPhone = '';
     _unavailableReasonController.clear();
     _category1 = null;
     _category2 = null;
@@ -2349,8 +2700,6 @@ class _DraftSummary extends StatelessWidget {
           Text('접근 권한: ${location.authorization}'),
           Text('로봇 접근: ${location.isApproachable}'),
           if (location.owner.isNotEmpty) Text('담당자: ${location.owner}'),
-          if (location.canReceiveDelivery)
-            Text('도착 문자: ${maskContactPhone(location.contactPhone)}'),
           if (location.unavailableReason.isNotEmpty)
             Text('접근 불가 사유: ${location.unavailableReason}'),
           Text(
@@ -2709,7 +3058,8 @@ class _PositionStep extends StatelessWidget {
           const SizedBox(width: 8),
           SizedBox(
             height: 30,
-            child: FilledButton(
+            child: PressScale(
+                child: FilledButton(
               onPressed: onStartMove,
               style: FilledButton.styleFrom(
                 minimumSize: const Size(0, 30),
@@ -2721,7 +3071,7 @@ class _PositionStep extends StatelessWidget {
                     const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
               ),
               child: const Text('위치 옮기기'),
-            ),
+            )),
           ),
         ],
       );
@@ -2729,7 +3079,8 @@ class _PositionStep extends StatelessWidget {
     Widget pad(PoseDirection direction, String arrow, String label) {
       return SizedBox(
         height: 44,
-        child: OutlinedButton(
+        child: PressScale(
+            child: OutlinedButton(
           onPressed: () => onStep(direction),
           style: OutlinedButton.styleFrom(
             minimumSize: const Size(0, 44),
@@ -2742,7 +3093,7 @@ class _PositionStep extends StatelessWidget {
             label: label,
             child: Text(arrow, style: const TextStyle(fontSize: 16)),
           ),
-        ),
+        )),
       );
     }
 
@@ -2778,14 +3129,15 @@ class _PositionStep extends StatelessWidget {
               ),
               SizedBox(
                 height: 32,
-                child: FilledButton(
+                child: PressScale(
+                    child: FilledButton(
                   onPressed: onDoneMove,
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(0, 32),
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                   ),
                   child: const Text('완료'),
-                ),
+                )),
               ),
             ],
           ),
@@ -2844,10 +3196,11 @@ class _PositionStep extends StatelessWidget {
           ),
           if (onRestore != null) ...[
             const SizedBox(height: 10),
-            OutlinedButton(
+            PressScale(
+                child: OutlinedButton(
               onPressed: onRestore,
               child: Text(vicaKeepWords('원래 자리로 되돌리기')),
-            ),
+            )),
           ],
         ],
       ),
@@ -2957,7 +3310,8 @@ class _DirectionChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       height: 36,
-      child: OutlinedButton(
+      child: PressScale(
+          child: OutlinedButton(
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
           minimumSize: const Size(0, 36),
@@ -2974,7 +3328,7 @@ class _DirectionChip extends StatelessWidget {
           ),
         ),
         child: Text(label),
-      ),
+      )),
     );
   }
 }
@@ -3022,7 +3376,8 @@ class _DoorDirectionRow extends StatelessWidget {
           const SizedBox(width: 8),
           SizedBox(
             height: 36,
-            child: OutlinedButton(
+            child: PressScale(
+                child: OutlinedButton(
               onPressed: onChange,
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size(0, 36),
@@ -3032,7 +3387,7 @@ class _DoorDirectionRow extends StatelessWidget {
                 side: const BorderSide(color: VicaColors.primary),
               ),
               child: const Text('바꾸기'),
-            ),
+            )),
           ),
         ],
       ),

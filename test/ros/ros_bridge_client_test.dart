@@ -123,4 +123,24 @@ void main() {
       expect(response?.message, 'ok');
     });
   });
+
+  test('서비스 호출에 rosbridge 쪽 시간 제한(초)을 함께 보낸다', () {
+    fakeAsync((async) {
+      client.connect('ws://robot:9090');
+      async.flushMicrotasks();
+
+      unawaited(
+        client
+            .callService(
+              service: '/vica/map_fix',
+              timeout: const Duration(seconds: 15),
+            )
+            .then<void>((_) {}, onError: (Object _) {}),
+      );
+      async.flushMicrotasks();
+
+      expect(server.last.sent.last['timeout'], 15.0);
+      async.elapse(const Duration(seconds: 16));
+    });
+  });
 }

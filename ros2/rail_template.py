@@ -629,7 +629,7 @@ def _protected(name: str) -> bool:
 
 def cmd_extract(args) -> int:
     if _protected(args.name):
-        raise TemplateError(f"도장 '{args.name}' 은 새 홈 기준(꼭짓점이 홈 옆 0.30 · 뒤 0.30) 원본·버전이라 extract 로 "
+        raise TemplateError(f"도장 '{args.name}' 은 홈 기준(홈 쪽 직선의 열린 끝 = 홈) 원본·버전이라 extract 로 "
                             f"덮지 않습니다. 다른 --name 을 쓰거나 rail_templates/{args.name}.json 을 직접 고치세요.")
     tpl = extract(args.maps_root, args.dest_root, args.map, args.name, snap=not args.no_snap)
     path = _write_template(args.name, tpl, args.overwrite)
