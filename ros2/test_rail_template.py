@@ -539,7 +539,7 @@ def test_stretched_template_with_mirror(roots, capsys):
     assert nodes[3] == (3.0, 6.06)                                   # 9.0 − 2.94
 
 
-# ── 2026-10-12 새 홈 기준 · 두 코너 R 1.0 ──────────────────────────────────
+# ── 홈 기준(10-12 → 10-21 꼭짓점 → 10-24 열린 끝 = 홈) · 두 코너 R 1.0 ──────
 
 # 홈 기준을 지켜야 하는 것은 demo_cap 과 그것을 늘린 버전뿐이다(다른 지도에서 뜬 도장은 제외, 검토 10-12).
 REAL_TEMPLATES = sorted(p.stem for p in rt.TEMPLATE_DIR.glob("*.json")
@@ -549,10 +549,14 @@ REAL_TEMPLATES = sorted(p.stem for p in rt.TEMPLATE_DIR.glob("*.json")
 
 @pytest.mark.parametrize("name", REAL_TEMPLATES)
 def test_real_templates_follow_the_home_standard(tmp_path, name):
-    # 홈 = 홈 쪽 꼭짓점(2)에서 옆 0.30 m · 뒤 0.30 m. 홈 ↔ 레일 0.49 m 로 레일 올라타기 문턱 0.8 m 안.
+    # 홈 = 홈 쪽 직선의 열린 끝(꼭짓점 1) (10-24). 홈 쪽 직선은 홈에서 홈이 보는 방향으로 뻗고, 가로변은
+    # 먼 끝, 다른 직선은 홈 왼쪽. 홈이 레일 끝점 위라 홈 ↔ 레일 0 m.
     tpl = rt.load_template(name)
     nodes = {n["id"]: (n["forward"], n["left"]) for n in tpl["nodes"]}
-    assert nodes[2] == pytest.approx((-0.30, 0.30), abs=1e-3)
+    assert nodes[1] == pytest.approx((0.0, 0.0), abs=1e-3)
+    assert nodes[2][1] == pytest.approx(0.0, abs=1e-3) and nodes[2][0] > 0      # 홈 쪽 직선은 홈 앞으로
+    assert nodes[4][0] == pytest.approx(0.0, abs=1e-3) and nodes[4][1] > 0      # 다른 직선의 끝은 홈 왼쪽
+    assert nodes[3][0] == pytest.approx(nodes[2][0], abs=1e-3)                    # 가로변은 먼 끝
     fs, ls = [f for f, _ in nodes.values()], [l for _, l in nodes.values()]
     assert tpl["zone"] == pytest.approx({"forward_min": min(fs) - rt.ZONE_END_M, "forward_max": max(fs) + rt.ZONE_END_M,
                                          "left_min": min(ls) - rt.ZONE_SIDE_M, "left_max": max(ls) + rt.ZONE_SIDE_M},
@@ -564,7 +568,7 @@ def test_real_templates_follow_the_home_standard(tmp_path, name):
     home = (6.0, 4.0, 0.0)
     g = rb.process_sketch(rb.MapGrid(tmp_path, "room"), rt.place_sketch(tpl, home))["graph"]
     near = min(math.dist(p, home[:2]) for a, b in g.edges() for p in rb._samples(g.nodes[a], g.nodes[b]))
-    assert 0.45 < near < 0.55
+    assert near < 0.01
 
 
 def _real_node_writer(maps, shift=0.0):

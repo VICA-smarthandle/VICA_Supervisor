@@ -12,11 +12,13 @@ route_graph_build.process_sketch 가 한다(앱 레일 저장과 같은 코드).
 코너를 깎는 차례로 매겨진다). 짧은 변을 나눠 쓰는 두 코너는 2026-10-12 부터 둘 다 R 1.0 이다
 (route_graph_build.fillet_corners: 45 % 를 깎기 전 변 길이로 잰다).
 
-홈 기준(2026-10-12 사용자 결정): 홈 = 홈 쪽 꼭짓점(2)에서 옆 0.30 m · 뒤 0.30 m. 레일은 홈 뒤
-0.30 ~ 앞 4.60 m(7 m 판 5.10 m), 홈 왼쪽 0.30 ~ 2.54 m(4 m 판 2.74 m)에 놓이고, 홈 ↔ 가장 가까운
-레일 점은 0.49 m 다(레일 올라타기 문턱 0.8 m · 복귀 문턱 0.5 m 안). 시연 구역이 홈 뒤 1.10 m · 오른쪽 0.48 m 까지
-가므로 홈은 뒤쪽 벽에서 1.1 m 넘게 띄워 찍는다. 옛 기준(홈 왼쪽 0.50 · 앞 0)은 10-10 연습장 레일만
-옮긴 흔적이었다.
+홈 기준(2026-10-24 사용자 결정): 홈 = 홈 쪽 직선의 열린 끝(꼭짓점 1). 레일은 홈 앞 0 ~ 4.90 m(5.3 m 판
+3.70 m, 7 m 판 5.40 m), 홈 왼쪽 0 ~ 2.24 m(4 m 판 2.44 m)에 놓인다. 홈 쪽 직선은 홈에서 시작해 홈이 보는
+방향으로 뻗고, 가로변과 두 코너는 홈에서 먼 끝에, 다른 직선은 홈 왼쪽에 놓인다 — 홈이 레일 끝점 위라
+홈 ↔ 레일 0 m 다. 시연 구역이 홈 뒤 0.80 m · 오른쪽 0.78 m 까지 가므로 홈은 뒤쪽·오른쪽 벽에서 0.8 m 넘게
+띄워 찍는다. 10-21 기준(닫힌 쪽 모서리 꼭짓점 2 = 홈)은 시연장 세로를 5.3 m 로 줄이며 반대쪽 끝으로 옮겼고,
+10-12 기준(꼭짓점에서 옆 0.30 · 뒤 0.30)은 비껴 올라타는 움직임이 복불복이라 버렸고, 그 전 기준(홈 왼쪽
+0.50 · 앞 0)은 10-10 연습장 레일만 옮긴 흔적이었다.
 
 쓰는 법(젯슨, ROS 환경을 불러온 셸 — `humble` 별칭 또는 install/setup.bash):
     cd ~/VICA-smarthandle/VICA_Supervisor/ros2
@@ -31,8 +33,9 @@ route_graph_build.process_sketch 가 한다(앱 레일 저장과 같은 코드).
     python3 rail_template.py list                          # 있는 버전·구역 크기·레일 크기·코너
     python3 rail_template.py make --zone 4x7               # demo_cap 을 4 × 7 m 구역에 맞게 늘린 버전
     python3 rail_template.py apply --map <지도> --zone 4x7 --save   # "4×7 로 바꿔줘"
-늘릴 때 홈 쪽(왼쪽 레일·위 변)은 그대로 두고 반대쪽 레일과 아래 끝만 민다 — 어느 버전이든 홈
-자리가 같아서 바꿔 끼워도 홈에서 출발하는 모양이 같다.
+늘리거나 줄일 때 홈 쪽(홈 쪽 직선의 시작·홈 쪽 레일)은 그대로 두고 반대쪽 레일과 먼 끝(가로변)만 민다 —
+어느 버전이든 홈 자리가 같아서 바꿔 끼워도 홈에서 출발하는 모양이 같다. 5.3 m 판(10-24)은 6.5 m 판보다
+가로변이 홈 쪽으로 1.2 m 다가온다.
 
 **Nav2 보다 먼저 넣는다.** Nav2 launch 는 기동 때 레일 파일이 있어야 route_server 와 레일
 트리를 띄운다(nav2_map_test.launch.py route_actions). 레일 없이 이미 띄웠으면 넣은 뒤 Nav2 를
@@ -743,7 +746,7 @@ def _protected(name: str) -> bool:
 def cmd_extract(args) -> int:
     if _protected(args.name):
         # demo_cap 은 2026-10-12 새 홈 기준으로 옮긴 원본이다. 연습장에서 뜨면 옛 배치로 돌아간다(검토 10-12).
-        raise TemplateError(f"도장 '{args.name}' 은 새 홈 기준(꼭짓점이 홈 옆 0.30 · 뒤 0.30) 원본·버전이라 extract 로 "
+        raise TemplateError(f"도장 '{args.name}' 은 홈 기준(홈 쪽 직선의 열린 끝 = 홈) 원본·버전이라 extract 로 "
                             f"덮지 않습니다. 다른 --name 을 쓰거나 rail_templates/{args.name}.json 을 직접 고치세요.")
     tpl = extract(args.maps_root, args.dest_root, args.map, args.name, snap=not args.no_snap)
     path = _write_template(args.name, tpl, args.overwrite)
