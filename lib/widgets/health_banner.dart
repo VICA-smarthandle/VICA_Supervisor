@@ -40,7 +40,7 @@ class HealthBanner extends StatelessWidget {
       color: fault.severity.color,
       icon: fault.severity.icon,
       title: '${fault.severity.label} · ${fault.componentLabelText}',
-      detail: fault.detail.isEmpty ? fault.faultCode : fault.detail,
+      detail: fault.message.isEmpty ? fault.faultCode : fault.message,
       extraCount: health.activeFaultCount - 1,
       onTap: onTap,
     );
@@ -68,7 +68,8 @@ class _Banner extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
-      child: Material(
+      child: PressScale(
+          child: Material(
         color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(10),
         child: InkWell(
@@ -119,7 +120,7 @@ class _Banner extends StatelessWidget {
             ),
           ),
         ),
-      ),
+      )),
     );
   }
 }

@@ -55,6 +55,7 @@ class DriveMapCanvas extends StatelessWidget {
         poseArrow: poseArrow,
         scanHits: scanHits,
         homePoint: supervisor.homePointFor(map.mapId),
+        dockPoint: supervisor.dockPointFor(map.mapId),
         keepoutZones: supervisor.keepoutZonesFor(map.mapId),
         routeGraph: supervisor.routeGraphFor(map.mapId),
         onTapMap: onTapMap,

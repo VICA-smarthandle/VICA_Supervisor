@@ -37,6 +37,14 @@ class _FakeSupervisor extends SupervisorProvider {
         'map_id': 'vica_map_test',
         'locations': locations.map((e) => e.toJson()).toList(),
       });
+
+  final saved = <LocationPoint>[];
+
+  @override
+  (bool, String) saveLocation(AppSettings settings, LocationPoint location) {
+    saved.add(location);
+    return (true, '${location.name} 수정을 저장했습니다.');
+  }
 }
 
 const _savedRestroom = LocationPoint(
@@ -315,6 +323,25 @@ void main() {
     expect(find.text('임시 저장'), findsNothing);
   });
 
+  testWidgets('장소 정보 수정에 연락처 칸이 없고, 수정 저장해도 저장된 번호가 지워지지 않는다', (tester) async {
+    final supervisor = await pumpWithMap(tester);
+    supervisor.injectLocations(
+        [_savedRestroom.copyWith(contactPhone: '01012345678')]);
+    await tester.pump();
+    await tester.tap(find.widgetWithText(OutlinedButton, editSaved));
+    await tester.pumpAndSettle();
+    await tester
+        .tap(find.widgetWithText(FilledButton, vicaKeepWords('수정 내용 입력')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('도착 문자'), findsNothing);
+    expect(find.textContaining('연락처'), findsNothing);
+    await tester.ensureVisible(find.text('ROS2에 수정 저장'));
+    await tester.tap(find.text('ROS2에 수정 저장'));
+    await tester.pumpAndSettle();
+    expect(supervisor.saved, hasLength(1));
+    expect(supervisor.saved.single.contactPhone, '01012345678');
+  });
+
   testWidgets('저장된 장소가 없으면 수정·삭제 버튼이 없다', (tester) async {
     await pumpWithMap(tester);
     expect(find.widgetWithText(OutlinedButton, editSaved), findsNothing);
@@ -547,7 +574,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('지금 로봇이 있는 위치로'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('여기가 맞는지 확인'));
+    await tester.tap(find.text('위치 확인'));
     await tester.pump();
   }
 

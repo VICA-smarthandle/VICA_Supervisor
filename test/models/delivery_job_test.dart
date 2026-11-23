@@ -54,6 +54,60 @@ void main() {
     test('이름이 없으면 본문만', () {
       expect(deliveryArrivalMessage('  '), '비카가 물건을 가지고 문 앞에 와 있습니다. 확인해주세요');
     });
+
+    test('메시지가 있으면 [장소] 비카 도착: 메시지', () {
+      final text =
+          deliveryArrivalMessage('410호', note: '서류 두 장입니다. 확인 후 회신 부탁드립니다');
+      expect(text, '[410호] 비카 도착: 서류 두 장입니다. 확인 후 회신 부탁드립니다');
+      expect(text.length, lessThanOrEqualTo(kDeliverySmsLimit));
+    });
+
+    test('메시지 칸 한도는 45 - 앞부분 — 410호면 31, 이름이 길면 이름을 빼고 38', () {
+      expect(deliveryNoteLimit('410호'), 31);
+      expect(deliveryNoteLimit('별빛관 3층 스마트로봇연구실 복도 끝'), 38);
+      expect(deliveryNoteLimit(''), 38);
+      final full = 'ㄱ' * deliveryNoteLimit('410호');
+      expect(
+          deliveryArrivalMessage('410호', note: full).length, kDeliverySmsLimit);
+      expect(deliveryArrivalMessage('410호', note: full), startsWith('[410호] '));
+    });
+
+    test('한도를 넘긴 메시지(다른 화면이 보낸 값)는 이름을 빼고, 그래도 넘으면 끝을 자른다', () {
+      final text = deliveryArrivalMessage('410호', note: 'ㄱ' * 60);
+      expect(text, startsWith('비카 도착: '));
+      expect(text.length, kDeliverySmsLimit);
+    });
+
+    test('줄바꿈·연속 공백은 한 칸으로, 빈 메시지는 예전 문구', () {
+      expect(deliveryArrivalMessage('410호', note: '서류\n두  장'),
+          '[410호] 비카 도착: 서류 두 장');
+      expect(deliveryArrivalMessage('410호', note: '  \n '),
+          '[410호] 비카가 물건을 가지고 문 앞에 와 있습니다. 확인해주세요');
+    });
+
+    test('이모지는 반쪽으로 잘리지 않는다', () {
+      final text = deliveryArrivalMessage('', note: '${'ㄱ' * 37}😀😀');
+      expect(text.length, lessThanOrEqualTo(kDeliverySmsLimit));
+      expect(text.runes.last, isNot(inInclusiveRange(0xD800, 0xDFFF)));
+    });
+  });
+
+  test('메시지는 저장했다 되살려도 남는다', () {
+    final job = DeliveryJob(
+      destination: const LocationPoint(
+          locationId: 'a',
+          mapId: 'm1',
+          name: '410호',
+          x: 0,
+          y: 0,
+          yaw: 0,
+          contactPhone: '01012345678'),
+      startedAt: DateTime(2026, 11, 17),
+      note: '서류 두 장입니다',
+    );
+    expect(DeliveryJob.fromJson(job.toJson())!.note, '서류 두 장입니다');
+    expect(job.copyWith(notified: true).note, '서류 두 장입니다');
+    expect(DeliveryJob.fromJson({...job.toJson()}..remove('note'))!.note, '');
   });
 
   test('copyWith 는 목적지·번호를 그대로 두고 복귀 예정만 지울 수 있다', () {

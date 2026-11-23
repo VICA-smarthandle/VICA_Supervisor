@@ -27,6 +27,42 @@ ERROR_SOURCES = (ERROR_SOURCE_DIAGNOSTICS, ERROR_SOURCE_HEALTH)
 
 HEALTH_SEVERITY_STOP = 3
 
+MISSION_ACTIVITY_STALE_SEC = 3.0
+
+MAP_PARAM_TIMEOUT_SEC = 3.0
+
+
+def map_poll_action(in_flight: bool, sent_at: float, now: float, ready: bool) -> str:
+    """지도 경로 조회를 이번 주기에 어떻게 할지: 'wait'(답을 기다림) · 'drop'(시한 넘음, 버리고 다시 물음)"""
+    if in_flight:
+        return "drop" if now - sent_at >= MAP_PARAM_TIMEOUT_SEC else "wait"
+    return "ask" if ready else "skip"
+
+
+def location_label(localized: bool, moving: bool, nearest: str, place_here: str) -> str:
+    """앱의 '현재 위치' 칸(2026-11-17 사용자 승인 수리)."""
+    if not localized:
+        return "위치 모름"
+    if nearest:
+        return nearest
+    if moving:
+        return "이동 중"
+    return place_here or "장소 밖"
+
+
+def mission_activity_fields(snapshot: dict[str, Any] | None, received_at: float | None,
+                            now: float) -> dict[str, Any]:
+    """/robot_status 에 싣는 미션 활동 네 칸(2026-10-29, 원격 주행 대기·접근 중 취소)."""
+    empty = {"dialog_state": "", "wait_place": "", "wait_left_sec": -1, "last_destination": ""}
+    if snapshot is None or received_at is None or now - received_at > MISSION_ACTIVITY_STALE_SEC:
+        return empty
+    return {
+        "dialog_state": str(snapshot.get("dialog_state", "")),
+        "wait_place": str(snapshot.get("wait_place", "")),
+        "wait_left_sec": int(snapshot.get("wait_left_sec", -1)),
+        "last_destination": str(snapshot.get("last_destination", "")),
+    }
+
 
 class VicaStatusAppNode(Node):
     """VICA 내부 ROS2 상태를 앱 화면에서 쓰기 쉬운 단일 JSON 메시지로 변환합니다."""
@@ -91,9 +127,14 @@ class VicaStatusAppNode(Node):
         self.navigation_paused = False
         self._navigation_active_since: float | None = None
         self.missing_map_yaml_warned = False
+        self._mission_activity: dict[str, Any] | None = None
+        self._mission_activity_at: float | None = None
 
         self.detected_map_yaml = ""
         self._map_param_in_flight = False
+        self._map_param_sent_at = 0.0
+        self._map_server_missing = 0
+        self._map_param_future: Any = None
 
         self._loc_cache: list[dict[str, Any]] = []
         self._loc_cache_map_id = ""
@@ -199,16 +240,37 @@ class VicaStatusAppNode(Node):
         """map_server의 yaml_filename 파라미터를 주기적으로 조회합니다."""
         if str(self.get_parameter("map_yaml").value).strip():
             return
-        if self._map_param_in_flight or not self.map_param_client.service_is_ready():
+        action = map_poll_action(
+            self._map_param_in_flight, self._map_param_sent_at, time.monotonic(),
+            self.map_param_client.service_is_ready(),
+        )
+        if action == "drop":
+            if self._map_param_future is not None:
+                self.map_param_client.remove_pending_request(self._map_param_future)
+            self._map_param_in_flight = False
+            self._map_param_future = None
+            return
+        if action == "skip":
+            self._map_server_missing += 1
+            if self._map_server_missing >= 2:
+                self._forget_map_pose("Nav2(map_server) 없음")
+            return
+        self._map_server_missing = 0
+        if action != "ask":
             return
         request = GetParameters.Request()
         request.names = ["yaml_filename"]
         self._map_param_in_flight = True
+        self._map_param_sent_at = time.monotonic()
         future = self.map_param_client.call_async(request)
+        self._map_param_future = future
         future.add_done_callback(self._on_map_yaml_result)
 
     def _on_map_yaml_result(self, future: Any) -> None:
+        if future is not self._map_param_future:
+            return
         self._map_param_in_flight = False
+        self._map_param_future = None
         try:
             response = future.result()
         except Exception as exc:
@@ -219,6 +281,8 @@ class VicaStatusAppNode(Node):
         value = response.values[0]
         if value.type == ParameterType.PARAMETER_STRING and value.string_value:
             if value.string_value != self.detected_map_yaml:
+                if self.detected_map_yaml:
+                    self._forget_map_pose("지도가 바뀜")
                 self.detected_map_yaml = value.string_value
                 self.get_logger().info(f"map yaml 감지: {self.detected_map_yaml}")
 
@@ -252,12 +316,15 @@ class VicaStatusAppNode(Node):
             "x": round(x, 3),
             "y": round(y, 3),
             "yaw": round(yaw, 2),
-            "current_location": self._nearest_location_name(map_id, x, y),
+            "current_location": self._location_label(map_id, x, y, linear_x, angular_z),
             "current_goal": self.current_goal,
             "error_reason": error_reason,
             "waiting_reason": waiting_reason,
             "map_id": map_id,
             "timestamp": datetime.now().isoformat(timespec="seconds"),
+            **mission_activity_fields(
+                self._mission_activity, self._mission_activity_at, time.monotonic()
+            ),
         }
 
         msg = String()
@@ -425,11 +492,19 @@ class VicaStatusAppNode(Node):
         self.create_subscription(
             RobotState, "/vica/robot_state", self.handle_robot_state, 10
         )
-        self.get_logger().info("/vica/robot_state 구독: is_paused 정본")
+        self.get_logger().info("/vica/robot_state 구독: is_paused 정본·미션 활동(dialog_state 등)")
 
     def handle_robot_state(self, msg) -> None:
-        """Mission Manager가 1 Hz로 알려주는 일시정지 여부를 반영합니다."""
+        """Mission Manager가 1 Hz로 알려주는 일시정지 여부와 지금 하는 일을 반영합니다."""
         self.navigation_paused = bool(msg.is_paused)
+        self._mission_activity = {
+            "place_here": msg.place_here,
+            "dialog_state": msg.dialog_state,
+            "wait_place": msg.wait_place,
+            "wait_left_sec": msg.wait_left_sec,
+            "last_destination": msg.last_destination,
+        }
+        self._mission_activity_at = time.monotonic()
 
     def _setup_health_source(self) -> None:
         """error_source가 health일 때만 /robot/health를 구독합니다."""
@@ -566,7 +641,29 @@ class VicaStatusAppNode(Node):
                 nearest_name = str(
                     location.get("name") or location.get("id") or ""
                 )
-        return nearest_name or "이동 중"
+        return nearest_name
+
+    def _location_label(self, map_id: str, x: float, y: float,
+                        linear_x: float, angular_z: float) -> str:
+        """'현재 위치' 칸. 지도 위 위치(AMCL)가 있을 때만 장소를 찾는다 — x·y 가 오도메트리 좌표일 수 있다."""
+        localized = self.map_pose is not None and self._nav2_pose_available()
+        place_here = ""
+        if (self._mission_activity is not None and self._mission_activity_at is not None
+                and time.monotonic() - self._mission_activity_at <= MISSION_ACTIVITY_STALE_SEC):
+            place_here = str(self._mission_activity.get("place_here", ""))
+        return location_label(
+            localized,
+            self._is_moving(linear_x, angular_z),
+            self._nearest_location_name(map_id, x, y) if localized else "",
+            place_here,
+        )
+
+    def _forget_map_pose(self, why: str) -> None:
+        """AMCL 위치를 버린다 — Nav2 가 내려갔거나 지도가 바뀌면 그 위치는 더는 맞지 않는다."""
+        if self.map_pose is not None:
+            self.get_logger().info(f"지도 위 위치를 지웁니다: {why}")
+        self.map_pose = None
+        self.last_map_pose_time = None
 
     def _read_locations(self, map_id: str) -> list[dict[str, Any]]:
         """지도별 destinations.yaml을 읽습니다(2초 캐시)."""

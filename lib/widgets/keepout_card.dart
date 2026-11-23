@@ -132,7 +132,7 @@ class KeepoutCard extends StatelessWidget {
         ),
         const SizedBox(width: 10),
         if (!connected)
-          const VicaStateBadge(text: 'ROS 연결 없음', color: VicaColors.red)
+          const VicaStateBadge(text: '오프라인', color: VicaColors.red)
         else if (editing)
           const VicaStateBadge(text: '편집 중 · 저장 전', color: VicaColors.primary)
         else if (drivingHold)
@@ -147,7 +147,8 @@ class KeepoutCard extends StatelessWidget {
 
   Widget _zoneRow(BuildContext context, KeepoutZone zone) {
     final selected = zone.zoneId == selectedZoneId;
-    return InkWell(
+    return PressScale(
+        child: InkWell(
       onTap: () => onSelect(selected ? null : zone.zoneId),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
@@ -177,7 +178,7 @@ class KeepoutCard extends StatelessWidget {
           ],
         ),
       ),
-    );
+    ));
   }
 
   Widget _buttons(BuildContext context) {
@@ -185,21 +186,23 @@ class KeepoutCard extends StatelessWidget {
       return Row(
         children: [
           Expanded(
-            child: FilledButton.icon(
+            child: PressScale(
+                child: FilledButton.icon(
               onPressed: (connected && !drivingHold) ? onStartEdit : null,
               icon: const Icon(Icons.edit_outlined),
               label: Text(
                 state == KeepoutSaveState.failed ? '다시 시도' : '금지구역 편집',
               ),
-            ),
+            )),
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: OutlinedButton.icon(
+            child: PressScale(
+                child: OutlinedButton.icon(
               onPressed: connected ? onReload : null,
               icon: const Icon(Icons.refresh, size: 18),
               label: const Text('다시 불러오기'),
-            ),
+            )),
           ),
         ],
       );
@@ -210,11 +213,12 @@ class KeepoutCard extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: FilledButton.tonalIcon(
+              child: PressScale(
+                  child: FilledButton.tonalIcon(
                 onPressed: (hasPending && !_saving) ? onConfirmPending : null,
                 icon: const Icon(Icons.check, size: 18),
                 label: const Text('금지구역 확정'),
-              ),
+              )),
             ),
           ],
         ),
@@ -222,7 +226,8 @@ class KeepoutCard extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: FilledButton.icon(
+              child: PressScale(
+                  child: FilledButton.icon(
                 onPressed: (_saving || !connected) ? null : onSave,
                 icon: _saving
                     ? const SizedBox(
@@ -232,14 +237,15 @@ class KeepoutCard extends StatelessWidget {
                       )
                     : const Icon(Icons.cloud_upload_outlined),
                 label: Text(_saving ? '저장 중...' : '저장'),
-              ),
+              )),
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: OutlinedButton(
+              child: PressScale(
+                  child: OutlinedButton(
                 onPressed: _saving ? null : onCancel,
                 child: const Text('취소'),
-              ),
+              )),
             ),
           ],
         ),
@@ -247,21 +253,23 @@ class KeepoutCard extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: OutlinedButton.icon(
+              child: PressScale(
+                  child: OutlinedButton.icon(
                 onPressed: (_saving || selectedZoneId == null)
                     ? null
                     : onDeleteSelected,
                 icon: const Icon(Icons.delete_outline, size: 18),
                 label: const Text('선택 삭제'),
-              ),
+              )),
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: OutlinedButton.icon(
+              child: PressScale(
+                  child: OutlinedButton.icon(
                 onPressed: (_saving || zones.isEmpty) ? null : onClearAll,
                 icon: const Icon(Icons.delete_sweep_outlined, size: 18),
                 label: const Text('전체 삭제'),
-              ),
+              )),
             ),
           ],
         ),

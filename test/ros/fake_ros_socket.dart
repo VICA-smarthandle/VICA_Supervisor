@@ -21,6 +21,9 @@ class FakeRosSocket implements WebSocketChannel {
   final List<Map<String, Object?>> sent = [];
   bool sinkClosed = false;
 
+  /// true 면 sink.add 가 예외를 던집니다(닫힌 소켓에 쓰기).
+  bool addThrows = false;
+
   /// 연결 시도가 실패했는지. 실패한 소켓의 sink.close() 는 진짜 web_socket_channel 3.x 처럼
   bool connectFailed = false;
 
@@ -83,6 +86,7 @@ class _FakeSink implements WebSocketSink {
 
   @override
   void add(dynamic data) {
+    if (_socket.addThrows) throw StateError('closed');
     _socket.sent.add(jsonDecode(data as String) as Map<String, Object?>);
   }
 

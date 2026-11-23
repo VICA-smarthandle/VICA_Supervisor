@@ -101,5 +101,33 @@ void main() {
 
       expect(home.savedAtLabel, '언젠가');
     });
+
+    test('경고 — 안 가 봤으면 가 보라는 말, 막혔으면 로봇의 말, 가 봤고 막힘 없으면 없음', () {
+      final unvisited = HomePosition.fromValues(const {'visited_ok': false});
+      expect(unvisited.warning(kHomeUnvisitedText), kHomeUnvisitedText);
+
+      final visited =
+          HomePosition.fromValues(const {'visited_ok': true, 'message': ''});
+      expect(visited.warning(kHomeUnvisitedText), '');
+
+      final blocked = HomePosition.fromValues(const {
+        'visited_ok': true,
+        'message': '홈에 접근할 수 없습니다.',
+      });
+      expect(blocked.note, '홈에 접근할 수 없습니다.');
+      expect(blocked.warning(kHomeUnvisitedText), '홈에 접근할 수 없습니다.');
+
+      final neverAndBlocked = HomePosition.fromValues(const {
+        'visited_ok': false,
+        'message': '홈에 접근할 수 없습니다.',
+      });
+      expect(neverAndBlocked.warning(kHomeUnvisitedText), '홈에 접근할 수 없습니다.');
+
+      expect(
+          blocked
+              .copyWith(visitedOk: true, note: '')
+              .warning(kHomeUnvisitedText),
+          '');
+    });
   });
 }

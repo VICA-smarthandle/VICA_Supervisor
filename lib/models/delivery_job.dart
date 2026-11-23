@@ -60,6 +60,7 @@ class DeliveryJob {
     this.returnAt,
     this.returnNote = '',
     this.abortReason = '',
+    this.note = '',
   });
 
   /// 어디로 가는가. 연락처는 이 안에 있습니다([LocationPoint.contactPhone]).
@@ -80,6 +81,9 @@ class DeliveryJob {
   final String returnNote;
 
   final String abortReason;
+
+  /// 보내는 분이 받는 분께 남긴 메시지(2026-11-17 사용자 승인). 비면 도착 문자는 예전 문구입니다.
+  final String note;
 
   /// 목적지로 가는 중인가.
   bool get isActive => phase == DeliveryPhase.driving;
@@ -107,6 +111,7 @@ class DeliveryJob {
       'return_at': returnAt?.toIso8601String(),
       'return_note': returnNote,
       'abort_reason': abortReason,
+      'note': note,
     };
   }
 
@@ -134,6 +139,7 @@ class DeliveryJob {
       returnAt: time(json['return_at']),
       returnNote: json['return_note'] as String? ?? '',
       abortReason: json['abort_reason'] as String? ?? '',
+      note: json['note'] as String? ?? '',
     );
   }
 
@@ -155,20 +161,74 @@ class DeliveryJob {
       returnAt: clearReturnAt ? null : (returnAt ?? this.returnAt),
       returnNote: returnNote ?? this.returnNote,
       abortReason: abortReason ?? this.abortReason,
+      note: note,
     );
   }
 }
 
-/// 도착 문자 본문.
-String deliveryArrivalMessage(String destinationName) {
-  const base = '비카가 물건을 가지고 문 앞에 와 있습니다. 확인해주세요';
-  const limit = 45;
+/// 도착 문자 한 통에 들어가는 글자 수.
+const int kDeliverySmsLimit = 45;
+
+/// 메시지가 있을 때 본문 앞부분. '[410호] 비카 도착: 서류 두 장입니다.'
+const String kDeliveryNotePrefix = '비카 도착: ';
+
+/// 장소 이름을 붙여도 메시지 칸이 이만큼은 남아야 이름을 붙입니다. 모자라면 이름을 빼서 자리를 늘립니다.
+const int _kDeliveryNoteMinWithName = 20;
+
+String _namePrefix(String name) => '[$name] $kDeliveryNotePrefix';
+
+/// 메시지 칸에 쓸 수 있는 글자 수(UTF-16 단위, 한글 한 자 = 1). 410호면 31, 이름이 길면 38.
+int deliveryNoteLimit(String destinationName) {
   final name = destinationName.trim();
-  if (name.isEmpty) {
-    return base;
+  if (name.isNotEmpty) {
+    final withName = kDeliverySmsLimit - _namePrefix(name).length;
+    if (withName >= _kDeliveryNoteMinWithName) {
+      return withName;
+    }
   }
-  final withName = '[$name] $base';
-  return withName.length <= limit ? withName : base;
+  return kDeliverySmsLimit - kDeliveryNotePrefix.length;
+}
+
+/// 메시지를 문자 한 줄로 다듬습니다(줄바꿈·연속 공백 → 공백 하나).
+String deliveryNoteClean(String note) =>
+    note.trim().replaceAll(RegExp(r'\s+'), ' ');
+
+/// 도착 문자 본문.
+String deliveryArrivalMessage(String destinationName, {String note = ''}) {
+  const base = '비카가 물건을 가지고 문 앞에 와 있습니다. 확인해주세요';
+  final name = destinationName.trim();
+  final text = deliveryNoteClean(note);
+  if (text.isEmpty) {
+    if (name.isEmpty) {
+      return base;
+    }
+    final withName = '[$name] $base';
+    return withName.length <= kDeliverySmsLimit ? withName : base;
+  }
+  if (name.isNotEmpty) {
+    final withName = '${_namePrefix(name)}$text';
+    if (withName.length <= kDeliverySmsLimit) {
+      return withName;
+    }
+  }
+  return _cutUnits('$kDeliveryNotePrefix$text', kDeliverySmsLimit);
+}
+
+String _cutUnits(String text, int limit) {
+  if (text.length <= limit) {
+    return text;
+  }
+  final out = StringBuffer();
+  var units = 0;
+  for (final rune in text.runes) {
+    final width = rune > 0xFFFF ? 2 : 1;
+    if (units + width > limit) {
+      break;
+    }
+    out.writeCharCode(rune);
+    units += width;
+  }
+  return out.toString();
 }
 
 /// 도착 문자 발송 결과를 화면에 한 번 보여주기 위한 묶음.

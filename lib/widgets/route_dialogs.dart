@@ -47,10 +47,11 @@ class RouteApplyFailedDialog extends StatelessWidget {
         if (reason.trim().isNotEmpty) VicaDialogRow(label: '사유', value: reason),
       ],
       actions: [
-        FilledButton(
+        PressScale(
+            child: FilledButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('확인'),
-        ),
+        )),
       ],
     );
   }
@@ -60,7 +61,7 @@ enum RouteConflictChoice { reload, overwrite }
 
 /// 팝업 F.
 Future<RouteConflictChoice?> showRouteConflictDialog(BuildContext context) {
-  return showDialog<RouteConflictChoice>(
+  return showVicaDialog<RouteConflictChoice>(
     context: context,
     builder: (dialogContext) => VicaDialog(
       icon: Icons.info_outline,
@@ -72,11 +73,12 @@ Future<RouteConflictChoice?> showRouteConflictDialog(BuildContext context) {
               Navigator.of(dialogContext).pop(RouteConflictChoice.reload),
           label: '새 레일 불러오기',
         ),
-        FilledButton(
+        PressScale(
+            child: FilledButton(
           onPressed: () =>
               Navigator.of(dialogContext).pop(RouteConflictChoice.overwrite),
           child: const Text('덮어쓰기'),
-        ),
+        )),
       ],
     ),
   );

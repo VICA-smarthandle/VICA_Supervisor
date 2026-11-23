@@ -8,7 +8,9 @@ import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import 'settings_screen.dart';
 import '../widgets/confirm_logout.dart';
+import '../widgets/duplicate_run_banner.dart';
 import '../widgets/map_canvas.dart';
+import '../widgets/map_work_layout.dart';
 import '../widgets/ros_connection_tile.dart';
 import '../widgets/teleop_pad.dart';
 import '../widgets/vica_ui.dart';
@@ -63,81 +65,111 @@ class _MappingShellState extends State<MappingShell> {
       appBar: AppBar(
         title: const Text('지도'),
         actions: [
-          TextButton.icon(
+          PressScale(
+              child: TextButton.icon(
             onPressed: () => _changeMode(context, status),
             icon: const Icon(Icons.swap_horiz),
             label: const Text('모드 바꾸기'),
-          ),
-          IconButton(
+          )),
+          PressScale(
+              child: IconButton(
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
             ),
             icon: const Icon(Icons.settings_outlined),
             tooltip: '설정',
-          ),
-          IconButton(
+          )),
+          PressScale(
+              child: IconButton(
             onPressed: () => confirmLogout(context),
             icon: const Icon(Icons.logout),
             tooltip: '로그아웃',
-          ),
+          )),
           const SizedBox(width: 8),
         ],
       ),
       body: SafeArea(
-        child: VicaPage(
-          title: '새 지도 그리기',
+        child: Column(
           children: [
-            const VicaRosConnectionTile(),
-            const _EmergencyResetCard(),
-            if (status == null) const _WaitingForSupervisor(),
-            _Step(
-              index: 0,
-              current: step,
-              title: '준비 확인',
-              child: _PrepareStep(
-                status: status,
-                estopConfirmed: _estopConfirmed,
-                onEstopChanged: (value) =>
-                    setState(() => _estopConfirmed = value ?? false),
-                onStart: () => _start(context, settings),
-              ),
-            ),
-            _Step(
-              index: 1,
-              current: step,
-              title: '작성 중',
-              child: _MappingStep(
-                settings: settings,
-                onStop: () => _stop(context, settings),
-                onGoSave: () => setState(() => _readyToSave = true),
-              ),
-            ),
-            _Step(
-              index: 2,
-              current: step,
-              title: '저장',
-              child: _SaveStep(
-                controller: _nameController,
-                status: status,
-                onSave: () => _save(context, settings),
-              ),
-            ),
-            _Step(
-              index: 3,
-              current: step,
-              title: '완료',
-              child: _DoneStep(
-                mapId: savedMapId,
-                mapName: status != null &&
-                        status.mapId == savedMapId &&
-                        status.mapName.isNotEmpty
-                    ? status.mapName
-                    : savedMapId,
-                alignSentence: status != null && status.mapId == savedMapId
-                    ? status.saveAlign?.sentence
-                    : null,
-                onRefreshMaps: () => supervisor.requestMapList(settings),
-                onFinish: () => _stop(context, settings, thenIdle: true),
+            const DuplicateRunBanner(),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final liftPreview = step == 1 &&
+                      MapWorkLayout.arrangementFor(
+                            constraints,
+                            keyboard: MapWorkLayout.keyboardInset(context),
+                          ) !=
+                          MapWorkArrangement.stacked;
+                  return MapWorkLayout(
+                    title: '새 지도 그리기',
+                    showTitleWhenWide: true,
+                    children: [
+                      if (liftPreview)
+                        MapWorkMap(
+                          child:
+                              _MappingPreview(settings: settings, fill: true),
+                        ),
+                      const VicaRosConnectionTile(),
+                      const _EmergencyResetCard(),
+                      if (status == null) const _WaitingForSupervisor(),
+                      _Step(
+                        index: 0,
+                        current: step,
+                        title: '준비 확인',
+                        child: _PrepareStep(
+                          status: status,
+                          estopConfirmed: _estopConfirmed,
+                          onEstopChanged: (value) =>
+                              setState(() => _estopConfirmed = value ?? false),
+                          onStart: () => _start(context, settings),
+                        ),
+                      ),
+                      _Step(
+                        index: 1,
+                        current: step,
+                        title: '작성 중',
+                        child: _MappingStep(
+                          settings: settings,
+                          showPreview: !liftPreview,
+                          onStop: () => _stop(context, settings),
+                          onGoSave: () => setState(() => _readyToSave = true),
+                        ),
+                      ),
+                      _Step(
+                        index: 2,
+                        current: step,
+                        title: '저장',
+                        child: _SaveStep(
+                          controller: _nameController,
+                          status: status,
+                          onSave: () => _save(context, settings),
+                        ),
+                      ),
+                      _Step(
+                        index: 3,
+                        current: step,
+                        title: '완료',
+                        child: _DoneStep(
+                          mapId: savedMapId,
+                          mapName: status != null &&
+                                  status.mapId == savedMapId &&
+                                  status.mapName.isNotEmpty
+                              ? status.mapName
+                              : savedMapId,
+                          alignSentence:
+                              status != null && status.mapId == savedMapId
+                                  ? status.saveAlign?.sentence
+                                  : null,
+                          onRefreshMaps: () =>
+                              supervisor.requestMapList(settings),
+                          onFinish: () =>
+                              _stop(context, settings, thenIdle: true),
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
           ],
@@ -187,7 +219,7 @@ class _MappingShellState extends State<MappingShell> {
       );
       return;
     }
-    final choice = await showDialog<_SaveChoice>(
+    final choice = await showVicaDialog<_SaveChoice>(
       context: context,
       builder: (_) => _SaveAlignDialog(
         name: name,
@@ -357,7 +389,8 @@ class _EmergencyResetCard extends StatelessWidget {
             style: const TextStyle(fontSize: 12),
           ),
           const SizedBox(height: 10),
-          FilledButton.icon(
+          PressScale(
+              child: FilledButton.icon(
             onPressed:
                 busy ? null : () => supervisor.resetEmergencyStop(settings),
             icon: const Icon(Icons.lock_open),
@@ -366,7 +399,7 @@ class _EmergencyResetCard extends StatelessWidget {
                   ? '해제 다시 시도'
                   : '비상정지 해제',
             ),
-          ),
+          )),
           const SizedBox(height: 8),
           Text(
             vicaKeepWords(vicaBreakAtSentences(
@@ -495,11 +528,12 @@ class _PrepareStep extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 6),
-        FilledButton.icon(
+        PressScale(
+            child: FilledButton.icon(
           onPressed: canStart ? onStart : null,
           icon: const Icon(Icons.play_arrow),
           label: const Text('매핑 시작'),
-        ),
+        )),
         const SizedBox(height: 8),
         Text(
           vicaKeepWords(vicaBreakAtSentences(
@@ -516,71 +550,107 @@ class _PrepareStep extends StatelessWidget {
 class _MappingStep extends StatelessWidget {
   const _MappingStep({
     required this.settings,
+    this.showPreview = true,
     required this.onStop,
     required this.onGoSave,
   });
 
   final AppSettings settings;
+
+  /// 넓은 화면에서는 미리보기를 단계 칸 밖(지도 자리)으로 꺼내 놓으므로 여기서 뺍니다.
+  final bool showPreview;
   final VoidCallback onStop;
   final VoidCallback onGoSave;
 
   @override
   Widget build(BuildContext context) {
     final supervisor = context.watch<SupervisorProvider>();
-    final preview = supervisor.mapPreview;
     final status = supervisor.mappingStatus;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (preview == null)
-          Text(
-            vicaKeepWords(vicaBreakAtSentences(
-              '지도를 띄우는 중입니다. 로봇을 조금 움직이면 그려지기 시작합니다.',
-            )),
-            style: const TextStyle(fontSize: 12, color: VicaColors.muted),
-          )
-        else ...[
-          ResponsiveMapFrame(
-            map: preview.toVicaMap(),
-            minHeight: 220,
-            maxHeight: 420,
-            child: MapCanvas(
-              map: preview.toVicaMap(),
-              settings: settings,
-              locations: const [],
-              poseArrow: preview.hasRobotPose
-                  ? MapPoseArrow(
-                      x: preview.robotX!,
-                      y: preview.robotY!,
-                      yawDegrees: preview.robotYaw!,
-                      label: '로봇 위치',
-                      color: VicaColors.red,
-                    )
-                  : null,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '${preview.width}×${preview.height} 칸 · '
-            '${(preview.bytes / 1024).toStringAsFixed(1)} KB · '
-            '${preview.seq}회 갱신'
-            '${preview.hasRobotPose ? '' : ' · 로봇 위치 없음'}',
-            style: const TextStyle(fontSize: 11, color: VicaColors.muted),
-          ),
+        if (showPreview) ...[
+          _MappingPreview(settings: settings),
+          const SizedBox(height: 12),
         ],
-        const SizedBox(height: 12),
-        TeleopPad(enabled: status?.state == MappingState.mapping),
+        TeleopPad(
+          enabled: status?.state == MappingState.mapping,
+          adjustableSpeed: true,
+        ),
         const SizedBox(height: 4),
-        FilledButton.icon(
+        PressScale(
+            child: FilledButton.icon(
           onPressed: status?.canSave == true ? onGoSave : null,
           icon: const Icon(Icons.save_outlined),
           label: const Text('지도 작성 완료'),
-        ),
+        )),
         const SizedBox(height: 8),
-        OutlinedButton(
+        PressScale(
+            child: OutlinedButton(
           onPressed: onStop,
           child: const Text('취소'),
+        )),
+      ],
+    );
+  }
+}
+
+class _MappingPreview extends StatelessWidget {
+  const _MappingPreview({required this.settings, this.fill = false});
+
+  final AppSettings settings;
+
+  /// 높이가 정해진 지도 자리를 채울지. 채우면 지도 판이 남는 높이를 다 쓰고
+  final bool fill;
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = context.watch<SupervisorProvider>().mapPreview;
+
+    if (preview == null) {
+      final waiting = Text(
+        vicaKeepWords(vicaBreakAtSentences(
+          '지도를 띄우는 중입니다. 로봇을 조금 움직이면 그려지기 시작합니다.',
+        )),
+        style: const TextStyle(fontSize: 12, color: VicaColors.muted),
+      );
+      return fill ? Center(child: waiting) : waiting;
+    }
+
+    final frame = ResponsiveMapFrame(
+      map: preview.toVicaMap(),
+      minHeight: 220,
+      maxHeight: 420,
+      child: MapCanvas(
+        map: preview.toVicaMap(),
+        settings: settings,
+        locations: const [],
+        poseArrow: preview.hasRobotPose
+            ? MapPoseArrow(
+                x: preview.robotX!,
+                y: preview.robotY!,
+                yawDegrees: preview.robotYaw!,
+                label: '로봇 위치',
+                color: VicaColors.red,
+              )
+            : null,
+      ),
+    );
+
+    return Column(
+      crossAxisAlignment:
+          fill ? CrossAxisAlignment.stretch : CrossAxisAlignment.start,
+      mainAxisSize: fill ? MainAxisSize.max : MainAxisSize.min,
+      children: [
+        if (fill) Expanded(child: frame) else frame,
+        const SizedBox(height: 6),
+        Text(
+          '${preview.width}×${preview.height} 칸 · '
+          '${(preview.bytes / 1024).toStringAsFixed(1)} KB · '
+          '${preview.seq}회 갱신'
+          '${preview.hasRobotPose ? '' : ' · 로봇 위치 없음'}',
+          style: const TextStyle(fontSize: 11, color: VicaColors.muted),
         ),
       ],
     );
@@ -612,11 +682,12 @@ class _SaveStep extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        FilledButton.icon(
+        PressScale(
+            child: FilledButton.icon(
           onPressed: status?.state == MappingState.saving ? null : onSave,
           icon: const Icon(Icons.save),
           label: const Text('저장'),
-        ),
+        )),
         if (status != null &&
             status!.state != MappingState.mapping &&
             status!.detail.isNotEmpty) ...[
@@ -684,21 +755,23 @@ class _DoneStep extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
-                child: OutlinedButton.icon(
+                child: PressScale(
+                    child: OutlinedButton.icon(
                   onPressed: onRefreshMaps,
                   icon: const Icon(Icons.refresh),
                   label: const Text(
                     '지도 목록\n새로고침',
                     textAlign: TextAlign.center,
                   ),
-                ),
+                )),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: FilledButton(
+                child: PressScale(
+                    child: FilledButton(
                   onPressed: onFinish,
                   child: const Text('매핑 종료'),
-                ),
+                )),
               ),
             ],
           ),
@@ -867,27 +940,30 @@ class _SaveAlignDialog extends StatelessWidget {
               const SizedBox(height: 14),
               SizedBox(
                 height: 48,
-                child: FilledButton(
+                child: PressScale(
+                    child: FilledButton(
                   onPressed: () => Navigator.of(context).pop(_SaveChoice.align),
                   child: const Text('정렬해서 저장'),
-                ),
+                )),
               ),
               const SizedBox(height: 8),
               SizedBox(
                 height: 48,
-                child: OutlinedButton(
+                child: PressScale(
+                    child: OutlinedButton(
                   onPressed: () => Navigator.of(context).pop(_SaveChoice.plain),
                   child: const Text('정렬하지 않고 저장'),
-                ),
+                )),
               ),
               const SizedBox(height: 4),
-              TextButton(
+              PressScale(
+                  child: TextButton(
                 onPressed: () => Navigator.of(context).pop(_SaveChoice.cancel),
                 child: const Text(
                   '취소',
                   style: TextStyle(color: VicaColors.muted),
                 ),
-              ),
+              )),
             ],
           ),
         ),

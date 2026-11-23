@@ -1,3 +1,5 @@
+import 'dock_state.dart';
+
 /// goal 에 일어난 일.
 enum GoalEventKind {
   sent('goal_sent'),
@@ -32,6 +34,22 @@ enum GoalEventKind {
   /// 사용자가 취소했거나 로봇이 다시 출발했다 — 떠 있는 도움 팝업을 닫습니다.
   helpCanceled('help_canceled'),
 
+  patrolStarted('patrol_started'),
+  patrolWaypoint('patrol_waypoint'),
+  patrolIntruder('patrol_intruder'),
+  patrolSound('patrol_sound'),
+  patrolLight('patrol_light'),
+  patrolCameraLost('patrol_camera_lost'),
+  patrolAcked('patrol_acked'),
+  patrolPaused('patrol_paused'),
+  patrolResumed('patrol_resumed'),
+  patrolStopped('patrol_stopped'),
+
+  dockSucceeded('dock_succeeded'),
+  dockFailed('dock_failed'),
+  undockSucceeded('undock_succeeded'),
+  undockFailed('undock_failed'),
+
   unknown('');
 
   const GoalEventKind(this.wire);
@@ -55,14 +73,25 @@ enum GoalEventKind {
       this == GoalEventKind.returnHomeFailed ||
       this == GoalEventKind.returnHomeCanceled ||
       this == GoalEventKind.waitSpotBlocked ||
-      this == GoalEventKind.waitExpired;
+      this == GoalEventKind.waitExpired ||
+      this == GoalEventKind.dockFailed ||
+      this == GoalEventKind.undockFailed;
 
   /// 주행이 실패로 끝났는가. 취소는 사람이 시킨 일이라 실패가 아닙니다.
   bool get isFailure =>
       this == GoalEventKind.failed ||
       this == GoalEventKind.rejected ||
       this == GoalEventKind.returnHomeFailed ||
-      this == GoalEventKind.waitSpotBlocked;
+      this == GoalEventKind.waitSpotBlocked ||
+      this == GoalEventKind.dockFailed ||
+      this == GoalEventKind.undockFailed;
+
+  /// 도킹 사건(2026-11-18).
+  bool get isDock =>
+      this == GoalEventKind.dockSucceeded ||
+      this == GoalEventKind.dockFailed ||
+      this == GoalEventKind.undockSucceeded ||
+      this == GoalEventKind.undockFailed;
 
   /// 대기 알림인가. 뒤이은 출발(홈 복귀 등)이 이 팝업을 거두면 안 됩니다 —
   bool get isWaitAlert =>
@@ -74,6 +103,16 @@ enum GoalEventKind {
       this == GoalEventKind.returnHomeSucceeded ||
       this == GoalEventKind.returnHomeFailed ||
       this == GoalEventKind.returnHomeCanceled;
+
+  /// 경비(순찰) 사건인가. 주행 사건과 따로 다룹니다.
+  bool get isPatrol => wire.startsWith('patrol_');
+
+  /// 경비 경보(사람·큰 소리·불 켜짐·카메라 끊김)인가.
+  bool get isPatrolAlarm =>
+      this == GoalEventKind.patrolIntruder ||
+      this == GoalEventKind.patrolSound ||
+      this == GoalEventKind.patrolLight ||
+      this == GoalEventKind.patrolCameraLost;
 }
 
 class GoalEvent {
@@ -92,6 +131,7 @@ class GoalEvent {
     this.place = '',
     this.robotX,
     this.robotY,
+    this.dockFirstTry = false,
   });
 
   /// 앱이 붙이는 고유값입니다. 같은 실패가 두 번 와도 팝업을 각각 띄우기 위해
@@ -129,6 +169,43 @@ class GoalEvent {
   /// 도움 요청 때 로봇의 지도 좌표(m, AMCL). 모르면 null. 기존 x·y 는 목적지 좌표 칸이라 따로 둡니다.
   final double? robotX;
   final double? robotY;
+
+  /// 이 사건이 왔을 때 도크 위치가 '지도에서 지정 · 아직 확인 안 됨'이었는가(2026-11-19, 목업 92).
+  final bool dockFirstTry;
+
+  /// 지도에서 지정만 한 자리로 처음 도킹하다 도크를 못 찾았거나(not_found·out_of_range) 도크 앞까지
+  bool get showsDockRedo =>
+      dockFirstTry &&
+      kind == GoalEventKind.dockFailed &&
+      (reason == 'not_found' ||
+          reason == 'out_of_range' ||
+          reason == 'nav_failed');
+
+  /// [showsDockRedo] 팝업의 회색 칸 줄들(목업 92).
+  static const List<String> dockRedoLines = [
+    '지정한 자리나 방향이 도크와 다를 수 있습니다.',
+    '· 지도에서 도크를 다시 지정하거나',
+    "· 로봇을 도크 앞에 세우고 '도크 인식해서 저장'을 눌러 주세요.",
+  ];
+
+  /// [dockFirstTry] 를 켠 사본.
+  GoalEvent asDockFirstTry() => GoalEvent(
+        id: id,
+        kind: kind,
+        destinationName: destinationName,
+        locationId: locationId,
+        reason: reason,
+        mapId: mapId,
+        waitPlace: waitPlace,
+        waitMinutes: waitMinutes,
+        delivery: delivery,
+        robotStamp: robotStamp,
+        helpId: helpId,
+        place: place,
+        robotX: robotX,
+        robotY: robotY,
+        dockFirstTry: true,
+      );
 
   /// 도움 요청 사건인가(요청·확인·취소).
   bool get isHelp =>
@@ -188,6 +265,10 @@ class GoalEvent {
         return '대기 장소가 막혔습니다';
       case GoalEventKind.waitExpired:
         return '대기 시간이 끝났습니다';
+      case GoalEventKind.dockFailed:
+        return '도킹하지 못했습니다';
+      case GoalEventKind.undockFailed:
+        return '도크에서 나오지 못했습니다';
       default:
         return '주행 알림';
     }
@@ -223,6 +304,21 @@ class GoalEvent {
             '목적지 앞으로 돌아가 그곳에서 기다립니다.';
       case GoalEventKind.waitExpired:
         return '사용자가 돌아오지 않아 로봇이 홈으로 돌아갑니다.';
+      case GoalEventKind.dockFailed:
+        if (showsDockRedo && reason != 'nav_failed') {
+          return '도크를 찾지 못했습니다.\n'
+              '로봇은 도크 앞에서 기다리고 있습니다.';
+        }
+        if (reason == 'not_found' || reason == 'out_of_range') {
+          return '${dockFailFirstLine(reason, undock: false)}\n'
+              '로봇은 도크 앞에서 기다리고 있습니다.\n'
+              '구조물을 옮겼는지 확인해주세요.';
+        }
+        return '${dockFailFirstLine(reason, undock: false)}\n'
+            '로봇은 그 자리에 멈춰 있습니다.';
+      case GoalEventKind.undockFailed:
+        return '${dockFailFirstLine(reason, undock: true)}\n'
+            '로봇은 그 자리에 멈춰 있습니다.';
       default:
         return reason;
     }
@@ -230,6 +326,9 @@ class GoalEvent {
 
   /// 팝업 아래 칸들(라벨, 값). 비어 있는 값은 뺍니다.
   List<(String, String)> get detailRows {
+    if (showsDockRedo) {
+      return const [];
+    }
     final name = destinationLabel;
     final rows = <(String, String)>[];
     void add(String label, String value) {

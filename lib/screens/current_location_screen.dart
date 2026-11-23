@@ -7,6 +7,7 @@ import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../ros/ros_bridge_client.dart';
 import '../widgets/map_canvas.dart';
+import '../widgets/map_work_layout.dart';
 import '../widgets/vica_ui.dart';
 
 class CurrentLocationScreen extends StatefulWidget {
@@ -30,8 +31,7 @@ class _CurrentLocationScreenState extends State<CurrentLocationScreen> {
         : _findMapById(supervisor.maps, robot.mapId);
     final locations = supervisor.locationsFor(map?.mapId);
 
-    return VicaPage(
-      title: '현재 위치',
+    return MapWorkLayout(
       children: [
         if (supervisor.connectionState != RosConnectionState.connected)
           VicaDisconnectedNotice(detail: supervisor.connectionDetail),
