@@ -4,6 +4,7 @@
 // 가깝습니다. 그래서 카드가 뜨는지보다 언제 막히는지를 더 촘촘히 검증합니다.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vica_supervisor/app.dart' show vicaTheme;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vica_supervisor/core/app_mode.dart';
@@ -15,6 +16,8 @@ import 'package:vica_supervisor/providers/settings_provider.dart';
 import 'package:vica_supervisor/providers/supervisor_provider.dart';
 import 'package:vica_supervisor/ros/ros_bridge_client.dart';
 import 'package:vica_supervisor/screens/mode_select_screen.dart';
+import 'package:vica_supervisor/services/mic_check_controller.dart';
+import 'package:vica_supervisor/widgets/mic_check_entry.dart';
 import 'package:vica_supervisor/widgets/vica_ui.dart';
 
 class _FakeSupervisor extends SupervisorProvider {
@@ -23,6 +26,15 @@ class _FakeSupervisor extends SupervisorProvider {
 
   final calls = <String>[];
   (bool, String) reply = (true, '');
+
+  @override
+  String get connectedUrl => 'ws://10.0.0.5:9090';
+
+  @override
+  Future<(bool, String)> startMicCheck() async {
+    calls.add('mic_check_start');
+    return reply;
+  }
 
   @override
   Future<(bool, String)> driveStart() async {
@@ -42,6 +54,14 @@ class _FakeSupervisor extends SupervisorProvider {
     return reply;
   }
 }
+
+class _NoopController extends MicCheckController {
+  _NoopController(Uri uri) : super(uri: uri);
+  @override
+  void start() {}
+}
+
+final _navKey = GlobalKey<NavigatorState>();
 
 ModeStatus mode(String m, ModeState state, {List<String> stopTimeouts = const [], List<String>? paneNodes}) =>
     ModeStatus(mode: m, state: state, stopTimeouts: stopTimeouts, paneNodes: paneNodes);
@@ -94,7 +114,7 @@ void main() {
           ChangeNotifierProvider(create: (_) => SettingsProvider()),
           ChangeNotifierProvider(create: (_) => AuthProvider()),
         ],
-        child: const MaterialApp(home: ModeSelectScreen()),
+        child: MaterialApp(theme: vicaTheme(), navigatorKey: _navKey, home: const ModeSelectScreen()),
       ),
     );
     await tester.pump();
@@ -389,6 +409,115 @@ void main() {
       await tester.pump();
 
       expect(find.text('주행 노드 실행 중'), findsOneWidget);
+    });
+  });
+
+  // ---- 마이크 점검(2026-11-20, 캔버스 105·106) ----
+  group('마이크 점검 줄', () {
+    ModeStatus idleMic({String micCheck = 'none'}) =>
+        ModeStatus(mode: 'idle', state: ModeState.idle, micCheck: micCheck);
+
+    setUp(() {
+      micCheckControllerFactory = _NoopController.new;
+      micCheckScreenBuilder = (controller, supervisor) => Scaffold(
+            body: TextButton(onPressed: () => _navKey.currentState!.pop(true), child: const Text('끝내기')),
+          );
+    });
+
+    testWidgets('주행이 꺼져 있으면 카드 아래에 "마이크 점검 · 약 12분 · 로봇 정지 · 점검"', (tester) async {
+      final supervisor = _FakeSupervisor();
+      await pump(tester, supervisor);
+      supervisor.injectMode(idleMic());
+      await tester.pump();
+
+      expect(find.text('마이크 점검'), findsOneWidget);
+      expect(find.text(vicaKeepWords('약 12분 · 로봇 정지')), findsOneWidget);
+      expect(find.text('점검'), findsOneWidget);
+      expect(find.text('로봇 끄기'), findsOneWidget);
+    });
+
+    testWidgets('주행이 켜져 있으면 줄이 없다(대시보드 주행 설정 칸에서)', (tester) async {
+      final supervisor = _FakeSupervisor();
+      await pump(tester, supervisor);
+      supervisor.injectMode(mode('drive', ModeState.running));
+      await tester.pump();
+
+      expect(find.text('마이크 점검'), findsNothing);
+    });
+
+    testWidgets('점검 중이면 주행 카드는 "마이크 점검 중"·눌러도 시트가 안 뜨고, 줄은 "이어 하기"', (tester) async {
+      final supervisor = _FakeSupervisor();
+      await pump(tester, supervisor);
+      supervisor.injectMode(idleMic(micCheck: 'active'));
+      await tester.pump();
+
+      expect(find.textContaining('마이크 점검 중 ·'), findsOneWidget);
+      expect(find.text(vicaKeepWords('● 점검 중')), findsOneWidget);
+      expect(find.text('이어 하기'), findsOneWidget);
+      await tester.tap(find.text('주행'));
+      await tester.pumpAndSettle();
+      expect(find.text('주행 모드 선택'), findsNothing);
+      expect(supervisor.calls, isNot(contains('drive_start')));
+    });
+
+    testWidgets('주행 켜짐 + 점검 중이면 주행 카드로 들어가고 "이어 하기" 줄이 보인다', (tester) async {
+      final supervisor = _FakeSupervisor();
+      final modeProvider = await pump(tester, supervisor);
+      supervisor.injectMode(const ModeStatus(mode: 'drive', state: ModeState.running, micCheck: 'active'));
+      await tester.pump();
+
+      expect(find.text('이어 하기'), findsOneWidget);
+      expect(find.textContaining('마이크 점검 중 ·'), findsNothing);
+      await chooseSubmode(tester, '안내·배송');
+      expect(modeProvider.mode, AppMode.drive);
+    });
+
+    testWidgets('점검 중 주행 카드에는 "마이크 점검 중 · 점검을 끝낸 뒤 켜세요" 가 보이고 눌러도 시작 안 함', (tester) async {
+      final supervisor = _FakeSupervisor();
+      await pump(tester, supervisor);
+      supervisor.injectMode(idleMic(micCheck: 'active'));
+      await tester.pump();
+
+      await tester.tap(find.text('주행'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('마이크 점검 중 · 점검을 끝낸 뒤 켜세요'), findsOneWidget);
+      expect(supervisor.calls, isNot(contains('drive_start')));
+    });
+
+    testWidgets('점검 → 시작 → 점검 화면, true 로 닫히면 "점검을 끝냈습니다"', (tester) async {
+      final supervisor = _FakeSupervisor()..reply = (true, '마이크 점검을 시작합니다 · 준비 1~2분');
+      await pump(tester, supervisor);
+      supervisor.injectMode(idleMic());
+      await tester.pump();
+
+      await tester.tap(find.text('점검'));
+      await tester.pumpAndSettle();
+      expect(find.text('마이크 점검을 시작할까요?'), findsOneWidget);
+      expect(find.text('카메라 감지도 끕니다'), findsNothing); // 주행 꺼짐
+      await tester.tap(find.text('시작'));
+      await tester.pumpAndSettle();
+      expect(supervisor.calls, ['mic_check_start']);
+      expect(find.text('끝내기'), findsOneWidget);
+
+      // 실제로는 점검에 12분쯤 걸려 시작 스낵은 이미 사라졌습니다(스낵은 줄지어 뜹니다).
+      await tester.pump(const Duration(seconds: 10));
+      await tester.tap(find.text('끝내기'));
+      await tester.pumpAndSettle();
+      expect(find.text('점검을 끝냈습니다'), findsOneWidget);
+    });
+
+    testWidgets('시작이 거절되면 "안 됐습니다: " + 문구', (tester) async {
+      final supervisor = _FakeSupervisor()..reply = (false, '지도를 그리는 중입니다.');
+      await pump(tester, supervisor);
+      supervisor.injectMode(idleMic());
+      await tester.pump();
+
+      await tester.tap(find.text('점검'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('시작'));
+      await tester.pumpAndSettle();
+      expect(find.text('안 됐습니다: 지도를 그리는 중입니다.'), findsOneWidget);
+      expect(find.text('끝내기'), findsNothing);
     });
   });
 }

@@ -5,6 +5,8 @@
 //   - 음성을 로컬(LOCAL, 로봇 안 midm2-mini) / 외부 API(클라우드 LLM) 중 고르기.
 // '주행 끄기'는 2026-11-18 위쪽 막대로 옮겼습니다(drive_stop_button.dart).
 // 2026-11-19 사용자: '빔포밍 회전'(호출 방향 회전) 켜기/끄기 — 음성 노드 서비스로 바로 갑니다.
+// 2026-11-20 사용자: '음성 노드' 켜기/끄기 줄(캔버스 104 ①②③) — 카메라 감지 바로 뒤.
+// 2026-11-20 사용자: 그 아래 '마이크 점검' 줄(캔버스 104 ②④) — 음성이 꺼져 있고 점검 중이 아닐 때만 '점검'이 눌립니다.
 // 둘 다 젯슨 모드 노드의 서비스로 갑니다. 지금 상태는 /vica/mode_status 만 보고 그립니다.
 // 모드 노드가 없거나 주행이 꺼져 있으면 아무것도 그리지 않습니다.
 import 'package:flutter/material.dart';
@@ -13,6 +15,7 @@ import 'package:provider/provider.dart';
 import '../models/mode_status.dart';
 import '../providers/app_mode_provider.dart';
 import '../providers/supervisor_provider.dart';
+import 'mic_check_entry.dart';
 import 'vica_ui.dart';
 import 'voice_alert_snack.dart';
 
@@ -51,6 +54,7 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
     }
     final submode = context.watch<AppModeProvider>().driveSubmode;
     final detectorOff = status.detector == 'inactive';
+    final voiceOff = status.voice == 'inactive' || status.voice == 'failed';
     final beamOn = status.voice == 'active' ? supervisor.wakeDoaTurnOn : null;
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -107,11 +111,15 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
                 ? Icons.visibility_off_outlined
                 : Icons.visibility_outlined,
             title: '카메라 감지', // 2026-11-17 사용자: '사람 감지' → '카메라 감지'
-            state: _detectorText(status.detector),
+            // 점검 중에는 감지를 다시 켤 수 없습니다(사용자 11-19: 점검 시작 때 끈 감지를 못 켜게).
+            state: status.micCheckActive && detectorOff
+                ? ('점검 중 · 켤 수 없음', VicaColors.muted)
+                : _detectorText(status.detector),
             trailing: Switch(
               key: const ValueKey('drive_nodes_detector_switch'),
               value: status.detectorOn,
               onChanged: _busy ||
+                      (status.micCheckActive && detectorOff) ||
                       status.detector == 'none' ||
                       status.detector == 'deactivating'
                   ? null
@@ -126,6 +134,45 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
               text: '감지 꺼짐 · 접근 요청·경비 알림 없음 · 다시 켜면 10~20초',
             ),
           ],
+          const Divider(height: 28, color: VicaColors.border),
+          // 2026-11-20 사용자(캔버스 104): 음성 노드(호출어·'멈춰' 감지) 켜기·끄기. 줄 순서는
+          // 카메라 감지 · 음성 노드 · 빔포밍 회전 · 음성 LLM. 꺼짐 안내는 카메라 감지와 같은 경고 칸.
+          _Row(
+            icon: Icons.graphic_eq,
+            title: '음성 노드',
+            // 점검 중에는 음성 노드를 켤 수 없습니다(캔버스 104 ④).
+            state: status.micCheckActive
+                ? ('점검 중 · 켤 수 없음', VicaColors.muted)
+                : _voiceNodeText(status.voice),
+            trailing: Switch(
+              key: const ValueKey('drive_nodes_voice_node_switch'),
+              value: status.voiceOn,
+              onChanged: _busy ||
+                      status.micCheckActive ||
+                      status.voice == 'none' ||
+                      status.voice == 'deactivating'
+                  ? null
+                  : (on) => _run(() => supervisor.setVoiceNode(on)),
+            ),
+          ),
+          if (voiceOff && !status.micCheckActive) ...[
+            const SizedBox(height: 10),
+            const _Note(warning: true, text: '호출어·‘멈춰’ 안 됨'),
+          ],
+          const SizedBox(height: 14),
+          _Row(
+            icon: Icons.tune,
+            title: '마이크 점검',
+            state: micCheckStateText(status),
+            trailing: MicCheckButton(
+              status: status,
+              enabled: !_busy &&
+                  (status.micCheckActive ||
+                      status.voice == 'inactive' ||
+                      status.voice == 'failed' ||
+                      status.voice == 'none'),
+            ),
+          ),
           const Divider(height: 28, color: VicaColors.border),
           // 2026-11-19 사용자: 빔포밍 회전(캔버스 101번 보드). 상태는 음성 노드가 남긴 토픽만 따릅니다.
           // 음성 유닛이 active 가 아니면 남아 있는 값은 낡은 것이라 모름으로 그립니다.
@@ -204,6 +251,15 @@ class _DriveNodesCardState extends State<DriveNodesCard> {
         'deactivating' => ('끄는 중', VicaColors.warning),
         'inactive' => ('잠시 꺼짐', const Color(0xFF8A5F1C)),
         'failed' => ('꺼짐(오류) · 다시 켜 보세요', VicaColors.red),
+        _ => ('유닛 없음', VicaColors.muted),
+      };
+
+  static (String, Color) _voiceNodeText(String state) => switch (state) {
+        'active' => ('켜짐', VicaColors.green),
+        'activating' => ('켜는 중', VicaColors.primary),
+        'deactivating' => ('끄는 중', VicaColors.warning),
+        'inactive' => ('꺼짐', const Color(0xFF8A5F1C)),
+        'failed' => ('꺼짐(오류)', VicaColors.red),
         _ => ('유닛 없음', VicaColors.muted),
       };
 
