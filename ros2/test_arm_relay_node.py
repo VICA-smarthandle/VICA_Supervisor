@@ -101,3 +101,23 @@ def test_relay_waits_longer_than_the_nano_itself():
     # 나노 arm_service.py(11-25): DEMO_TIMEOUT 180 + 실패 뒤 저속 홈 150, /arm/home 저속 150.
     assert relay.ROUTES["/app/arm_demo"][1] > 180 + 150
     assert relay.ROUTES["/app/arm_home"][1] > 150
+
+
+def test_handler_survives_failure_then_success():
+    # 11-25: 실패(warning) 뒤 성공(info)을 같은 줄에서 기록하다 ValueError 로 응답이 사라졌다.
+    import rclpy
+
+    rclpy.init()
+    try:
+        arm_node = rclpy.create_node("test_arm_side")
+        node = relay.ArmRelayNode(arm_node)
+        answers = [answered(False, "거절: 비상정지 중"), answered(True, "시연 완료(down) → 홈 (25초)"),
+                   answered(False, "시연 중단: 비상정지 신호 끊김 → 홈 도착")]
+        for future in answers:
+            handle = node._handler("/app/arm_demo", FakeArmClient(future=future), 1.0)
+            response = handle(Trigger.Request(), Trigger.Response())
+            assert response.message == future.result().message
+        node.destroy_node()
+        arm_node.destroy_node()
+    finally:
+        rclpy.shutdown()

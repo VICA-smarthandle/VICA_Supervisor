@@ -85,9 +85,13 @@ class ArmRelayNode(Node):
         def handle(_request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
             response.success, response.message = forward(client, timeout_sec)
             # 상태는 앱이 몇 초마다 부르므로 기록하지 않습니다.
+            # 성공·실패를 줄을 나눠 기록합니다 — rclpy 는 한 줄의 기록 등급이 바뀌면 ValueError 를 내
+            # 응답을 못 보냅니다(11-25 18:06·18:20·18:27 실패 뒤 성공 응답이 앱에 안 간 원인).
             if app_name != "/app/arm_status":
-                log = self.get_logger().info if response.success else self.get_logger().warning
-                log(f"{app_name} → {response.message}")
+                if response.success:
+                    self.get_logger().info(f"{app_name} → {response.message}")
+                else:
+                    self.get_logger().warning(f"{app_name} → {response.message}")
             return response
 
         return handle
