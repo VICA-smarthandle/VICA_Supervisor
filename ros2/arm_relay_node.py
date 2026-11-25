@@ -22,23 +22,26 @@ from std_srvs.srv import Trigger
 
 ARM_DOMAIN_ID = 77
 
-# 앱 서비스 → (나노 서비스, 응답 대기 s).
-# 시연은 20~30 s(11-25 실측 30.1 s)이고, 손이 보이면 멈춰 기다리므로 더 걸립니다.
+# 앱 서비스 → (나노 서비스, 응답 대기 s). 나노가 스스로 끝내는 최대 시간보다 길게 둡니다 —
+# 중계가 먼저 끊으면 팔은 계속 움직이는데 앱은 '시간 초과'만 보게 됩니다(11-25 나노 쪽 지적).
+# /arm/demo: press.py DEMO_TIMEOUT 180 s + 실패 뒤 홈 최대 150 s(비상정지 저속) ≈ 330 s → 360 s
+# /arm/home: 비상정지 중 저속 홈 최대 150 s(arm_service.py estop_home) → 160 s
 ROUTES = {
-    "/app/arm_demo": ("/arm/demo", 180.0),
+    "/app/arm_demo": ("/arm/demo", 360.0),
     "/app/arm_status": ("/arm/status", 5.0),
-    "/app/arm_home": ("/arm/home", 60.0),
+    "/app/arm_home": ("/arm/home", 160.0),
 }
 
 # 노드가 막 떴을 때 77 쪽 발견을 기다리는 시간입니다. 그 뒤로는 서비스가 없으면 바로 답합니다.
 READY_WAIT_SEC = 1.0
 
 # 앱에서는 '매니퓰레이터'라고 부릅니다(2026-11-25 사용자). 이 문장들은 앱 화면에 그대로 나옵니다.
-NO_SERVICE = "매니퓰레이터 서비스 없음(나노 all.sh 확인)"
+# 나노는 부팅 때 vica-arm 서비스로 팔 프로그램을 띄웁니다(11-25 나노 쪽).
+NO_SERVICE = "매니퓰레이터 서비스 없음(나노 vica-arm 서비스 확인)"
 
 
 def timeout_message(sec: float) -> str:
-    return f"매니퓰레이터 응답 시간 초과({sec:.0f}초) — /arm/status 확인"
+    return f"매니퓰레이터 응답 시간 초과({sec:.0f}초) — 팔이 아직 동작 중일 수 있음, 현장 확인"
 
 
 def forward(client: Any, timeout_sec: float, ready_wait_sec: float = READY_WAIT_SEC) -> tuple[bool, str]:

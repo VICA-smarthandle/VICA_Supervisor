@@ -62,7 +62,7 @@ void main() {
     final s = await pump(tester);
     await tester.tap(find.text('동작'));
     await tester.pump();
-    expect(s.calls, ['/app/arm_demo 190']);
+    expect(s.calls, ['/app/arm_demo 370']);
     expect(find.text('동작 중…'), findsOneWidget);
     expect(runButton(tester).onPressed, isNull);
 
@@ -95,7 +95,7 @@ void main() {
 
     await tester.tap(find.text('홈으로'));
     await tester.pump();
-    expect(s.calls, ['/app/arm_demo 190', '/app/arm_home 70']);
+    expect(s.calls, ['/app/arm_demo 370', '/app/arm_home 170']);
     expect(find.text('동작 중…'), findsOneWidget);
 
     await answer(tester, s, true, '홈 도착');

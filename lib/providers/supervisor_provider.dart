@@ -1735,13 +1735,13 @@ class SupervisorProvider extends ChangeNotifier {
   bool get manipulatorBusy => _manipulatorBusy;
   ManipulatorResult? get manipulatorResult => _manipulatorResult;
 
-  /// 동작 한 번. 중계 대기(180초)보다 길게 기다려 중계의 '시간 초과' 문장이 먼저 오게 합니다.
+  /// 동작 한 번. 중계 대기(360초 = 나노 최대 ≈330초보다 김)보다 길게 기다려 중계 문장이 먼저 오게 합니다.
   Future<void> runManipulator() =>
-      _runManipulator(kManipulatorRunService, const Duration(seconds: 190));
+      _runManipulator(kManipulatorRunService, const Duration(seconds: 370));
 
-  /// 홈으로. '홈 복귀 실패' 응답 뒤에만 화면에 나옵니다(중계 대기 60초).
+  /// 홈으로. '홈 복귀 실패' 응답 뒤에만 화면에 나옵니다(중계 대기 160초, 비상정지 중 저속 홈 최대 150초).
   Future<void> homeManipulator() =>
-      _runManipulator(kManipulatorHomeService, const Duration(seconds: 70));
+      _runManipulator(kManipulatorHomeService, const Duration(seconds: 170));
 
   Future<void> _runManipulator(String service, Duration timeout) async {
     if (_manipulatorBusy) {
@@ -1772,7 +1772,7 @@ class SupervisorProvider extends ChangeNotifier {
       );
       return (r.success, r.message);
     } on TimeoutException {
-      return (false, '매니퓰레이터 응답 시간 초과 — 앱 연결 확인');
+      return (false, '매니퓰레이터 응답 시간 초과 — 팔이 아직 동작 중일 수 있음, 현장 확인');
     } catch (error) {
       // rosbridge 는 서비스가 없으면(중계 노드 꺼짐) result:false → StateError 로 옵니다.
       return (false, '매니퓰레이터 호출 실패: ${error is StateError ? error.message : error}');

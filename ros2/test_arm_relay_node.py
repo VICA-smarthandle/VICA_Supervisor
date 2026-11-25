@@ -91,7 +91,13 @@ def test_call_error_answers_false():
 
 def test_routes_match_the_arm_services():
     assert relay.ROUTES == {
-        "/app/arm_demo": ("/arm/demo", 180.0),
+        "/app/arm_demo": ("/arm/demo", 360.0),
         "/app/arm_status": ("/arm/status", 5.0),
-        "/app/arm_home": ("/arm/home", 60.0),
+        "/app/arm_home": ("/arm/home", 160.0),
     }
+
+
+def test_relay_waits_longer_than_the_nano_itself():
+    # 나노 arm_service.py(11-25): DEMO_TIMEOUT 180 + 실패 뒤 저속 홈 150, /arm/home 저속 150.
+    assert relay.ROUTES["/app/arm_demo"][1] > 180 + 150
+    assert relay.ROUTES["/app/arm_home"][1] > 150
