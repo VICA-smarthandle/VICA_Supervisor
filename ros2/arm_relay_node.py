@@ -33,11 +33,12 @@ ROUTES = {
 # 노드가 막 떴을 때 77 쪽 발견을 기다리는 시간입니다. 그 뒤로는 서비스가 없으면 바로 답합니다.
 READY_WAIT_SEC = 1.0
 
-NO_SERVICE = "로봇팔 서비스 없음(나노 all.sh 확인)"
+# 앱에서는 '매니퓰레이터'라고 부릅니다(2026-11-25 사용자). 이 문장들은 앱 화면에 그대로 나옵니다.
+NO_SERVICE = "매니퓰레이터 서비스 없음(나노 all.sh 확인)"
 
 
 def timeout_message(sec: float) -> str:
-    return f"팔 응답 시간 초과({sec:.0f}초) — /arm/status 확인"
+    return f"매니퓰레이터 응답 시간 초과({sec:.0f}초) — /arm/status 확인"
 
 
 def forward(client: Any, timeout_sec: float, ready_wait_sec: float = READY_WAIT_SEC) -> tuple[bool, str]:
@@ -56,7 +57,7 @@ def forward(client: Any, timeout_sec: float, ready_wait_sec: float = READY_WAIT_
         return False, timeout_message(timeout_sec)
     error = future.exception()
     if error is not None:
-        return False, f"팔 호출 오류: {error}"
+        return False, f"매니퓰레이터 호출 오류: {error}"
     result = future.result()
     return bool(result.success), str(result.message)
 

@@ -83,6 +83,13 @@ typedef RouteServiceCall = Future<Map<String, Object?>> Function(
 typedef WallMaskLoader = Future<MapWallMask?> Function(
     String imageUrl, VicaMap map);
 
+/// 매니퓰레이터(나노 로봇팔) 중계 서비스 — VICA_Supervisor/ros2/arm_relay_node.py (2026-11-25).
+const String kManipulatorRunService = '/app/arm_demo';
+const String kManipulatorHomeService = '/app/arm_home';
+
+/// 매니퓰레이터 마지막 응답. [message] 는 나노·중계가 준 문장 그대로입니다.
+typedef ManipulatorResult = ({bool ok, String message, DateTime at});
+
 /// 레일 칸이 받아 둔 로봇 쪽 레일 정보(GetRoute).
 class RouteInfo {
   const RouteInfo({
@@ -1719,6 +1726,58 @@ class SupervisorProvider extends ChangeNotifier {
   /// 끊겼으면 not_connected.
   String get _dockCallFailure =>
       _connectionState == RosConnectionState.connected ? 'call_failed' : 'not_connected';
+
+  // ── 매니퓰레이터: 물류 배송 칸 [동작]·[홈으로] (2026-11-25, 목업 112) ──
+  // 결과를 화면이 아니라 여기 둡니다 — 동작(약 30초) 중 다른 탭에 다녀와도 '홈 복귀 실패'가 남게.
+  bool _manipulatorBusy = false;
+  ManipulatorResult? _manipulatorResult;
+
+  bool get manipulatorBusy => _manipulatorBusy;
+  ManipulatorResult? get manipulatorResult => _manipulatorResult;
+
+  /// 동작 한 번. 중계 대기(180초)보다 길게 기다려 중계의 '시간 초과' 문장이 먼저 오게 합니다.
+  Future<void> runManipulator() =>
+      _runManipulator(kManipulatorRunService, const Duration(seconds: 190));
+
+  /// 홈으로. '홈 복귀 실패' 응답 뒤에만 화면에 나옵니다(중계 대기 60초).
+  Future<void> homeManipulator() =>
+      _runManipulator(kManipulatorHomeService, const Duration(seconds: 70));
+
+  Future<void> _runManipulator(String service, Duration timeout) async {
+    if (_manipulatorBusy) {
+      return;
+    }
+    _manipulatorBusy = true;
+    notifyListeners();
+    final (ok, message) = await callManipulator(service, timeout);
+    if (!ok) {
+      _addLog(LogFilter.delivery, '매니퓰레이터: $message');
+    }
+    _manipulatorResult = (ok: ok, message: message, at: DateTime.now());
+    _manipulatorBusy = false;
+    notifyListeners();
+  }
+
+  /// Trigger 서비스 한 번. 시험은 이것만 바꿔 끼웁니다.
+  Future<(bool, String)> callManipulator(String service, Duration timeout) async {
+    final client = _client;
+    if (client == null || _connectionState != RosConnectionState.connected) {
+      return (false, 'ROS Bridge에 연결되지 않았습니다.');
+    }
+    try {
+      final r = await client.callService(
+        service: service,
+        type: 'std_srvs/srv/Trigger',
+        timeout: timeout,
+      );
+      return (r.success, r.message);
+    } on TimeoutException {
+      return (false, '매니퓰레이터 응답 시간 초과 — 앱 연결 확인');
+    } catch (error) {
+      // rosbridge 는 서비스가 없으면(중계 노드 꺼짐) result:false → StateError 로 옵니다.
+      return (false, '매니퓰레이터 호출 실패: ${error is StateError ? error.message : error}');
+    }
+  }
 
   /// 젯슨에서 도크 위치를 읽습니다. 없으면 null 이며 오류가 아닙니다.
   Future<void> refreshDockSpot(AppSettings settings, String mapId) async {

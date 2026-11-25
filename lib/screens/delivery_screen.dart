@@ -22,6 +22,7 @@ import '../providers/settings_provider.dart';
 import '../providers/supervisor_provider.dart';
 import '../widgets/drive_control_bar.dart';
 import '../widgets/drive_map_canvas.dart';
+import '../widgets/manipulator_card.dart';
 import '../widgets/map_picker.dart';
 import '../widgets/map_work_layout.dart';
 import '../widgets/vica_ui.dart';
@@ -120,6 +121,9 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
             const SizedBox(height: 20),
           ],
           _pickCard(context, supervisor, candidates, selected, busy),
+          const SizedBox(height: 20),
+          // 2026-11-25 사용자: 매니퓰레이터는 물류 배송 칸에, 최대한 단순하게(목업 112).
+          const ManipulatorCard(),
           const SizedBox(height: 20),
           // 배송 관련은 이 탭에서 모두 관리합니다 — 지도 설정에서 연락처 칸을 뺐습니다(2026-11-17).
           _ContactsCard(

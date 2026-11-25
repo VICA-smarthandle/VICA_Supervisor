@@ -86,7 +86,7 @@ def test_call_error_answers_false():
     future.set_exception(RuntimeError("context invalid"))
     success, message = relay.forward(FakeArmClient(future=future), 5.0)
     assert success is False
-    assert message == "팔 호출 오류: context invalid"
+    assert message == "매니퓰레이터 호출 오류: context invalid"
 
 
 def test_routes_match_the_arm_services():
