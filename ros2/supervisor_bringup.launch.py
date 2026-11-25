@@ -28,6 +28,8 @@ MAP_FIX_NODE = SUPERVISOR_ROOT / "map_fix_node.py"
 # 레일 편집(2026-09-30). 금지구역 노드와 따로 둔다 — route_graph_node.py 맨 위 참고.
 ROUTE_NODE = SUPERVISOR_ROOT / "route_graph_node.py"
 MAP_HTTP_SERVER = SUPERVISOR_ROOT / "map_http_server.py"
+# 로봇팔 시연 중계(2026-11-25). 앱(도메인 7) → 나노 팔 서비스(도메인 77).
+ARM_RELAY_NODE = SUPERVISOR_ROOT / "arm_relay_node.py"
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -120,6 +122,13 @@ def generate_launch_description() -> LaunchDescription:
             ExecuteProcess(
                 cmd=[sys.executable, str(ROUTE_NODE)],
                 output="screen",
+            ),
+            # 로봇팔 시연 중계. 죽어도 3초 뒤 다시 뜹니다 — 앱 기능 하나 때문에 유닛을 다시 켤 일이 없게.
+            ExecuteProcess(
+                cmd=[sys.executable, str(ARM_RELAY_NODE)],
+                output="screen",
+                respawn=True,
+                respawn_delay=3.0,
             ),
             ExecuteProcess(
                 cmd=[

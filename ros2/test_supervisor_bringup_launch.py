@@ -79,6 +79,26 @@ def test_empty_map_yaml_reaches_the_node_as_an_empty_string(tmp_path):
     assert _value(_status_node_argv("", tmp_path)) == ""
 
 
+def test_arm_relay_node_is_launched_with_respawn(tmp_path):
+    # 로봇팔 시연 중계(2026-11-25). 앱 기능 하나가 죽어도 유닛째 다시 켤 일이 없게 다시 뜹니다.
+    spec = importlib.util.spec_from_file_location("supervisor_bringup_launch", LAUNCH_FILE)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.get_package_share_directory = lambda _name: str(tmp_path)
+
+    context = LaunchContext()
+    context.launch_configurations["map_yaml"] = ""
+    relays = [
+        entity
+        for entity in module.generate_launch_description().entities
+        if isinstance(entity, ExecuteProcess)
+        and str(module.ARM_RELAY_NODE) in [perform_substitutions(context, p) for p in entity.cmd]
+    ]
+    assert len(relays) == 1
+    assert relays[0]._ExecuteLocal__respawn is True  # Humble launch 는 공개 속성이 없습니다
+    assert module.ARM_RELAY_NODE.is_file()
+
+
 def test_map_path_reaches_the_node_unchanged(tmp_path):
     path = "/home/robot/vica_ros2_ws/maps/vica_map_0630.yaml"
     argv = _status_node_argv(path, tmp_path)
